@@ -1,0 +1,109 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,100..900;1,100..900&display=swap');
+
+/* Set Noto Sans as the default font family */
+:root {
+	font-family: "Noto Sans", sans-serif;
+}
+
+/* Theme variables */
+:root {
+	/* Font families */
+	--font-main: 'Noto Sans', sans-serif;
+	--font-secondary: 'Poppins', sans-serif;
+
+	/* Dark mode colors */
+	--color-catppuccin-mocha-dark: #1e1e2e;
+	--color-primary-dark-bg: #171717;
+	--color-secondary-dark-bg: #212121;
+	--color-primary-dark-border: #323232;
+	--color-dark-chat-bg: #2c2c2c;
+	--color-primary-dark-text: #FFFFFF;
+	--color-primary-dark-input-bg: #404040;
+	--color-dark-focus-ring: rgba(255, 255, 255, 0.3);
+	--color-dark-button-focus-ring: rgba(255, 255, 255, 0.4);
+
+	/* Light mode colors */
+	--color-editor-light-text: #212C3E;
+	--color-editor-light-bg: #EDF0F5;
+	--color-primary-bg: #F9F9F9;
+	--color-secondary-bg: #FFFFFF;
+	--color-sidemenu-bg: #F0F2F8;
+	--color-primary-border: #e5e7eb;
+	--color-primary-text: #000000;
+	--color-primary-input-bg: #f9f9f9;
+	--color-light-focus-ring: rgba(0, 0, 0, 0.2);
+	--color-light-button-focus-ring: rgba(0, 0, 0, 0.3);
+
+	/* Shadow styles */
+	--shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+	--shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+	--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+	--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Apply font to all elements */
+body {
+	font-family: var(--font-main);
+}
+
+/* Optional: Use Poppins for headings */
+h1, h2, h3, h4, h5, h6 {
+	font-family: var(--font-secondary);
+	font-weight: 600;
+}
+
+/* Apply theme colors */
+.bg-primary {
+	background-color: var(--color-primary-bg);
+}
+
+.bg-secondary {
+	background-color: var(--color-secondary-bg);
+}
+
+.bg-sidemenu {
+	background-color: var(--color-sidemenu-bg);
+}
+
+.text-primary {
+	color: var(--color-primary-text);
+}
+
+.border-primary {
+	border-color: var(--color-primary-border);
+}
+
+.input-bg {
+	background-color: var(--color-primary-input-bg);
+}
+
+/* Focus styles */
+input:focus, textarea:focus, select:focus {
+	outline: none;
+	box-shadow: 0 0 0 3px var(--color-light-focus-ring);
+}
+
+button:focus {
+	outline: none;
+	box-shadow: 0 0 0 3px var(--color-light-button-focus-ring);
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+	:root {
+		--color-primary-bg: var(--color-primary-dark-bg);
+		--color-secondary-bg: var(--color-secondary-dark-bg);
+		--color-primary-text: var(--color-primary-dark-text);
+		--color-primary-input-bg: var(--color-primary-dark-input-bg);
+		--color-primary-border: var(--color-primary-dark-border);
+	}
+	
+	input:focus, textarea:focus, select:focus {
+		box-shadow: 0 0 0 3px var(--color-dark-focus-ring);
+	}
+	
+	button:focus {
+		box-shadow: 0 0 0 3px var(--color-dark-button-focus-ring);
+	}
+}
