@@ -371,7 +371,7 @@ function getWebUI(): string {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: var(--font-main, 'Noto Sans', sans-serif);
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: var(--color-editor-light-bg, #EDF0F5);
       min-height: 100vh;
       padding: 2rem;
     }
@@ -387,7 +387,7 @@ function getWebUI(): string {
       margin-bottom: 2rem;
     }
     .header h1 {
-      color: #667eea;
+      color: var(--color-editor-light-text, #212C3E);
       margin-bottom: 0.5rem;
     }
     .header p {
@@ -428,10 +428,10 @@ function getWebUI(): string {
     }
     .stat-value {
       font-weight: 600;
-      color: #667eea;
+      color: var(--color-editor-light-text, #212C3E);
     }
     button {
-      background: #667eea;
+      background: var(--color-editor-light-text, #212C3E);
       color: white;
       border: none;
       padding: 0.75rem 1.5rem;
@@ -504,7 +504,7 @@ function getWebUI(): string {
         <a href="/editor" style="background: #10b981; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; display: inline-block; font-weight: 500; margin-right: 1rem;">
           🎨 Open Content Editor
         </a>
-        <a href="/preview" target="_blank" style="background: #667eea; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; display: inline-block; font-weight: 500;">
+        <a href="/preview" target="_blank" style="background: var(--color-editor-light-text, #212C3E); color: white; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; display: inline-block; font-weight: 500;">
           👁️ View Live Preview
         </a>
       </div>
@@ -1050,7 +1050,7 @@ function getEditorUI(): string {
         <div class="form-group">
           <label>CSS Properties (JSON)</label>
           <textarea id="styleProperties" placeholder='{
-  "background-color": "#667eea",
+  "background-color": "#212C3E",
   "color": "white",
   "padding": "1rem"
 }'></textarea>
@@ -1364,7 +1364,7 @@ function getPreviewHTML(title: string, css: string, html: string, editMode: bool
     width: 100%;
     padding: 0.5rem;
     margin-top: 0.5rem;
-    background: #667eea;
+    background: var(--color-editor-light-text, #212C3E);
     color: white;
     border: none;
     border-radius: 4px;
@@ -1372,7 +1372,8 @@ function getPreviewHTML(title: string, css: string, html: string, editMode: bool
     font-size: 0.85rem;
   }
   .supertab-toolbar button:hover {
-    background: #5568d3;
+    background: var(--color-editor-light-bg, #EDF0F5);
+    color: var(--color-editor-light-text, #212C3E);
   }
 </style>
 <script>
