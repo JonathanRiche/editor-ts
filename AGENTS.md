@@ -1,4 +1,4 @@
-# SuperTab Architecture Principles
+# EditorTs Architecture Principles
 
 ## Core Principle: Runtime vs. Stored Data
 
@@ -156,7 +156,7 @@ When adding a new feature, ask:
 └─────────────────────────────────────────┘
               ↓ uses
 ┌─────────────────────────────────────────┐
-│   SuperTab Library                      │
+│   EditorTs Library                      │
 │   - Page, ComponentManager              │
 │   - ToolbarManager (runtime)            │
 │   - StyleManager, AssetManager          │
@@ -226,4 +226,4 @@ Keep them separate. The JSON should be dumb data that any application can consum
 
 ---
 
-**This principle applies to ALL future features in SuperTab.**
+**This principle applies to ALL future features in EditorTs.**

@@ -1,6 +1,6 @@
 {
-  "name": "supertab",
-  "version": "1.0.0",
+  "name": "editor-ts",
+  "version": "0.0.1",
   "description": "TypeScript library for editing HTML content with JSON representation",
   "module": "index.ts",
   "main": "index.ts",
@@ -19,7 +19,7 @@
   "scripts": {
     "dev": "bun run local-server.ts",
     "server": "bun run server.ts",
-    "build": "bun build index.ts --outdir=dist --target=node",
+    "build": "bun build index.ts --outdir=dist",
     "example": "bun run examples/basic-usage.ts",
     "test": "bun run examples/basic-usage.ts",
     "test:api": "bun run examples/test-api.ts"

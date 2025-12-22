@@ -1,6 +1,6 @@
-# SuperTab
+# EditorTs
 
-A powerful TypeScript library for editing HTML content while maintaining its structure in a JSON representation. SuperTab provides a simple `init()` function to create a fully-functional WYSIWYG editor with minimal configuration.
+A powerful TypeScript library for editing HTML content while maintaining its structure in a JSON representation. EditorTs provides a simple `init()` function to create a fully-functional WYSIWYG editor with minimal configuration.
 
 ## Features
 
@@ -24,7 +24,7 @@ Open http://localhost:5021 to see the editor!
 ## Simple Usage with `init()`
 
 ```typescript
-import { init } from 'supertab';
+import { init } from 'editorts';
 import pageData from './page.json';
 
 // Initialize editor with one function call
@@ -73,7 +73,7 @@ const json = editor.save();
 
 ## Architecture: Runtime vs. Stored Data
 
-SuperTab follows a clean separation between **data** (stored in JSON) and **behavior** (configured in JavaScript).
+EditorTs follows a clean separation between **data** (stored in JSON) and **behavior** (configured in JavaScript).
 
 **See [AGENTS.md](./AGENTS.md) for full architecture principles.**
 
@@ -153,7 +153,7 @@ editor.page.toolbars.configureById('sidebar', {
 ### Toolbar Presets
 
 ```typescript
-import { toolbarPresets } from 'supertab';
+import { toolbarPresets } from 'editorts';
 
 // Use presets
 page.toolbars.configureById('header', toolbarPresets.full);
@@ -170,14 +170,14 @@ Available presets:
 
 ## API Reference
 
-### `init(config)` → SuperTabEditor
+### `init(config)` → EditorTsEditor
 
 Initialize the editor with configuration.
 
-**Returns:** SuperTabEditor instance
+**Returns:** EditorTsEditor instance
 
 ```typescript
-interface SuperTabEditor {
+interface EditorTsEditor {
   page: Page;                    // Full Page instance
   on(event, callback): void;     // Add event listener
   off(event, callback): void;    // Remove event listener
@@ -205,7 +205,7 @@ interface SuperTabEditor {
 Direct API for programmatic manipulation:
 
 ```typescript
-import { Page } from 'supertab';
+import { Page } from 'editorts';
 
 const page = new Page(jsonData);
 
@@ -277,7 +277,7 @@ page.toolbars.setGlobalDefault(config);
 ### Basic Editor Setup
 
 ```typescript
-import { init } from 'supertab';
+import { init } from 'editorts';
 
 const editor = init({
   containerId: 'root',
@@ -324,7 +324,7 @@ editor.on('componentEdit', (component) => {
 ### Programmatic Page Manipulation
 
 ```typescript
-import { Page } from 'supertab';
+import { Page } from 'editorts';
 
 const page = new Page(jsonData);
 
@@ -348,7 +348,7 @@ const json = page.toJSON();
 ## Project Structure
 
 ```
-supertab/
+editorts/
 ├── src/
 │   ├── core/
 │   │   ├── init.ts              # Editor initialization

@@ -51,7 +51,7 @@ async function testToolbarUI() {
       await page.waitForTimeout(1000);
       
       // Check if toolbar appeared
-      const toolbar = iframe.locator('#supertab-context-toolbar');
+      const toolbar = iframe.locator('#editorts-context-toolbar');
       const toolbarVisible = await toolbar.isVisible();
       console.log('   Toolbar visible:', toolbarVisible ? '✅ YES' : '❌ NO');
       

@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get started with SuperTab in 5 minutes!
+Get started with EditorTs in 5 minutes!
 
 ## Installation
 
@@ -10,7 +10,7 @@ bun install
 
 ## Option 1: Interactive Web Server (Recommended)
 
-The easiest way to explore SuperTab:
+The easiest way to explore EditorTs:
 
 ```bash
 bun run dev

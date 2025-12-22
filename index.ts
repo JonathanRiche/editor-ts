@@ -1,9 +1,9 @@
 /**
- * SuperTab - TypeScript library for HTML content editing with JSON representation
+ * EditorTs - TypeScript library for HTML content editing with JSON representation
  * 
  * @example
  * ```typescript
- * import { Page } from 'supertab';
+ * import { Page } from 'editorts';
  * 
  * // Load from JSON
  * const page = new Page(jsonData);
@@ -47,7 +47,7 @@ export type {
   ComponentSelector,
   InitConfig,
   ToolbarInitConfig,
-  SuperTabEditor,
+  EditorTsEditor,
 } from './src/types';
 
 // Utility exports

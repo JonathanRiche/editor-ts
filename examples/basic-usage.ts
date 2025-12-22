@@ -1,5 +1,5 @@
 /**
- * Basic usage examples for SuperTab library
+ * Basic usage examples for EditorTs library
  */
 
 import { Page } from '../index';

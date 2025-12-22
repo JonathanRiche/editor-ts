@@ -141,7 +141,7 @@ export interface ToolbarInitConfig {
   default?: ToolbarConfig;
 }
 
-export interface SuperTabEditor {
+export interface EditorTsEditor {
   page: any; // Page class (avoid circular dependency)
   on(event: string, callback: Function): void;
   off(event: string, callback: Function): void;

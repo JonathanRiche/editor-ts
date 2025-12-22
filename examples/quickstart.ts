@@ -1,5 +1,5 @@
 /**
- * QuickStart Example - Simple SuperTab Editor Setup
+ * QuickStart Example - Simple EditorTs Editor Setup
  * User controls the layout in index.html, init() populates it
  */
 
@@ -133,6 +133,6 @@ if (saveBtn) {
   };
 }
 
-console.log('✅ SuperTab Editor initialized!');
+console.log('✅ EditorTs Editor initialized!');
 console.log('💡 Click any element in the canvas to see the toolbar');
 console.log('💡 Access editor.page for full API');

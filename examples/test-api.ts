@@ -1,12 +1,12 @@
 /**
- * Test script for SuperTab API server
+ * Test script for EditorTs API server
  * This demonstrates how to interact with the REST API
  */
 
 const BASE_URL = 'http://localhost:5021';
 
 async function testAPI() {
-  console.log('🧪 Testing SuperTab API\n');
+  console.log('🧪 Testing EditorTs API\n');
   console.log('Make sure the server is running: bun run server\n');
 
   try {

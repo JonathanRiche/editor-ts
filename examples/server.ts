@@ -1,6 +1,6 @@
 /**
- * SuperTab HTTP Server
- * A REST API server for testing the SuperTab library
+ * EditorTs HTTP Server
+ * A REST API server for testing the EditorTs library
  */
 
 import { Page } from './index';
@@ -410,7 +410,7 @@ const server = Bun.serve({
 
 console.log(`
 ╔════════════════════════════════════════════╗
-║   SuperTab Server Running                  ║
+║   EditorTs Server Running                  ║
 ╚════════════════════════════════════════════╝
 
 🚀 Server:  http://localhost:${server.port}
@@ -452,7 +452,7 @@ function getWebUI(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SuperTab Server - Web UI</title>
+  <title>EditorTs Server - Web UI</title>
   <link rel="stylesheet" href="/branding.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -585,8 +585,8 @@ function getWebUI(): string {
 <body>
   <div class="container">
     <div class="header">
-      <h1>🚀 SuperTab Server</h1>
-      <p>Interactive web interface for testing the SuperTab library</p>
+      <h1>🚀 EditorTs Server</h1>
+      <p>Interactive web interface for testing the EditorTs library</p>
       <div style="margin-top: 1rem;">
         <a href="/editor" style="background: #10b981; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; display: inline-block; font-weight: 500; margin-right: 1rem;">
           🎨 Open Content Editor
@@ -855,7 +855,7 @@ function getEditorUI(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SuperTab Content Editor</title>
+  <title>EditorTs Content Editor</title>
   <link rel="stylesheet" href="/branding.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1068,7 +1068,7 @@ function getEditorUI(): string {
 <body>
   <div class="header">
     <div>
-      <h1>🎨 SuperTab Content Editor</h1>
+      <h1>🎨 EditorTs Content Editor</h1>
       <div style="font-size: 0.85rem; opacity: 0.9; margin-top: 0.25rem;">
         <span class="stat-badge" id="compCount">0 components</span>
         <span class="stat-badge" id="styleCount">0 styles</span>
@@ -1457,21 +1457,21 @@ function getEditorUI(): string {
 function getPreviewHTML(title: string, css: string, html: string, components: any[], editMode: boolean): string {
   const editingScript = editMode ? `
 <style>
-  .supertab-highlight {
+  .editorts-highlight {
     outline: 2px dashed var(--color-editor-light-text, #212C3E) !important;
     outline-offset: 2px;
     cursor: pointer !important;
     position: relative !important;
   }
-  .supertab-highlight:hover {
+  .editorts-highlight:hover {
     outline: 2px solid var(--color-editor-light-text, #212C3E) !important;
     background-color: rgba(33, 44, 62, 0.1) !important;
   }
-  .supertab-selected {
+  .editorts-selected {
     outline: 3px solid #10b981 !important;
     background-color: rgba(16, 185, 129, 0.1) !important;
   }
-  .supertab-label {
+  .editorts-label {
     position: absolute;
     top: -24px;
     left: 0;
@@ -1484,7 +1484,7 @@ function getPreviewHTML(title: string, css: string, html: string, components: an
     z-index: 10000;
     pointer-events: none;
   }
-  .supertab-toolbar {
+  .editorts-toolbar {
     position: fixed;
     bottom: 20px;
     right: 20px;
@@ -1495,17 +1495,17 @@ function getPreviewHTML(title: string, css: string, html: string, components: an
     z-index: 10001;
     max-width: 300px;
   }
-  .supertab-toolbar h3 {
+  .editorts-toolbar h3 {
     margin: 0 0 0.5rem 0;
     font-size: 0.9rem;
     color: #333;
   }
-  .supertab-toolbar p {
+  .editorts-toolbar p {
     margin: 0.25rem 0;
     font-size: 0.85rem;
     color: #666;
   }
-  .supertab-toolbar button {
+  .editorts-toolbar button {
     width: 100%;
     padding: 0.5rem;
     margin-top: 0.5rem;
@@ -1516,11 +1516,11 @@ function getPreviewHTML(title: string, css: string, html: string, components: an
     cursor: pointer;
     font-size: 0.85rem;
   }
-  .supertab-toolbar button:hover {
+  .editorts-toolbar button:hover {
     background: var(--color-editor-light-bg, #EDF0F5);
     color: var(--color-editor-light-text, #212C3E);
   }
-  .supertab-context-toolbar {
+  .editorts-context-toolbar {
     position: absolute;
     background: white;
     border-radius: 6px;
@@ -1534,7 +1534,7 @@ function getPreviewHTML(title: string, css: string, html: string, components: an
     width: auto;
     pointer-events: auto;
   }
-  .supertab-context-toolbar.active {
+  .editorts-context-toolbar.active {
     display: flex !important;
   }
   .toolbar-action {
@@ -1594,8 +1594,8 @@ function getPreviewHTML(title: string, css: string, html: string, components: an
   
   function initEditor() {
     document.querySelectorAll('[id]').forEach(el => {
-      if (el.id && el.id !== 'supertab-toolbar') {
-        el.classList.add('supertab-highlight');
+      if (el.id && el.id !== 'editorts-toolbar') {
+        el.classList.add('editorts-highlight');
         
         el.addEventListener('click', (e) => {
           e.preventDefault();
@@ -1618,11 +1618,11 @@ function getPreviewHTML(title: string, css: string, html: string, components: an
   
   function selectElement(el) {
     if (selectedElement) {
-      selectedElement.classList.remove('supertab-selected');
+      selectedElement.classList.remove('editorts-selected');
     }
     
     selectedElement = el;
-    el.classList.add('supertab-selected');
+    el.classList.add('editorts-selected');
     updateToolbar(el);
     showContextToolbar(el);
     
@@ -1637,7 +1637,7 @@ function getPreviewHTML(title: string, css: string, html: string, components: an
   }
   
   async function showContextToolbar(el) {
-    const toolbar = document.getElementById('supertab-context-toolbar');
+    const toolbar = document.getElementById('editorts-context-toolbar');
     if (!toolbar) return;
     
     // Get component's toolbar config from server
@@ -1677,7 +1677,7 @@ function getPreviewHTML(title: string, css: string, html: string, components: an
   }
   
   function hideContextToolbar() {
-    const toolbar = document.getElementById('supertab-context-toolbar');
+    const toolbar = document.getElementById('editorts-context-toolbar');
     if (toolbar) {
       toolbar.classList.remove('active');
     }
@@ -1685,18 +1685,18 @@ function getPreviewHTML(title: string, css: string, html: string, components: an
   
   function showLabel(el) {
     const label = document.createElement('div');
-    label.className = 'supertab-label';
+    label.className = 'editorts-label';
     label.textContent = '#' + el.id;
     el.appendChild(label);
   }
   
   function removeLabel(el) {
-    const label = el.querySelector('.supertab-label');
+    const label = el.querySelector('.editorts-label');
     if (label) label.remove();
   }
   
   function updateToolbar(el) {
-    const toolbar = document.getElementById('supertab-toolbar');
+    const toolbar = document.getElementById('editorts-toolbar');
     if (toolbar) {
       const info = toolbar.querySelector('.element-info');
       info.innerHTML = '<p><strong>ID:</strong> ' + el.id + '</p>' +
@@ -1767,8 +1767,8 @@ function getPreviewHTML(title: string, css: string, html: string, components: an
   
   // Close toolbar when clicking outside
   document.addEventListener('click', (e) => {
-    const toolbar = document.getElementById('supertab-context-toolbar');
-    if (toolbar && !toolbar.contains(e.target) && !e.target.classList.contains('supertab-highlight')) {
+    const toolbar = document.getElementById('editorts-context-toolbar');
+    if (toolbar && !toolbar.contains(e.target) && !e.target.classList.contains('editorts-highlight')) {
       // Don't close immediately on element click
     }
   });
@@ -1779,14 +1779,14 @@ function getPreviewHTML(title: string, css: string, html: string, components: an
     initEditor();
   }
 </script>
-<div id="supertab-toolbar" class="supertab-toolbar">
+<div id="editorts-toolbar" class="editorts-toolbar">
   <h3>🎯 Selected Element</h3>
   <div class="element-info">
     <p style="color: #999;">Click an element to select</p>
   </div>
   <button onclick="editInSidebar()">✏️ Edit in Sidebar</button>
 </div>
-<div id="supertab-context-toolbar" class="supertab-context-toolbar">
+<div id="editorts-context-toolbar" class="editorts-context-toolbar">
   <!-- Toolbar buttons are dynamically generated from component's toolbar config -->
 </div>
 ` : '';

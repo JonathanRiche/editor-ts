@@ -1,16 +1,16 @@
 /**
- * SuperTab Editor Initialization
+ * EditorTs Editor Initialization
  * Users control the layout - init() just populates their containers
  */
 
 import { Page } from './Page';
-import type { InitConfig, SuperTabEditor, Component } from '../types';
+import type { InitConfig, EditorTsEditor, Component } from '../types';
 
 /**
- * Initialize SuperTab Editor
+ * Initialize EditorTs Editor
  * User creates the HTML structure, init() populates it
  */
-export function init(config: InitConfig): SuperTabEditor {
+export function init(config: InitConfig): EditorTsEditor {
   // Get the iframe element (required)
   const iframe = document.getElementById(config.iframeId) as HTMLIFrameElement;
   if (!iframe || iframe.tagName !== 'IFRAME') {
@@ -101,21 +101,21 @@ export function init(config: InitConfig): SuperTabEditor {
   <style>${page.getCSS()}</style>
   <style>
     /* WYSIWYG editing styles */
-    .supertab-highlight {
+    .editorts-highlight {
       outline: 2px dashed var(--color-editor-light-text, #212C3E) !important;
       outline-offset: 2px;
       cursor: pointer !important;
       position: relative !important;
     }
-    .supertab-highlight:hover {
+    .editorts-highlight:hover {
       outline: 2px solid var(--color-editor-light-text, #212C3E) !important;
       background-color: rgba(33, 44, 62, 0.05) !important;
     }
-    .supertab-selected {
+    .editorts-selected {
       outline: 3px solid #10b981 !important;
       background-color: rgba(16, 185, 129, 0.1) !important;
     }
-    .supertab-context-toolbar {
+    .editorts-context-toolbar {
       position: absolute;
       top: -42px;
       left: 0;
@@ -157,9 +157,9 @@ ${page.getHTML()}
   // Initialize WYSIWYG
   function initWYSIWYG() {
     document.querySelectorAll('[id]').forEach(el => {
-      if (!el.id || el.id.startsWith('supertab-')) return;
+      if (!el.id || el.id.startsWith('editorts-')) return;
 
-      el.classList.add('supertab-highlight');
+      el.classList.add('editorts-highlight');
       
       el.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -171,18 +171,18 @@ ${page.getHTML()}
   function selectElement(el) {
     // Clear previous selection
     if (selectedElement) {
-      selectedElement.classList.remove('supertab-selected');
-      const oldToolbar = selectedElement.querySelector('.supertab-context-toolbar');
+      selectedElement.classList.remove('editorts-selected');
+      const oldToolbar = selectedElement.querySelector('.editorts-context-toolbar');
       if (oldToolbar) oldToolbar.remove();
     }
 
     // Highlight new selection
     selectedElement = el;
-    el.classList.add('supertab-selected');
+    el.classList.add('editorts-selected');
 
     // Notify parent
     window.parent.postMessage({
-      type: 'supertab:componentSelected',
+      type: 'editorts:componentSelected',
       id: el.id,
       tagName: el.tagName.toLowerCase(),
       className: el.className
@@ -190,16 +190,16 @@ ${page.getHTML()}
 
     // Request toolbar config
     window.parent.postMessage({
-      type: 'supertab:getToolbar',
+      type: 'editorts:getToolbar',
       id: el.id
     }, '*');
   }
 
   // Listen for toolbar config from parent
   window.addEventListener('message', (event) => {
-    if (event.data.type === 'supertab:toolbarConfig') {
+    if (event.data.type === 'editorts:toolbarConfig') {
       renderToolbar(event.data.config, event.data.elementId);
-    } else if (event.data.type === 'supertab:toolbarAction') {
+    } else if (event.data.type === 'editorts:toolbarAction') {
       handleToolbarAction(event.data.action, event.data.elementId);
     }
   });
@@ -209,7 +209,7 @@ ${page.getHTML()}
     if (!el || !toolbarConfig.enabled) return;
 
     const toolbar = document.createElement('div');
-    toolbar.className = 'supertab-context-toolbar';
+    toolbar.className = 'editorts-context-toolbar';
 
     const enabledActions = toolbarConfig.actions.filter(a => a.enabled);
     enabledActions.forEach(action => {
@@ -218,7 +218,7 @@ ${page.getHTML()}
       btn.textContent = action.icon + ' ' + action.label;
       btn.onclick = () => {
         window.parent.postMessage({
-          type: 'supertab:toolbarAction',
+          type: 'editorts:toolbarAction',
           action: action.id,
           elementId: elementId
         }, '*');
@@ -252,7 +252,7 @@ ${page.getHTML()}
 
   // Handle messages from iframe
   window.addEventListener('message', (event) => {
-    if (event.data.type === 'supertab:componentSelected') {
+    if (event.data.type === 'editorts:componentSelected') {
       const component = page.components.findById(event.data.id);
       if (component) {
         // Update selected info container if provided
@@ -269,18 +269,18 @@ ${page.getHTML()}
           config.onComponentSelect(component);
         }
       }
-    } else if (event.data.type === 'supertab:getToolbar') {
+    } else if (event.data.type === 'editorts:getToolbar') {
       // Send toolbar config to iframe
       const component = page.components.findById(event.data.id);
       if (component) {
         const toolbarConfig = page.toolbars.getToolbarForComponent(component);
         iframe.contentWindow?.postMessage({
-          type: 'supertab:toolbarConfig',
+          type: 'editorts:toolbarConfig',
           config: toolbarConfig,
           elementId: event.data.id
         }, '*');
       }
-    } else if (event.data.type === 'supertab:toolbarAction') {
+    } else if (event.data.type === 'editorts:toolbarAction') {
       handleToolbarAction(event.data.action, event.data.elementId);
     }
   });
@@ -326,7 +326,7 @@ ${page.getHTML()}
         
         // Notify iframe to remove element
         iframe.contentWindow?.postMessage({
-          type: 'supertab:toolbarAction',
+          type: 'editorts:toolbarAction',
           action: 'delete',
           elementId: elementId
         }, '*');
@@ -356,7 +356,7 @@ ${page.getHTML()}
     });
   }
 
-  // Return SuperTabEditor instance
+  // Return EditorTsEditor instance
   return {
     page,
     on,
