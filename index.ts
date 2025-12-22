@@ -47,7 +47,6 @@ export type {
   ComponentSelector,
   InitConfig,
   ToolbarInitConfig,
-  UIConfig,
   SuperTabEditor,
 } from './src/types';
 

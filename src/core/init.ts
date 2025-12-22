@@ -1,6 +1,6 @@
 /**
  * SuperTab Editor Initialization
- * This file provides the init() function that sets up the entire editor with minimal config
+ * Users control the layout - init() just populates their containers
  */
 
 import { Page } from './Page';
@@ -8,13 +8,13 @@ import type { InitConfig, SuperTabEditor, Component } from '../types';
 
 /**
  * Initialize SuperTab Editor
- * Returns a SuperTabEditor instance with full access to the Page and event system
+ * User creates the HTML structure, init() populates it
  */
 export function init(config: InitConfig): SuperTabEditor {
-  // Get container
-  const container = document.getElementById(config.containerId)!;
-  if (!container) {
-    throw new Error(`Container element #${config.containerId} not found`);
+  // Get the iframe element (required)
+  const iframe = document.getElementById(config.iframeId) as HTMLIFrameElement;
+  if (!iframe || iframe.tagName !== 'IFRAME') {
+    throw new Error(`Iframe element #${config.iframeId} not found or is not an iframe`);
   }
 
   // Create Page instance
@@ -22,28 +22,24 @@ export function init(config: InitConfig): SuperTabEditor {
 
   // Configure toolbars from config
   if (config.toolbars) {
-    // By ID
     if (config.toolbars.byId) {
       Object.entries(config.toolbars.byId).forEach(([id, toolbarConfig]) => {
         page.toolbars.configureById(id, toolbarConfig);
       });
     }
 
-    // By Type
     if (config.toolbars.byType) {
       Object.entries(config.toolbars.byType).forEach(([type, toolbarConfig]) => {
         page.toolbars.configureByType(type, toolbarConfig);
       });
     }
 
-    // By Tag
     if (config.toolbars.byTag) {
       Object.entries(config.toolbars.byTag).forEach(([tag, toolbarConfig]) => {
         page.toolbars.configureByTag(tag, toolbarConfig);
       });
     }
 
-    // Default
     if (config.toolbars.default) {
       page.toolbars.setGlobalDefault(config.toolbars.default);
     }
@@ -71,53 +67,31 @@ export function init(config: InitConfig): SuperTabEditor {
     }
   };
 
-  // UI Configuration
-  const uiConfig = {
-    showSidebar: config.ui?.showSidebar !== false,
-    sidebarWidth: config.ui?.sidebarWidth || 300,
-    showStats: config.ui?.showStats !== false,
-  };
+  // Get optional UI containers
+  const sidebarContainer = config.ui?.sidebar?.containerId 
+    ? document.getElementById(config.ui.sidebar.containerId) 
+    : null;
+  
+  const statsContainer = config.ui?.stats?.containerId
+    ? document.getElementById(config.ui.stats.containerId)
+    : null;
+  
+  const selectedInfoContainer = config.ui?.selectedInfo?.containerId
+    ? document.getElementById(config.ui.selectedInfo.containerId)
+    : null;
 
-  // Build editor UI
-  const editorHTML = `
-    <div style="display: flex; height: 100vh; font-family: var(--font-main);">
-      ${uiConfig.showSidebar ? `
-        <div id="supertab-sidebar" style="width: ${uiConfig.sidebarWidth}px; background: var(--color-sidemenu-bg); border-right: 1px solid var(--color-primary-border); padding: 1rem; overflow-y: auto;">
-          <h2 style="margin: 0 0 1rem 0; font-family: var(--font-secondary);">SuperTab Editor</h2>
-          
-          ${uiConfig.showStats ? `
-            <div style="margin-bottom: 1.5rem;">
-              <h3 style="font-size: 0.9rem; margin-bottom: 0.5rem;">Page Stats</h3>
-              <div style="font-size: 0.85rem; color: #666;">
-                <div>Components: ${page.components.count()}</div>
-                <div>Styles: ${page.styles.count()}</div>
-                <div>Assets: ${page.assets.count()}</div>
-              </div>
-            </div>
-          ` : ''}
-
-          <div id="supertab-selected" style="display: none; background: white; padding: 1rem; border-radius: 6px;">
-            <h3 style="font-size: 0.9rem; margin: 0 0 0.5rem 0;">Selected Component</h3>
-            <div id="supertab-component-info" style="font-size: 0.85rem;"></div>
-          </div>
-        </div>
-      ` : ''}
-
-      <div style="flex: 1; overflow: auto; background: #f5f5f5; padding: 2rem;">
-        <iframe id="supertab-iframe" style="width: 100%; height: 100%; border: none; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);"></iframe>
+  // Populate stats if container provided
+  if (statsContainer && config.ui?.stats?.enabled !== false) {
+    statsContainer.innerHTML = `
+      <div style="font-size: 0.85rem;">
+        <div>Components: ${page.components.count()}</div>
+        <div>Styles: ${page.styles.count()}</div>
+        <div>Assets: ${page.assets.count()}</div>
       </div>
-    </div>
-  `;
-
-  container.innerHTML = editorHTML;
-
-  // Get iframe element
-  const iframe = document.getElementById('supertab-iframe') as HTMLIFrameElement;
-  if (!iframe) {
-    throw new Error('Failed to create iframe');
+    `;
   }
 
-  // Build iframe content with proper sandboxing
+  // Build iframe content with WYSIWYG
   const iframeContent = `<!DOCTYPE html>
 <html>
 <head>
@@ -214,12 +188,7 @@ ${page.getHTML()}
       className: el.className
     }, '*');
 
-    // Show toolbar
-    showToolbar(el);
-  }
-
-  function showToolbar(el) {
-    // Request toolbar config from parent
+    // Request toolbar config
     window.parent.postMessage({
       type: 'supertab:getToolbar',
       id: el.id
@@ -239,11 +208,9 @@ ${page.getHTML()}
     const el = document.getElementById(elementId);
     if (!el || !toolbarConfig.enabled) return;
 
-    // Create toolbar
     const toolbar = document.createElement('div');
     toolbar.className = 'supertab-context-toolbar';
 
-    // Add buttons
     const enabledActions = toolbarConfig.actions.filter(a => a.enabled);
     enabledActions.forEach(action => {
       const btn = document.createElement('button');
@@ -271,7 +238,7 @@ ${page.getHTML()}
     }
   }
 
-  // Initialize on load
+  // Initialize
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initWYSIWYG);
   } else {
@@ -283,30 +250,17 @@ ${page.getHTML()}
   // Load content into iframe
   iframe.srcdoc = iframeContent;
 
-  // Store references
-  const sidebar = document.getElementById('supertab-sidebar') as HTMLElement | undefined;
-  const canvas = iframe;
-
   // Handle messages from iframe
-  let selectedComponent: Component | null = null;
-
   window.addEventListener('message', (event) => {
     if (event.data.type === 'supertab:componentSelected') {
       const component = page.components.findById(event.data.id);
       if (component) {
-        selectedComponent = component;
-
-        // Update sidebar
-        if (sidebar) {
-          const info = document.getElementById('supertab-component-info');
-          const selectedDiv = document.getElementById('supertab-selected');
-          if (info && selectedDiv) {
-            info.innerHTML = `
-              <div><strong>ID:</strong> ${event.data.id}</div>
-              <div><strong>Tag:</strong> ${event.data.tagName}</div>
-            `;
-            selectedDiv.style.display = 'block';
-          }
+        // Update selected info container if provided
+        if (selectedInfoContainer && config.ui?.selectedInfo?.enabled !== false) {
+          selectedInfoContainer.innerHTML = `
+            <div><strong>ID:</strong> ${event.data.id}</div>
+            <div><strong>Tag:</strong> ${event.data.tagName}</div>
+          `;
         }
 
         // Emit event
@@ -345,7 +299,6 @@ ${page.getHTML()}
         break;
 
       case 'editJS':
-        // Will be handled by Monaco editor integration
         emit('componentEditJS', component);
         break;
 
@@ -383,16 +336,7 @@ ${page.getHTML()}
 
   // Refresh iframe
   function refresh() {
-    const newContent = iframe.srcdoc?.replace(
-      /<body>.*<\/body>/s,
-      `${page.getHTML()}<script>/* WYSIWYG reinit */</script>`
-    );
-    if (newContent) {
-      iframe.srcdoc = newContent;
-    } else {
-      // Full reload
-      iframe.srcdoc = iframe.srcdoc || '';
-    }
+    iframe.srcdoc = iframeContent;
   }
 
   // Save page data
@@ -402,8 +346,11 @@ ${page.getHTML()}
 
   // Destroy editor
   function destroy() {
-    container.innerHTML = '';
-    // Clear event listeners
+    iframe.srcdoc = '';
+    if (sidebarContainer) sidebarContainer.innerHTML = '';
+    if (statsContainer) statsContainer.innerHTML = '';
+    if (selectedInfoContainer) selectedInfoContainer.innerHTML = '';
+    
     Object.keys(eventListeners).forEach(key => {
       eventListeners[key] = [];
     });
@@ -418,10 +365,10 @@ ${page.getHTML()}
     save,
     destroy,
     elements: {
-      container: container!,
-      sidebar,
-      canvas,
       iframe,
+      sidebar: sidebarContainer || undefined,
+      stats: statsContainer || undefined,
+      selectedInfo: selectedInfoContainer || undefined,
     }
   };
 }

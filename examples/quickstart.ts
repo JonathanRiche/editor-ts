@@ -1,28 +1,23 @@
 /**
  * QuickStart Example - Simple SuperTab Editor Setup
- * This demonstrates how easy it is to use the init() function
+ * User controls the layout in index.html, init() populates it
  */
 
 import { init } from '../index';
 import sampleData from '../samples/page_template.json';
 
 console.log('QuickStart script loaded');
-console.log('Root element:', document.getElementById('root'));
 
-try {
-  console.log('Calling init()...');
+// Initialize the editor - user controls layout in index.html
+const editor = init({
+  // Required: The iframe element ID (user creates this in HTML)
+  iframeId: 'preview-iframe',
   
-  // Initialize the editor with one function call!
-  const editor = init({
-  // Required: where to mount the editor
-  containerId: 'root',
-  
-  // Required: the page data
+  // Required: Page data (clean JSON)
   data: sampleData as any,
   
-  // Optional: Configure toolbars (runtime only, not saved to JSON)
+  // Optional: Configure toolbars (runtime only, NOT saved to JSON)
   toolbars: {
-    // Configure specific components by ID
     byId: {
       'iydl': {
         enabled: true,
@@ -32,22 +27,15 @@ try {
           { id: 'duplicate', label: 'Duplicate', icon: '📋', enabled: true },
           { id: 'delete', label: 'Delete', icon: '🗑️', enabled: false, danger: true },
         ]
-      },
-      'step2': {
-        enabled: false,
-        actions: []
       }
     },
     
-    // Configure all components of a certain type
     byType: {
       'custom-code': {
         enabled: true,
         actions: [
-          { id: 'edit', label: 'Edit', icon: '✏️', enabled: false },
           { id: 'editJS', label: 'Edit Code', icon: '📜', enabled: true },
           { id: 'duplicate', label: 'Clone', icon: '📋', enabled: true },
-          { id: 'delete', label: 'Delete', icon: '🗑️', enabled: true, danger: true },
         ]
       },
       'box': {
@@ -60,88 +48,91 @@ try {
     }
   },
   
-  // Optional: UI configuration
+  // Optional: UI containers (user created these in HTML)
   ui: {
-    showSidebar: true,
-    sidebarWidth: 300,
-    showStats: true
+    stats: {
+      containerId: 'stats-container',
+      enabled: true
+    },
+    selectedInfo: {
+      containerId: 'selected-info',
+      enabled: true
+    }
   },
   
   // Optional: Event callbacks
-  onComponentSelect: (component) => {
-    console.log('🎯 Component selected:', component.attributes?.id);
+  onComponentSelect: (component: any) => {
+    console.log('🎯 Selected:', component.attributes?.id);
+    
+    // Show selected section
+    const selectedContainer = document.getElementById('selected-container');
+    if (selectedContainer) {
+      selectedContainer.classList.add('active');
+    }
   },
   
-  onComponentEdit: (component) => {
-    console.log('✏️ Edit component:', component.attributes?.id);
+  onComponentEdit: (component: any) => {
+    console.log('✏️ Edit:', component.attributes?.id);
     alert(`Edit component: ${component.attributes?.id}`);
   },
   
-  onComponentDuplicate: (original, duplicate) => {
+  onComponentDuplicate: (original: any, duplicate: any) => {
     console.log('📋 Duplicated:', original.attributes?.id, '→', duplicate.attributes?.id);
-    alert(`Component duplicated!\nNew ID: ${duplicate.attributes?.id}`);
+    alert(`Duplicated!\nNew ID: ${duplicate.attributes?.id}`);
   },
   
-  onComponentDelete: (component) => {
-    console.log('🗑️ Deleted component:', component.attributes?.id);
-    alert(`Component deleted: ${component.attributes?.id}`);
+  onComponentDelete: (component: any) => {
+    console.log('🗑️ Deleted:', component.attributes?.id);
+    alert(`Deleted: ${component.attributes?.id}`);
+    
+    // Hide selected section
+    const selectedContainer = document.getElementById('selected-container');
+    if (selectedContainer) {
+      selectedContainer.classList.remove('active');
+    }
   }
 });
 
 // ==================== USE THE EDITOR INSTANCE ====================
 
-// Access the page data
+// Access the Page API
 console.log('📄 Page title:', editor.page.getTitle());
-console.log('📊 Components:', editor.page.components.count());
+console.log('📊 Total components:', editor.page.components.count());
 
-// Add custom event listeners after init
+// Add custom event listener
 editor.on('componentSelect', (component: any) => {
-  console.log('Custom handler - selected:', component);
+  console.log('Custom handler:', component.attributes?.id);
 });
 
-// Use the Page API directly
-editor.page.components.findByType('custom-code').forEach((comp: any) => {
-  console.log('Found custom-code component:', comp.attributes?.id);
-});
+// Find all custom-code components
+const customCode = editor.page.components.findByType('custom-code');
+console.log('📜 Custom code components:', customCode.length);
 
-// Save the page
-const saveBtn = document.createElement('button');
-saveBtn.textContent = '💾 Save Page';
-saveBtn.style.cssText = `
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  padding: 1rem 2rem;
-  background: var(--color-editor-light-text, #212C3E);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-family: var(--font-main);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-  z-index: 10000;
-`;
-saveBtn.onclick = () => {
-  const json = editor.save();
-  console.log('Saved JSON (clean, no toolbar configs):', json.substring(0, 100) + '...');
-  
-  // Verify no toolbar in JSON
-  const hasToolbar = json.includes('"toolbar"');
-  console.log('Contains toolbar in JSON?', hasToolbar ? '❌ YES' : '✅ NO');
-  
-  alert('Page saved! Check console for JSON output.');
-};
-document.body.appendChild(saveBtn);
-
-  console.log('✅ SuperTab Editor initialized!');
-  console.log('💡 Click any element in the canvas to see the toolbar');
-  console.log('💡 Use editor.page to access the Page API');
-  console.log('💡 Use editor.on() to add custom event listeners');
-  
-} catch (error) {
-  console.error('❌ Failed to initialize SuperTab:', error);
-  const root = document.getElementById('root');
-  if (root) {
-    root.innerHTML = `<div style="padding: 2rem; color: red;">Error: ${error}</div>`;
-  }
+// Set up save button
+const saveBtn = document.getElementById('save-btn');
+if (saveBtn) {
+  saveBtn.style.display = 'block';
+  saveBtn.onclick = () => {
+    const json = editor.save();
+    console.log('💾 Saved JSON (first 100 chars):', json.substring(0, 100) + '...');
+    
+    // Verify JSON is clean (no toolbar configs)
+    const hasToolbar = json.includes('"toolbar"');
+    console.log('Contains "toolbar" in JSON?', hasToolbar ? '❌ YES' : '✅ NO');
+    
+    // Download the JSON
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'page-export.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    alert('✓ Page saved and downloaded!');
+  };
 }
+
+console.log('✅ SuperTab Editor initialized!');
+console.log('💡 Click any element in the canvas to see the toolbar');
+console.log('💡 Access editor.page for full API');

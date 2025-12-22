@@ -102,10 +102,32 @@ export type ComponentSelector =
   | { custom: (component: Component) => boolean };
 
 export interface InitConfig {
-  containerId: string;
+  // Required: iframe element ID (user creates this in their HTML)
+  iframeId: string;
+  
+  // Required: page data
   data: PageData | string;
+  
+  // Optional: toolbar configuration (runtime only)
   toolbars?: ToolbarInitConfig;
-  ui?: UIConfig;
+  
+  // Optional: UI container IDs (user controls placement)
+  ui?: {
+    sidebar?: {
+      containerId?: string;  // Where to render sidebar (optional)
+      enabled?: boolean;
+    };
+    stats?: {
+      containerId?: string;  // Where to render stats (optional)
+      enabled?: boolean;
+    };
+    selectedInfo?: {
+      containerId?: string;  // Where to render selected component info (optional)
+      enabled?: boolean;
+    };
+  };
+  
+  // Optional: event callbacks
   onComponentSelect?: (component: Component) => void;
   onComponentEdit?: (component: Component) => void;
   onComponentDelete?: (component: Component) => void;
@@ -119,12 +141,6 @@ export interface ToolbarInitConfig {
   default?: ToolbarConfig;
 }
 
-export interface UIConfig {
-  showSidebar?: boolean;
-  sidebarWidth?: number;
-  showStats?: boolean;
-}
-
 export interface SuperTabEditor {
   page: any; // Page class (avoid circular dependency)
   on(event: string, callback: Function): void;
@@ -133,9 +149,9 @@ export interface SuperTabEditor {
   save(): string;
   destroy(): void;
   elements: {
-    container: HTMLElement;
-    sidebar?: HTMLElement;
-    canvas: HTMLElement;
     iframe: HTMLIFrameElement;
+    sidebar?: HTMLElement;
+    stats?: HTMLElement;
+    selectedInfo?: HTMLElement;
   };
 }
