@@ -17,6 +17,77 @@ A powerful TypeScript library for editing HTML content while maintaining its str
 bun install
 ```
 
+## Toolbar System
+
+SuperTab includes a **modular, component-level toolbar system** for WYSIWYG editing.
+
+### Component-Level Toolbars
+
+Each component can have its own toolbar configuration stored in JSON:
+
+```typescript
+import { Page, defaultToolbarConfig, toolbarPresets } from 'supertab';
+
+const page = new Page(jsonData);
+
+// Set default toolbar for a component
+page.components.setToolbar('header', defaultToolbarConfig);
+
+// Use preset toolbar (edit-only, no delete)
+page.components.setToolbar('footer', toolbarPresets.editOnly);
+
+// Create custom toolbar
+page.components.setToolbar('sidebar', {
+  enabled: true,
+  actions: [
+    { id: 'edit', label: 'Edit', icon: '✏️', enabled: true },
+    { id: 'duplicate', label: 'Copy', icon: '📋', enabled: true }
+  ]
+});
+
+// Disable toolbar for specific component
+page.components.setToolbar('banner', { enabled: false, actions: [] });
+```
+
+### Available Toolbar Actions
+
+- **Edit (✏️)** - Edit component properties in sidebar
+- **Edit JS (📜)** - Edit component JavaScript with Monaco editor
+- **Duplicate (📋)** - Create a copy of the component
+- **Delete (🗑️)** - Remove component from page
+
+### Toolbar Presets
+
+- `toolbarPresets.full` - All actions enabled
+- `toolbarPresets.editOnly` - Edit, Edit JS, Duplicate (no delete)
+- `toolbarPresets.minimal` - Edit and Delete only
+- `toolbarPresets.readOnly` - View only
+- `toolbarPresets.disabled` - No toolbar
+
+### ComponentManager Toolbar Methods
+
+```typescript
+// Get toolbar config
+page.components.getToolbar('componentId');
+
+// Set toolbar config
+page.components.setToolbar('componentId', config);
+
+// Remove toolbar
+page.components.removeToolbar('componentId');
+
+// Toggle specific action
+page.components.toggleToolbarAction('componentId', 'delete', false);
+
+// Add custom action
+page.components.addToolbarAction('componentId', {
+  id: 'custom',
+  label: 'Custom',
+  icon: '⚡',
+  enabled: true
+});
+```
+
 ## Quick Start - Web Server
 
 The fastest way to try SuperTab is to run the interactive web server:

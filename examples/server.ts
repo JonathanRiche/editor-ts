@@ -7,15 +7,46 @@ import { Page } from './index';
 import { readFileSync } from 'fs';
 import type { Component, Asset } from './src/types';
 
-// Load sample page data
+// Load sample page data (clean JSON - no toolbar configs)
 let currentPage: Page;
 try {
   const jsonData = readFileSync('./samples/page_template.json', 'utf-8');
   currentPage = new Page(jsonData);
   console.log('✓ Loaded sample page successfully');
+  
+  // Configure toolbars at runtime (NOT stored in JSON)
+  configureToolbars(currentPage);
+  console.log('✓ Configured runtime toolbars');
 } catch (error) {
   console.error('Failed to load sample page:', error);
   process.exit(1);
+}
+
+// Configure toolbars for the page (runtime only)
+function configureToolbars(page: Page) {
+  // Configure by ID
+  page.toolbars.configureById('iydl', {
+    enabled: true,
+    actions: [
+      { id: 'edit', label: 'Edit', icon: '✏️', enabled: true },
+      { id: 'editJS', label: 'Edit JS', icon: '📜', enabled: true },
+      { id: 'duplicate', label: 'Duplicate', icon: '📋', enabled: true },
+      { id: 'delete', label: 'Delete', icon: '🗑️', enabled: false, danger: true }, // Delete disabled
+    ]
+  });
+  
+  // Configure all custom-code components
+  page.toolbars.configureByType('custom-code', {
+    enabled: true,
+    actions: [
+      { id: 'edit', label: 'Edit', icon: '✏️', enabled: true },
+      { id: 'editJS', label: 'Edit Code', icon: '📜', enabled: true },
+      { id: 'duplicate', label: 'Clone', icon: '📋', enabled: true },
+    ]
+  });
+  
+  // Disable toolbar for specific components
+  page.toolbars.configureById('step2', { enabled: false, actions: [] });
 }
 
 // CORS headers
@@ -24,6 +55,8 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
+
+
 
 // Create the server
 const server = Bun.serve({
@@ -145,6 +178,40 @@ const server = Bun.serve({
         return jsonResponse({ success: true });
       }
 
+      // POST /api/components/:id/duplicate - Duplicate component
+      if (path.match(/^\/api\/components\/[^/]+\/duplicate$/) && method === 'POST') {
+        const id = path.split('/')[3];
+        const original = currentPage.components.findById(id!);
+        
+        if (!original) {
+          return jsonResponse({ error: 'Component not found' }, 404);
+        }
+        
+        // Deep clone the component
+        const duplicate = JSON.parse(JSON.stringify(original));
+        
+        // Generate new ID for duplicate and all nested components
+        const generateNewId = (comp: any) => {
+          if (comp.attributes?.id) {
+            comp.attributes.id = comp.attributes.id + '-copy-' + Date.now();
+          }
+          if (comp.components) {
+            comp.components.forEach(generateNewId);
+          }
+        };
+        
+        generateNewId(duplicate);
+        
+        // Add the duplicate
+        currentPage.components.addComponent(duplicate);
+        
+        return jsonResponse({ 
+          success: true, 
+          newId: duplicate.attributes?.id,
+          component: duplicate 
+        });
+      }
+
       // ==================== STYLE ROUTES ====================
 
       // GET /api/styles - Get all styles
@@ -228,10 +295,29 @@ const server = Bun.serve({
 
       // ==================== UTILITY ROUTES ====================
 
+      // GET /api/toolbar/config - Get toolbar configuration (runtime export)
+      if (path === '/api/toolbar/config' && method === 'GET') {
+        return jsonResponse(JSON.parse(currentPage.toolbars.exportConfig()));
+      }
+
+      // GET /api/toolbar/:id - Get toolbar for specific component
+      if (path.startsWith('/api/toolbar/') && method === 'GET') {
+        const id = path.split('/')[3];
+        const components = currentPage.components.getAll();
+        const toolbar = currentPage.toolbars.getToolbarById(components, id!);
+        
+        if (!toolbar) {
+          return jsonResponse({ error: 'Component not found' }, 404);
+        }
+        
+        return jsonResponse(toolbar);
+      }
+
       // POST /api/reload - Reload sample page
       if (path === '/api/reload' && method === 'POST') {
         const jsonData = readFileSync('./samples/page_template.json', 'utf-8');
         currentPage = new Page(jsonData);
+        configureToolbars(currentPage); // Re-apply runtime toolbar configs
         return jsonResponse({ 
           success: true, 
           message: 'Page reloaded from sample' 
@@ -271,8 +357,9 @@ const server = Bun.serve({
         const editMode = url.searchParams.get('edit') === 'true';
         const html = currentPage.getHTML();
         const css = currentPage.getCSS();
+        const components = currentPage.components.getAll();
         
-        const previewHTML = getPreviewHTML(currentPage.getTitle(), css, html, editMode);
+        const previewHTML = getPreviewHTML(currentPage.getTitle(), css, html, components, editMode);
         
         return new Response(previewHTML, {
           headers: {
@@ -1088,7 +1175,7 @@ function getEditorUI(): string {
           Changes will appear after clicking "Apply Changes"
         </span>
       </div>
-      <iframe id="previewFrame" class="preview-frame" src="/preview"></iframe>
+      <iframe id="previewFrame" class="preview-frame" src="/preview?edit=true"></iframe>
     </div>
   </div>
 
@@ -1248,7 +1335,7 @@ function getEditorUI(): string {
     }
     
     // Listen for messages from preview iframe
-    window.addEventListener('message', (event) => {
+    window.addEventListener('message', async (event) => {
       if (event.data.type === 'elementSelected') {
         console.log('Element selected:', event.data);
         // Update sidebar with selected element data
@@ -1278,8 +1365,66 @@ function getEditorUI(): string {
         searchComponent();
         // Scroll to component editor
         document.querySelector('#componentId').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else if (event.data.type === 'duplicateElement') {
+        console.log('Duplicate element:', event.data);
+        await handleDuplicate(event.data.id);
+      } else if (event.data.type === 'deleteElement') {
+        console.log('Delete element:', event.data);
+        await handleDelete(event.data.id);
+      } else if (event.data.type === 'editElementJS') {
+        console.log('Edit element JS:', event.data);
+        await handleEditJS(event.data.id);
       }
     });
+    
+    async function handleDuplicate(id) {
+      try {
+        const res = await fetch(\`/api/components/\${id}/duplicate\`, {
+          method: 'POST'
+        });
+        const data = await res.json();
+        
+        if (res.ok) {
+          alert('✓ Component duplicated! New ID: ' + data.newId);
+          refreshPreview();
+          loadStats();
+        } else {
+          alert('✗ Failed to duplicate component');
+        }
+      } catch (error) {
+        console.error('Duplicate error:', error);
+        alert('✗ Error duplicating component');
+      }
+    }
+    
+    async function handleDelete(id) {
+      try {
+        const res = await fetch(\`/api/components/\${id}\`, {
+          method: 'DELETE'
+        });
+        
+        if (res.ok) {
+          alert('✓ Component deleted!');
+          refreshPreview();
+          loadStats();
+          // Clear the editor fields
+          document.getElementById('componentId').value = '';
+          document.getElementById('componentType').value = '';
+          document.getElementById('componentStyle').value = '';
+        } else {
+          alert('✗ Failed to delete component');
+        }
+      } catch (error) {
+        console.error('Delete error:', error);
+        alert('✗ Error deleting component');
+      }
+    }
+    
+    async function handleEditJS(id) {
+      // TODO: Open Monaco editor modal for editing JavaScript
+      alert('Edit JS feature coming soon! Will use modern-monaco editor.');
+      console.log('Will edit JavaScript for component:', id);
+    }
 
     async function reloadPage() {
       if (!confirm('Reset to original sample page? All changes will be lost.')) return;
@@ -1309,7 +1454,7 @@ function getEditorUI(): string {
 }
 
 // HTML for preview with optional WYSIWYG editing
-function getPreviewHTML(title: string, css: string, html: string, editMode: boolean): string {
+function getPreviewHTML(title: string, css: string, html: string, components: any[], editMode: boolean): string {
   const editingScript = editMode ? `
 <style>
   .supertab-highlight {
@@ -1375,9 +1520,77 @@ function getPreviewHTML(title: string, css: string, html: string, editMode: bool
     background: var(--color-editor-light-bg, #EDF0F5);
     color: var(--color-editor-light-text, #212C3E);
   }
+  .supertab-context-toolbar {
+    position: absolute;
+    background: white;
+    border-radius: 6px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+    padding: 0.4rem;
+    display: none;
+    z-index: 999999;
+    flex-direction: row;
+    gap: 0.3rem;
+    border: 2px solid var(--color-editor-light-text, #212C3E);
+    width: auto;
+    pointer-events: auto;
+  }
+  .supertab-context-toolbar.active {
+    display: flex !important;
+  }
+  .toolbar-action {
+    background: white;
+    border: 1px solid var(--color-primary-border, #e5e7eb);
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .toolbar-action:hover {
+    background: var(--color-editor-light-bg, #EDF0F5);
+    border-color: var(--color-editor-light-text, #212C3E);
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+  .toolbar-action .icon {
+    font-size: 1.1rem;
+  }
+  .toolbar-action.danger:hover {
+    background: #fee;
+    border-color: #ef4444;
+    color: #ef4444;
+  }
 </style>
 <script>
   let selectedElement = null;
+  
+  // Default toolbar configuration (fallback)
+  const defaultToolbar = {
+    enabled: true,
+    actions: [
+      { id: 'edit', label: 'Edit', icon: '✏️', enabled: true, description: 'Edit component' },
+      { id: 'editJS', label: 'Edit JS', icon: '📜', enabled: true, description: 'Edit JavaScript' },
+      { id: 'duplicate', label: 'Duplicate', icon: '📋', enabled: true, description: 'Duplicate component' },
+      { id: 'delete', label: 'Delete', icon: '🗑️', enabled: true, danger: true, description: 'Delete component' }
+    ]
+  };
+  
+  // Get toolbar config for a component by ID (fetches runtime config from server)
+  async function getComponentToolbar(id) {
+    try {
+      const res = await fetch('/api/toolbar/' + id);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (error) {
+      console.error('Failed to fetch toolbar config:', error);
+    }
+    return defaultToolbar;
+  }
   
   function initEditor() {
     document.querySelectorAll('[id]').forEach(el => {
@@ -1411,6 +1624,7 @@ function getPreviewHTML(title: string, css: string, html: string, editMode: bool
     selectedElement = el;
     el.classList.add('supertab-selected');
     updateToolbar(el);
+    showContextToolbar(el);
     
     if (window.parent !== window) {
       window.parent.postMessage({
@@ -1419,6 +1633,53 @@ function getPreviewHTML(title: string, css: string, html: string, editMode: bool
         tagName: el.tagName.toLowerCase(),
         className: el.className
       }, '*');
+    }
+  }
+  
+  async function showContextToolbar(el) {
+    const toolbar = document.getElementById('supertab-context-toolbar');
+    if (!toolbar) return;
+    
+    // Get component's toolbar config from server
+    const toolbarConfig = await getComponentToolbar(el.id);
+    
+    // Check if toolbar is enabled for this component
+    if (!toolbarConfig.enabled) {
+      toolbar.classList.remove('active');
+      return;
+    }
+    
+    // Build toolbar buttons dynamically from component's config
+    const enabledActions = toolbarConfig.actions.filter(a => a.enabled);
+    toolbar.innerHTML = enabledActions.map(action => {
+      const dangerClass = action.danger ? ' danger' : '';
+      return '<div class="toolbar-action' + dangerClass + '" onclick="toolbar' + capitalize(action.id) + '()" title="' + (action.description || action.label) + '">' +
+        '<span class="icon">' + action.icon + '</span>' +
+        '<span>' + action.label + '</span>' +
+      '</div>';
+    }).join('');
+    
+    // Append toolbar to the selected element (makes it relative to component)
+    el.appendChild(toolbar);
+    
+    // Position at top-left of the component
+    toolbar.style.top = '-40px';  // Slightly above the element
+    toolbar.style.left = '0px';   // Aligned to left edge
+    
+    // Make visible
+    toolbar.classList.add('active');
+    
+    console.log('✓ Toolbar anchored to element:', el.id);
+  }
+  
+  function capitalize(str) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+  
+  function hideContextToolbar() {
+    const toolbar = document.getElementById('supertab-context-toolbar');
+    if (toolbar) {
+      toolbar.classList.remove('active');
     }
   }
   
@@ -1453,6 +1714,65 @@ function getPreviewHTML(title: string, css: string, html: string, editMode: bool
     }
   }
   
+  // ========== TOOLBAR ACTIONS ==========
+  // Actions are configured in server.ts toolbarConfig
+  
+  function toolbarEdit() {
+    if (!selectedElement) return;
+    hideContextToolbar();
+    editInSidebar();
+  }
+  
+  function toolbarEditJS() {
+    if (!selectedElement) return;
+    hideContextToolbar();
+    
+    if (window.parent !== window) {
+      window.parent.postMessage({
+        type: 'editElementJS',
+        id: selectedElement.id
+      }, '*');
+    }
+  }
+  
+  function toolbarDuplicate() {
+    if (!selectedElement) return;
+    
+    if (confirm('Duplicate element #' + selectedElement.id + '?')) {
+      hideContextToolbar();
+      
+      if (window.parent !== window) {
+        window.parent.postMessage({
+          type: 'duplicateElement',
+          id: selectedElement.id
+        }, '*');
+      }
+    }
+  }
+  
+  function toolbarDelete() {
+    if (!selectedElement) return;
+    
+    if (confirm('Delete element #' + selectedElement.id + '? This cannot be undone.')) {
+      hideContextToolbar();
+      
+      if (window.parent !== window) {
+        window.parent.postMessage({
+          type: 'deleteElement',
+          id: selectedElement.id
+        }, '*');
+      }
+    }
+  }
+  
+  // Close toolbar when clicking outside
+  document.addEventListener('click', (e) => {
+    const toolbar = document.getElementById('supertab-context-toolbar');
+    if (toolbar && !toolbar.contains(e.target) && !e.target.classList.contains('supertab-highlight')) {
+      // Don't close immediately on element click
+    }
+  });
+  
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initEditor);
   } else {
@@ -1465,6 +1785,9 @@ function getPreviewHTML(title: string, css: string, html: string, editMode: bool
     <p style="color: #999;">Click an element to select</p>
   </div>
   <button onclick="editInSidebar()">✏️ Edit in Sidebar</button>
+</div>
+<div id="supertab-context-toolbar" class="supertab-context-toolbar">
+  <!-- Toolbar buttons are dynamically generated from component's toolbar config -->
 </div>
 ` : '';
 

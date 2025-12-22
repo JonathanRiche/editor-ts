@@ -27,6 +27,21 @@ export interface Component {
   [key: string]: any;
 }
 
+export interface ToolbarConfig {
+  enabled: boolean;
+  actions: ToolbarAction[];
+}
+
+export interface ToolbarAction {
+  id: string;
+  label: string;
+  icon: string;
+  enabled: boolean;
+  danger?: boolean;
+  description?: string;
+  handler?: string;
+}
+
 export interface Asset {
   type: 'image' | 'video' | 'audio' | 'document';
   src: string;
@@ -73,3 +88,15 @@ export interface UpdateOptions {
   merge?: boolean;
   overwrite?: boolean;
 }
+
+export interface ToolbarRule {
+  selector: ComponentSelector;
+  config: ToolbarConfig;
+}
+
+export type ComponentSelector = 
+  | { id: string }
+  | { type: string }
+  | { tagName: string }
+  | { attributes: Record<string, any> }
+  | { custom: (component: Component) => boolean };

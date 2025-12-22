@@ -17,7 +17,7 @@
   "author": "",
   "license": "MIT",
   "scripts": {
-    "dev": "bun run server.ts",
+    "dev": "bun run local-server.ts",
     "server": "bun run server.ts",
     "build": "bun build index.ts --outdir=dist --target=node",
     "example": "bun run examples/basic-usage.ts",
@@ -25,7 +25,8 @@
     "test:api": "bun run examples/test-api.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "playwright": "^1.57.0"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -34,5 +35,8 @@
     "src",
     "index.ts",
     "README.md"
-  ]
+  ],
+  "dependencies": {
+    "modern-monaco": "^0.3.6"
+  }
 }

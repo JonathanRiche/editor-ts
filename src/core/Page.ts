@@ -1,7 +1,8 @@
-import type { PageData, PageBody, Component, Asset, Style } from '../types';
+import type { PageData, PageBody } from '../types';
 import { ComponentManager } from './ComponentManager';
 import { StyleManager } from './StyleManager';
 import { AssetManager } from './AssetManager';
+import { ToolbarManager } from './ToolbarManager';
 
 /**
  * Main class for managing page content
@@ -11,6 +12,7 @@ export class Page {
   public components: ComponentManager;
   public styles: StyleManager;
   public assets: AssetManager;
+  public toolbars: ToolbarManager;
 
   constructor(pageData: PageData | string) {
     if (typeof pageData === 'string') {
@@ -23,6 +25,7 @@ export class Page {
     this.components = new ComponentManager(this.data.body);
     this.styles = new StyleManager(this.data.body);
     this.assets = new AssetManager(this.data.body);
+    this.toolbars = new ToolbarManager();
   }
 
   /**

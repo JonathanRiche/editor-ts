@@ -25,6 +25,7 @@ export { Page } from './src/core/Page';
 export { ComponentManager } from './src/core/ComponentManager';
 export { StyleManager } from './src/core/StyleManager';
 export { AssetManager } from './src/core/AssetManager';
+export { ToolbarManager } from './src/core/ToolbarManager';
 
 // Type exports
 export type {
@@ -39,6 +40,10 @@ export type {
   UpdateOptions,
   SelectorObject,
   ParsedComponents,
+  ToolbarConfig,
+  ToolbarAction,
+  ToolbarRule,
+  ComponentSelector,
 } from './src/types';
 
 // Utility exports
@@ -59,3 +64,14 @@ export {
   isValidURL,
   extractDomain,
 } from './src/utils/helpers';
+
+// Toolbar exports
+export {
+  defaultToolbarActions,
+  defaultToolbarConfig,
+  createToolbarConfig,
+  mergeToolbarConfigs,
+  getEnabledActions,
+  findToolbarAction,
+  toolbarPresets,
+} from './src/utils/toolbar';
