@@ -26,6 +26,7 @@ export { ComponentManager } from './src/core/ComponentManager';
 export { StyleManager } from './src/core/StyleManager';
 export { AssetManager } from './src/core/AssetManager';
 export { ToolbarManager } from './src/core/ToolbarManager';
+export { init } from './src/core/init';
 
 // Type exports
 export type {
@@ -44,6 +45,10 @@ export type {
   ToolbarAction,
   ToolbarRule,
   ComponentSelector,
+  InitConfig,
+  ToolbarInitConfig,
+  UIConfig,
+  SuperTabEditor,
 } from './src/types';
 
 // Utility exports

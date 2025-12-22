@@ -100,3 +100,42 @@ export type ComponentSelector =
   | { tagName: string }
   | { attributes: Record<string, any> }
   | { custom: (component: Component) => boolean };
+
+export interface InitConfig {
+  containerId: string;
+  data: PageData | string;
+  toolbars?: ToolbarInitConfig;
+  ui?: UIConfig;
+  onComponentSelect?: (component: Component) => void;
+  onComponentEdit?: (component: Component) => void;
+  onComponentDelete?: (component: Component) => void;
+  onComponentDuplicate?: (component: Component, duplicate: Component) => void;
+}
+
+export interface ToolbarInitConfig {
+  byId?: Record<string, ToolbarConfig>;
+  byType?: Record<string, ToolbarConfig>;
+  byTag?: Record<string, ToolbarConfig>;
+  default?: ToolbarConfig;
+}
+
+export interface UIConfig {
+  showSidebar?: boolean;
+  sidebarWidth?: number;
+  showStats?: boolean;
+}
+
+export interface SuperTabEditor {
+  page: any; // Page class (avoid circular dependency)
+  on(event: string, callback: Function): void;
+  off(event: string, callback: Function): void;
+  refresh(): void;
+  save(): string;
+  destroy(): void;
+  elements: {
+    container: HTMLElement;
+    sidebar?: HTMLElement;
+    canvas: HTMLElement;
+    iframe: HTMLIFrameElement;
+  };
+}
