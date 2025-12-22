@@ -1,4 +1,7 @@
+
 # EditorTs
+
+DO NOT USE THIS IN PRODUCTION YET IT IS A WORK IN PROGRESS - EARLY DEVELOPMENT
 
 A powerful TypeScript library for editing HTML content while maintaining its structure in a JSON representation. EditorTs provides a simple `init()` function to create a fully-functional WYSIWYG editor with minimal configuration.
 
