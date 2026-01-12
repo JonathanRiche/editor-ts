@@ -4,6 +4,7 @@
  */
 
 import { Page } from './Page';
+import { LayerManager } from './LayerManager';
 import type { InitConfig, EditorTsEditor, Component } from '../types';
 
 /**
@@ -79,6 +80,50 @@ export function init(config: InitConfig): EditorTsEditor {
   const selectedInfoContainer = config.ui?.selectedInfo?.containerId
     ? document.getElementById(config.ui.selectedInfo.containerId)
     : null;
+
+  const layersContainer = config.ui?.layers?.containerId
+    ? document.getElementById(config.ui.layers.containerId)
+    : null;
+
+  // Initialize layer manager if container provided
+  let layerManager: LayerManager | null = null;
+  if (layersContainer && config.ui?.layers?.enabled !== false) {
+    layerManager = new LayerManager({
+      container: layersContainer,
+      onSelect: (component) => {
+        // Notify iframe to select this component
+        const id = component.attributes?.id;
+        if (id) {
+          iframe.contentWindow?.postMessage({
+            type: 'editorts:selectComponent',
+            id: id
+          }, '*');
+        }
+        
+        // Emit event
+        emit('componentSelect', component);
+        if (config.onComponentSelect) {
+          config.onComponentSelect(component);
+        }
+      },
+      onReorder: (componentId, newParentId, newIndex) => {
+        // Reorder in component manager
+        page.components.moveComponent(componentId, newParentId, newIndex);
+        
+        // Emit event
+        const component = page.components.findById(componentId);
+        if (component) {
+          emit('componentReorder', component, newParentId, newIndex);
+        }
+        
+        // Refresh iframe
+        refresh();
+      }
+    });
+    
+    // Initial render
+    layerManager.update(page.components.getAll());
+  }
 
   // Populate stats if container provided
   if (statsContainer && config.ui?.stats?.enabled !== false) {
@@ -445,12 +490,20 @@ ${page.getHTML()}
     }, '*');
   }
 
-  // Listen for toolbar config from parent
+  // Listen for messages from parent
   window.addEventListener('message', (event) => {
     if (event.data.type === 'editorts:toolbarConfig') {
       renderToolbar(event.data.config, event.data.elementId);
     } else if (event.data.type === 'editorts:toolbarAction') {
       handleToolbarAction(event.data.action, event.data.elementId);
+    } else if (event.data.type === 'editorts:selectComponent') {
+      // Select component from layer panel
+      const el = document.getElementById(event.data.id);
+      if (el) {
+        selectElement(el);
+        // Scroll element into view
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     }
   });
 
@@ -511,6 +564,11 @@ ${page.getHTML()}
             <div><strong>ID:</strong> ${event.data.id}</div>
             <div><strong>Tag:</strong> ${event.data.tagName}</div>
           `;
+        }
+
+        // Sync layer panel selection
+        if (layerManager) {
+          layerManager.setSelected(event.data.id);
         }
 
         // Emit event
@@ -644,9 +702,12 @@ ${page.getHTML()}
     }
   }
 
-  // Refresh iframe
+  // Refresh iframe and layer panel
   function refresh() {
     iframe.srcdoc = iframeContent;
+    if (layerManager) {
+      layerManager.update(page.components.getAll());
+    }
   }
 
   // Save page data
@@ -660,6 +721,7 @@ ${page.getHTML()}
     if (sidebarContainer) sidebarContainer.innerHTML = '';
     if (statsContainer) statsContainer.innerHTML = '';
     if (selectedInfoContainer) selectedInfoContainer.innerHTML = '';
+    if (layerManager) layerManager.destroy();
     
     Object.keys(eventListeners).forEach(key => {
       eventListeners[key] = [];

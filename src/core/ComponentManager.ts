@@ -244,4 +244,101 @@ export class ComponentManager {
   replaceAll(components: Component[]): void {
     this.parsedComponents = components;
   }
+
+  /**
+   * Move a component to a new position
+   * @param componentId - The ID of the component to move
+   * @param newParentId - The ID of the new parent (null for root level)
+   * @param newIndex - The index position within the new parent
+   */
+  moveComponent(componentId: string, newParentId: string | null, newIndex: number): boolean {
+    // Find and remove the component from its current location
+    const component = this.findById(componentId);
+    if (!component) return false;
+
+    // Remove from current location
+    if (!this.removeComponent(componentId)) return false;
+
+    // Add to new location
+    if (newParentId === null) {
+      // Move to root level
+      const insertIndex = Math.min(newIndex, this.parsedComponents.length);
+      this.parsedComponents.splice(insertIndex, 0, component);
+    } else {
+      // Move to a parent component
+      const parent = this.findById(newParentId);
+      if (!parent) {
+        // Restore component to root if parent not found
+        this.parsedComponents.push(component);
+        return false;
+      }
+      
+      if (!parent.components) {
+        parent.components = [];
+      }
+      
+      const insertIndex = Math.min(newIndex, parent.components.length);
+      parent.components.splice(insertIndex, 0, component);
+    }
+
+    return true;
+  }
+
+  /**
+   * Reorder a component within its current parent
+   * @param componentId - The ID of the component to reorder
+   * @param newIndex - The new index position
+   */
+  reorderComponent(componentId: string, newIndex: number): boolean {
+    // Find the parent that contains this component
+    const result = this.findParentAndIndex(componentId);
+    if (!result) return false;
+
+    const { parent, index } = result;
+    const components = parent ? parent.components! : this.parsedComponents;
+    
+    // Remove from current position
+    const [component] = components.splice(index, 1);
+    
+    // Insert at new position (adjust for removal)
+    const adjustedIndex = newIndex > index ? newIndex - 1 : newIndex;
+    const insertIndex = Math.min(Math.max(0, adjustedIndex), components.length);
+    components.splice(insertIndex, 0, component!);
+
+    return true;
+  }
+
+  /**
+   * Find the parent component and index of a component
+   */
+  private findParentAndIndex(componentId: string): { parent: Component | null; index: number } | null {
+    // Check root level
+    for (let i = 0; i < this.parsedComponents.length; i++) {
+      if (this.parsedComponents[i]?.attributes?.id === componentId) {
+        return { parent: null, index: i };
+      }
+    }
+
+    // Search recursively
+    return this.findParentAndIndexInTree(this.parsedComponents, componentId);
+  }
+
+  /**
+   * Recursively search for parent and index
+   */
+  private findParentAndIndexInTree(components: Component[], componentId: string): { parent: Component | null; index: number } | null {
+    for (const component of components) {
+      if (component.components) {
+        for (let i = 0; i < component.components.length; i++) {
+          if (component.components[i]?.attributes?.id === componentId) {
+            return { parent: component, index: i };
+          }
+        }
+        // Search deeper
+        const result = this.findParentAndIndexInTree(component.components, componentId);
+        if (result) return result;
+      }
+    }
+    return null;
+  }
 }

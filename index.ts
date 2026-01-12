@@ -26,6 +26,7 @@ export { ComponentManager } from './src/core/ComponentManager';
 export { StyleManager } from './src/core/StyleManager';
 export { AssetManager } from './src/core/AssetManager';
 export { ToolbarManager } from './src/core/ToolbarManager';
+export { LayerManager } from './src/core/LayerManager';
 export { init } from './src/core/init';
 
 // Type exports
@@ -48,7 +49,10 @@ export type {
   InitConfig,
   ToolbarInitConfig,
   EditorTsEditor,
+  ImageFileInfo,
 } from './src/types';
+
+export type { LayerManagerConfig } from './src/core/LayerManager';
 
 // Utility exports
 export {

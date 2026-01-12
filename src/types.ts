@@ -126,6 +126,10 @@ export interface InitConfig {
       containerId?: string;  // Where to render selected component info (optional)
       enabled?: boolean;
     };
+    layers?: {
+      containerId?: string;  // Where to render layer panel (optional)
+      enabled?: boolean;
+    };
   };
 
   // Optional: event callbacks
