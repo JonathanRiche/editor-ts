@@ -485,6 +485,22 @@ When adding a new feature:
    - The user is actively editing files - check recent changes before suggesting additions
    - Example: If user removed a save button, don't re-introduce it
 
+7. **Type Safety Rules (No `any`)**
+   - Do not introduce `any` in library code or public types.
+   - Prefer SDK-provided types (e.g. OpenCode SDK `OpencodeClient`, `ServerOptions`) over custom `any` shapes.
+   - Use `unknown` for truly dynamic values and narrow before use.
+   - Keep `catch` variables as `unknown` and format/log messages safely.
+
+8. **Error Handling Rules**
+   - Do not throw an error you just caught.
+   - If a low-level helper fails and a fallback exists (e.g. Monaco → textarea), handle it in the caller and return the fallback.
+
+9. **Dependency Rules**
+   - Do not add new dependencies/polyfills without explicit approval.
+
+10. **Quickstart Rule**
+   - When a task adds user-facing functionality, wire it into `index.html` + `examples/quickstart.ts` so it can be tested immediately.
+
 ---
 
 **This principle applies to ALL future features in EditorTs.**

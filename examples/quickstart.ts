@@ -3,7 +3,7 @@
  * User controls the layout in index.html, init() populates it
  */
 
-import { init, type PageData } from '../index';
+import { init, type PageData, type Component } from '../index';
 import sampleData from '../samples/page_template.json';
 
 console.log('QuickStart script loaded');
@@ -30,7 +30,7 @@ const editor = init({
   iframeId: 'preview-iframe',
 
   // Required: Page data (clean JSON)
-  data: sampleData as any,
+  data: sampleData as unknown as PageData,
 
   // Optional: Configure toolbars (runtime only, NOT saved to JSON)
   toolbars: {
@@ -116,7 +116,7 @@ const editor = init({
   },
 
   // Optional: Event callbacks
-  onComponentSelect: (component: any) => {
+  onComponentSelect: (component: Component) => {
     console.log('🎯 Selected:', component.attributes?.id);
 
     // Show selected section
@@ -126,17 +126,17 @@ const editor = init({
     }
   },
 
-  onComponentEdit: (component: any) => {
+  onComponentEdit: (component: Component) => {
     console.log('✏️ Edit:', component.attributes?.id);
     alert(`Edit component: ${component.attributes?.id}`);
   },
 
-  onComponentDuplicate: (original: any, duplicate: any) => {
+  onComponentDuplicate: (original: Component, duplicate: Component) => {
     console.log('📋 Duplicated:', original.attributes?.id, '→', duplicate.attributes?.id);
     alert(`Duplicated!\nNew ID: ${duplicate.attributes?.id}`);
   },
 
-  onComponentDelete: (component: any) => {
+  onComponentDelete: (component: Component) => {
     console.log('🗑️ Deleted:', component.attributes?.id);
     alert(`Deleted: ${component.attributes?.id}`);
 
@@ -155,7 +155,7 @@ console.log('📄 Page title:', editor.page.getTitle());
 console.log('📊 Total components:', editor.page.components.count());
 
 // Add custom event listener
-editor.on('componentSelect', (component: any) => {
+editor.on('componentSelect', (component) => {
   console.log('Custom handler:', component.attributes?.id);
 });
 
@@ -180,10 +180,10 @@ if (aiHealthButton && aiHealthStatus) {
 
     try {
       const client = await editor.ai.getClient();
-      const health = await client.global.health();
-      aiHealthStatus.textContent = JSON.stringify(health.data ?? health, null, 2);
-    } catch (err) {
-      aiHealthStatus.textContent = (err as Error).message;
+      const result = await client.config.get();
+      aiHealthStatus.textContent = JSON.stringify(result.data ?? result, null, 2);
+    } catch (err: unknown) {
+      aiHealthStatus.textContent = err instanceof Error ? err.message : String(err);
     }
   });
 }

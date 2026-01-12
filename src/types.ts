@@ -2,6 +2,14 @@
  * Core type definitions for the HTML content editing library
  */
 
+import type { OpencodeClient, ServerOptions } from '@opencode-ai/sdk';
+import type { Page } from './core/Page';
+import type { StorageManager } from './core/StorageManager';
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[] | Component;
+export type JsonObject = { [key: string]: JsonValue };
+
 export interface PageData {
   title: string;
   item_id: number;
@@ -29,11 +37,13 @@ export interface OpencodeAiProviderConfig {
   baseUrl?: string;
 
   // Client+server mode
-  hostname?: string;
-  port?: number;
+  hostname?: ServerOptions['hostname'];
+  port?: ServerOptions['port'];
+  signal?: ServerOptions['signal'];
+  timeout?: ServerOptions['timeout'];
 
   // opencode config overrides
-  config?: any;
+  config?: ServerOptions['config'];
 }
 
 export type AiProviderConfig =
@@ -45,7 +55,7 @@ export interface EditorTsAiModule {
   mode: AiProviderMode;
 
   /** Lazily resolves to an opencode client */
-  getClient(): Promise<any>;
+  getClient(): Promise<OpencodeClient>;
 
   /** Returns current server URL/baseUrl if known */
   getUrl(): string | null;
@@ -62,16 +72,22 @@ export interface PageBody {
   styles: Style[];
 }
 
+export type ComponentAttributes = JsonObject & {
+  id?: string;
+  class?: string;
+  src?: string;
+};
+
 export interface Component {
   type: string;
-  attributes?: Record<string, any>;
+  attributes?: ComponentAttributes;
   components?: Component[];
   tagName?: string;
   void?: boolean;
   style?: string;
   script?: string;
-  content?: string;  // Text content for the component
-  [key: string]: any;
+  content?: string; // Text content for the component
+  [key: string]: JsonValue | undefined;
 }
 
 export interface ToolbarConfig {
@@ -121,7 +137,7 @@ export interface ParsedComponents {
 export interface ComponentQuery {
   id?: string;
   type?: string;
-  attributes?: Record<string, any>;
+  attributes?: Record<string, JsonValue>;
   tagName?: string;
 }
 
@@ -145,7 +161,7 @@ export type ComponentSelector =
   | { id: string }
   | { type: string }
   | { tagName: string }
-  | { attributes: Record<string, any> }
+  | { attributes: Record<string, JsonValue> }
   | { custom: (component: Component) => boolean };
 
 export interface InitConfig {
@@ -278,12 +294,38 @@ export interface ToolbarInitConfig {
   default?: ToolbarConfig;
 }
 
+export interface EditorTsEventMap {
+  componentSelect: [component: Component];
+  componentReorder: [component: Component, newParentId: string | null, newIndex: number];
+
+  componentEdit: [component: Component];
+  componentEditJS: [component: Component];
+  componentDuplicate: [original: Component, duplicate: Component];
+  componentDelete: [component: Component];
+
+  pageEditCSS: [body: PageBody];
+  pageEditJSON: [body: PageBody];
+
+  pageSaved: [key: string];
+  pageLoaded: [key: string];
+
+  textEditStart: [component: Component];
+  textUpdate: [component: Component, newContent: string, originalContent: string];
+  textEditEnd: [component: Component, saved: boolean];
+
+  imageEditStart: [component: Component, currentSrc: string];
+  imageUpdate: [component: Component, newSrc: string, originalSrc: string, fileInfo: ImageFileInfo];
+  imageEditEnd: [component: Component, saved: boolean];
+}
+
+export type EditorTsEventName = keyof EditorTsEventMap;
+
 export interface EditorTsEditor {
-  page: any; // Page class (avoid circular dependency)
-  storage: any; // StorageManager instance
+  page: Page;
+  storage: StorageManager;
   ai?: EditorTsAiModule;
-  on(event: string, callback: Function): void;
-  off(event: string, callback: Function): void;
+  on<K extends EditorTsEventName>(event: K, callback: (...args: EditorTsEventMap[K]) => void): void;
+  off<K extends EditorTsEventName>(event: K, callback: (...args: EditorTsEventMap[K]) => void): void;
   refresh(): void;
   save(): string;
   /** Save page to storage */

@@ -6,7 +6,7 @@
 import { Page } from './Page';
 import { LayerManager } from './LayerManager';
 import { StorageManager } from './StorageManager';
-import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode } from '../types';
+import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName } from '../types';
 
 /**
  * Initialize EditorTs Editor
@@ -19,11 +19,12 @@ export function init(config: InitConfig): EditorTsEditor {
     throw new Error(`Iframe element #${config.iframeId} not found or is not an iframe`);
   }
 
-  const isMultiPageData = (data: any): data is MultiPageData => {
-    return !!data && typeof data === 'object' && Array.isArray(data.pages);
+  const isMultiPageData = (data: PageData | MultiPageData): data is MultiPageData => {
+    return !!data && typeof data === 'object' && Array.isArray((data as MultiPageData).pages);
   };
 
-  const rawData = typeof config.data === 'string' ? JSON.parse(config.data) : config.data;
+  const rawData: PageData | MultiPageData =
+    typeof config.data === 'string' ? (JSON.parse(config.data) as PageData | MultiPageData) : config.data;
   let multiPageData: MultiPageData | null = null;
   let activePageIndex = 0;
 
@@ -69,36 +70,37 @@ export function init(config: InitConfig): EditorTsEditor {
   }
 
   // Event system
-  const eventListeners: Record<string, Function[]> = {};
+  type AnyEditorEventArgs = EditorTsEventMap[EditorTsEventName];
+  type AnyEditorEventCallback = (...args: AnyEditorEventArgs) => void;
 
-  const on = (event: string, callback: Function) => {
+  const eventListeners: Partial<Record<EditorTsEventName, AnyEditorEventCallback[]>> = {};
+
+  const on = <K extends EditorTsEventName>(event: K, callback: (...args: EditorTsEventMap[K]) => void) => {
     if (!eventListeners[event]) {
       eventListeners[event] = [];
     }
-    eventListeners[event]!.push(callback);
+    eventListeners[event]!.push(callback as AnyEditorEventCallback);
   };
 
-  const off = (event: string, callback: Function) => {
+  const off = <K extends EditorTsEventName>(event: K, callback: (...args: EditorTsEventMap[K]) => void) => {
     if (eventListeners[event]) {
-      eventListeners[event] = eventListeners[event]!.filter(cb => cb !== callback);
+      eventListeners[event] = eventListeners[event]!.filter((cb) => cb !== (callback as AnyEditorEventCallback));
     }
   };
 
-  const emit = (event: string, ...args: any[]) => {
-    if (eventListeners[event]) {
-      eventListeners[event]!.forEach(callback => callback(...args));
-    }
+  const emit = <K extends EditorTsEventName>(event: K, ...args: EditorTsEventMap[K]) => {
+    eventListeners[event]?.forEach((callback) => callback(...(args as AnyEditorEventArgs)));
   };
 
   // Get optional UI containers
-  const sidebarContainer = config.ui?.sidebar?.containerId 
-    ? document.getElementById(config.ui.sidebar.containerId) 
+  const sidebarContainer = config.ui?.sidebar?.containerId
+    ? document.getElementById(config.ui.sidebar.containerId)
     : null;
-  
+
   const statsContainer = config.ui?.stats?.containerId
     ? document.getElementById(config.ui.stats.containerId)
     : null;
-  
+
   const selectedInfoContainer = config.ui?.selectedInfo?.containerId
     ? document.getElementById(config.ui.selectedInfo.containerId)
     : null;
@@ -197,7 +199,7 @@ export function init(config: InitConfig): EditorTsEditor {
             id: id
           }, '*');
         }
-        
+
         // Emit event
         emit('componentSelect', component);
         if (config.onComponentSelect) {
@@ -207,18 +209,18 @@ export function init(config: InitConfig): EditorTsEditor {
       onReorder: (componentId, newParentId, newIndex) => {
         // Reorder in component manager
         page.components.moveComponent(componentId, newParentId, newIndex);
-        
+
         // Emit event
         const component = page.components.findById(componentId);
         if (component) {
           emit('componentReorder', component, newParentId, newIndex);
         }
-        
+
         // Refresh iframe
         refresh();
       }
     });
-    
+
     // Initial render
     layerManager.update(page.components.getAll());
   }
@@ -242,15 +244,14 @@ export function init(config: InitConfig): EditorTsEditor {
   let ai: EditorTsAiModule | undefined;
 
   if (config.aiProvider?.provider === 'opencode') {
-    const aiConfig = config.aiProvider as OpencodeAiProviderConfig;
+    const aiConfig: OpencodeAiProviderConfig = config.aiProvider;
     const mode: AiProviderMode = aiConfig.mode ?? 'client';
 
-    let server: { url?: string; close?: () => void } | null = null;
-    let clientPromise: Promise<any> | null = null;
+    let server: { url: string; close(): void } | null = null;
+    let clientPromise: Promise<import('@opencode-ai/sdk').OpencodeClient> | null = null;
 
-    const loadSdk = async () => {
-      const mod: any = await import('@opencode-ai/sdk');
-      return mod;
+    const loadSdk = async (): Promise<typeof import('@opencode-ai/sdk')> => {
+      return import('@opencode-ai/sdk');
     };
 
     ai = {
@@ -277,6 +278,8 @@ export function init(config: InitConfig): EditorTsEditor {
             const opencode = await sdk.createOpencode({
               hostname: aiConfig.hostname,
               port: aiConfig.port,
+              signal: aiConfig.signal,
+              timeout: aiConfig.timeout,
               config: aiConfig.config ?? {},
             });
 
@@ -335,21 +338,19 @@ export function init(config: InitConfig): EditorTsEditor {
     };
   }
 
-  let modernMonacoInitPromise: Promise<any> | null = null;
+  type ModernMonacoModule = typeof import('modern-monaco');
+  type ModernMonaco = Awaited<ReturnType<ModernMonacoModule['init']>>;
 
-  async function loadModernMonaco(): Promise<any> {
+  let modernMonacoInitPromise: Promise<ModernMonaco> | null = null;
+
+  async function loadModernMonaco(): Promise<ModernMonaco> {
     if (!modernMonacoInitPromise) {
-      modernMonacoInitPromise = import('modern-monaco')
-        .then((mod: any) => {
-          if (!mod?.init) {
-            throw new Error('modern-monaco missing init() export');
-          }
-          return mod.init();
-        })
-        .catch((err) => {
-          modernMonacoInitPromise = null;
-          throw err;
-        });
+      modernMonacoInitPromise = import('modern-monaco').then((mod) => {
+        if (typeof mod.init !== 'function') {
+          throw new Error('modern-monaco missing init() export');
+        }
+        return mod.init();
+      });
     }
 
     return modernMonacoInitPromise;
@@ -412,8 +413,10 @@ export function init(config: InitConfig): EditorTsEditor {
     if (codeEditorProvider === 'modern-monaco') {
       try {
         return await createModernMonacoCodeEditor(host, initialValue, language);
-      } catch (err) {
-        console.warn('Failed to load modern-monaco; falling back to textarea:', err);
+      } catch (err: unknown) {
+        modernMonacoInitPromise = null;
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn('Failed to load modern-monaco; falling back to textarea:', message);
         return createTextareaCodeEditor(host, initialValue);
       }
     }
@@ -1150,7 +1153,7 @@ ${page.getHTML()}
       const errorEl = jsonEditorContainer.querySelector('[data-editorts-field="json-error"]') as HTMLElement | null;
 
       try {
-        const next = JSON.parse(jsonEditor.getValue());
+        const next = JSON.parse(jsonEditor.getValue()) as PageData | MultiPageData;
 
         const toolbarRuntimeConfig = page.toolbars.exportConfig();
 
@@ -1177,10 +1180,12 @@ ${page.getHTML()}
         }
 
         refresh();
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+
         if (errorEl) {
           errorEl.style.display = 'block';
-          errorEl.textContent = err?.message || String(err);
+          errorEl.textContent = message;
         }
       }
     });
@@ -1260,7 +1265,7 @@ ${page.getHTML()}
       if (component) {
         // Update the component's text content
         page.components.updateTextContent(event.data.id, event.data.content);
-        
+
         emit('textUpdate', component, event.data.content, event.data.originalContent);
         if (config.onTextUpdate) {
           config.onTextUpdate(component, event.data.content, event.data.originalContent);
@@ -1287,13 +1292,13 @@ ${page.getHTML()}
       if (component) {
         // Update the component's image src
         page.components.updateImageSrc(event.data.id, event.data.src);
-        
+
         const fileInfo = {
           fileName: event.data.fileName,
           fileType: event.data.fileType,
           fileSize: event.data.fileSize
         };
-        
+
         emit('imageUpdate', component, event.data.src, event.data.originalSrc, fileInfo);
         if (config.onImageUpdate) {
           config.onImageUpdate(component, event.data.src, event.data.originalSrc, fileInfo);
@@ -1434,23 +1439,23 @@ ${page.getHTML()}
         clone.attributes = clone.attributes || {};
         clone.attributes.id = elementId + '-copy-' + Date.now();
         page.components.addComponent(clone);
-        
+
         emit('componentDuplicate', component, clone);
         if (config.onComponentDuplicate) {
           config.onComponentDuplicate(component, clone);
         }
-        
+
         refresh();
         break;
 
       case 'delete':
         page.components.removeComponent(elementId);
-        
+
         emit('componentDelete', component);
         if (config.onComponentDelete) {
           config.onComponentDelete(component);
         }
-        
+
         // Notify iframe to remove element
         iframe.contentWindow?.postMessage({
           type: 'editorts:toolbarAction',
@@ -1550,8 +1555,8 @@ ${page.getHTML()}
     if (cssEditorContainer) cssEditorContainer.innerHTML = '';
     if (jsonEditorContainer) jsonEditorContainer.innerHTML = '';
     if (layerManager) layerManager.destroy();
-    
-    Object.keys(eventListeners).forEach(key => {
+
+    (Object.keys(eventListeners) as EditorTsEventName[]).forEach((key) => {
       eventListeners[key] = [];
     });
   }
