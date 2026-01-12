@@ -92,6 +92,11 @@ const editor = init({
         enabled: true,
       },
     },
+    viewTabs: {
+      editorButtonId: 'tab-editor',
+      codeButtonId: 'tab-code',
+      defaultView: 'editor',
+    },
   },
 
   // Optional: built-in editor provider.

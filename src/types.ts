@@ -149,6 +149,18 @@ export interface InitConfig {
         enabled?: boolean;
       };
     };
+
+    /**
+     * Optional: wire UI tabs to toggle between canvas (iframe) and code panels.
+     *
+     * This does not create any UI; it only attaches click handlers to your
+     * existing buttons and toggles visibility/dataset state.
+     */
+    viewTabs?: {
+      editorButtonId?: string;
+      codeButtonId?: string;
+      defaultView?: 'editor' | 'code';
+    };
   };
 
   // Optional: built-in code editor provider

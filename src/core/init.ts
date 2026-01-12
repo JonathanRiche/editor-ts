@@ -120,6 +120,69 @@ export function init(config: InitConfig): EditorTsEditor {
     ? document.getElementById(config.ui.editors.json.containerId)
     : null;
 
+  // Optional: tabbed view toggle between canvas + code panels
+  // This does not create UI; it only wires existing buttons.
+  let setView: ((view: 'editor' | 'code') => void) | null = null;
+
+  const viewTabs = config.ui?.viewTabs;
+  if (viewTabs) {
+    const codeViewContainers = [jsEditorContainer, cssEditorContainer, jsonEditorContainer]
+      .filter(Boolean) as HTMLElement[];
+
+    const originalDisplayByEl = new Map<HTMLElement, string>();
+    codeViewContainers.forEach((el) => originalDisplayByEl.set(el, el.style.display));
+    const originalIframeDisplay = iframe.style.display;
+
+    const editorButton = viewTabs.editorButtonId
+      ? (document.getElementById(viewTabs.editorButtonId) as HTMLButtonElement | null)
+      : null;
+
+    const codeButton = viewTabs.codeButtonId
+      ? (document.getElementById(viewTabs.codeButtonId) as HTMLButtonElement | null)
+      : null;
+
+    setView = (view: 'editor' | 'code') => {
+      document.documentElement.dataset.editortsView = view;
+
+      editorButton?.classList.toggle('active', view === 'editor');
+      editorButton?.setAttribute('aria-pressed', String(view === 'editor'));
+      codeButton?.classList.toggle('active', view === 'code');
+      codeButton?.setAttribute('aria-pressed', String(view === 'code'));
+
+      if (view === 'code') {
+        iframe.style.display = 'none';
+        codeViewContainers.forEach((el) => {
+          const original = originalDisplayByEl.get(el);
+          el.style.display = original ?? '';
+        });
+      } else {
+        iframe.style.display = originalIframeDisplay ?? '';
+        codeViewContainers.forEach((el) => {
+          el.style.display = 'none';
+        });
+      }
+    };
+
+    if (viewTabs.editorButtonId) {
+      if (editorButton) {
+        editorButton.addEventListener('click', () => setView?.('editor'));
+      } else {
+        console.warn(`EditorTs: editorButtonId element #${viewTabs.editorButtonId} not found`);
+      }
+    }
+
+    if (viewTabs.codeButtonId) {
+      if (codeButton) {
+        codeButton.addEventListener('click', () => setView?.('code'));
+      } else {
+        console.warn(`EditorTs: codeButtonId element #${viewTabs.codeButtonId} not found`);
+      }
+    }
+
+    // Default to the canvas unless configured otherwise.
+    setView(viewTabs.defaultView ?? 'editor');
+  }
+
   // Initialize layer manager if container provided
   let layerManager: LayerManager | null = null;
   if (layersContainer && config.ui?.layers?.enabled !== false) {
@@ -827,7 +890,10 @@ ${page.getHTML()}
           <button data-editorts-action="save-js" type="button">Save</button>
         </div>
         <div data-editorts-field="js-status" style="font-size:0.85rem; opacity:0.8;">Select a component to edit its script</div>
-        <div data-editorts-field="js-editor"></div>
+        <div style="display:flex; gap:0.75rem; align-items:stretch;">
+          <div data-editorts-field="js-files" style="width:12rem; border:1px solid rgba(0,0,0,0.1); border-radius:6px; padding:0.5rem; overflow:auto; max-height:18rem;"></div>
+          <div style="flex:1; min-width:0;" data-editorts-field="js-editor"></div>
+        </div>
       </div>
     `;
   }
@@ -913,6 +979,64 @@ ${page.getHTML()}
     }
   }
 
+  function renderJsFileList() {
+    if (!shouldEnableJsEditor || !jsEditorContainer) return;
+
+    const host = jsEditorContainer.querySelector('[data-editorts-field="js-files"]') as HTMLElement | null;
+    if (!host) return;
+
+    host.innerHTML = '';
+
+    const collectIds = (components: Component[], out: string[]) => {
+      components.forEach((component) => {
+        const id = typeof component.attributes?.id === 'string' ? component.attributes.id : null;
+        if (id) out.push(id);
+        if (component.components && component.components.length > 0) {
+          collectIds(component.components, out);
+        }
+      });
+    };
+
+    const ids: string[] = [];
+    collectIds(page.components.getAll(), ids);
+    const uniqueIds = Array.from(new Set(ids));
+
+    if (uniqueIds.length === 0) {
+      host.textContent = 'No components with ids';
+      return;
+    }
+
+    uniqueIds.forEach((id) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = id;
+      btn.style.display = 'block';
+      btn.style.width = '100%';
+      btn.style.textAlign = 'left';
+      btn.style.padding = '0.25rem 0.5rem';
+      btn.style.border = 'none';
+      btn.style.borderRadius = '4px';
+      btn.style.background = id === selectedComponentId ? 'rgba(16,185,129,0.15)' : 'transparent';
+      btn.style.cursor = 'pointer';
+
+      btn.addEventListener('click', () => {
+        const component = page.components.findById(id);
+        if (!component) return;
+
+        // Keep canvas + layers selection in sync
+        iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
+        layerManager?.setSelected(id);
+
+        void ensureJsEditorReadyFor(component).then(() => {
+          renderJsFileList();
+          jsEditor?.focus();
+        });
+      });
+
+      host.appendChild(btn);
+    });
+  }
+
   // Wire Save buttons
   if (shouldEnableCssEditor && cssEditorContainer) {
     const btn = cssEditorContainer.querySelector('[data-editorts-action="save-css"]') as HTMLButtonElement | null;
@@ -989,6 +1113,7 @@ ${page.getHTML()}
   void ensureCssEditorReady();
   void ensureJsonEditorReady();
   void ensureJsEditorReadyFor(null);
+  renderJsFileList();
 
   // Handle messages from iframe
   window.addEventListener('message', (event) => {
@@ -997,6 +1122,7 @@ ${page.getHTML()}
       if (component) {
         // Update JS editor panel (if enabled)
         void ensureJsEditorReadyFor(component);
+        renderJsFileList();
 
         // Update selected info container if provided
         if (selectedInfoContainer && config.ui?.selectedInfo?.enabled !== false) {
@@ -1210,16 +1336,19 @@ ${page.getHTML()}
 
       case 'editJS':
         emit('componentEditJS', component);
+        setView?.('code');
         void ensureJsEditorReadyFor(component).then(() => jsEditor?.focus());
         break;
 
       case 'editCSS':
         emit('pageEditCSS', page.getBody());
+        setView?.('code');
         void ensureCssEditorReady().then(() => cssEditor?.focus());
         break;
 
       case 'editJSON':
         emit('pageEditJSON', page.getBody());
+        setView?.('code');
         void ensureJsonEditorReady().then(() => jsonEditor?.focus());
         break;
 
@@ -1269,6 +1398,7 @@ ${page.getHTML()}
 
     const selected = selectedComponentId ? page.components.findById(selectedComponentId) : null;
     void ensureJsEditorReadyFor(selected);
+    renderJsFileList();
   }
 
   // Initialize storage manager
