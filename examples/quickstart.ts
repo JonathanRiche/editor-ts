@@ -38,6 +38,8 @@ const editor = init({
         actions: [
           { id: 'edit', label: 'Edit', icon: '✏️', enabled: true },
           { id: 'editJS', label: 'Edit JS', icon: '📜', enabled: true },
+          { id: 'editCSS', label: 'Edit CSS', icon: '🎨', enabled: true },
+          { id: 'editJSON', label: 'Edit JSON', icon: '🧱', enabled: true },
           { id: 'duplicate', label: 'Duplicate', icon: '📋', enabled: true },
           { id: 'delete', label: 'Delete', icon: '🗑️', enabled: false, danger: true },
         ]
@@ -75,7 +77,27 @@ const editor = init({
     layers: {
       containerId: 'layers-container',
       enabled: true
-    }
+    },
+    editors: {
+      js: {
+        containerId: 'js-editor-container',
+        enabled: true,
+      },
+      css: {
+        containerId: 'css-editor-container',
+        enabled: true,
+      },
+      json: {
+        containerId: 'json-editor-container',
+        enabled: true,
+      },
+    },
+  },
+
+  // Optional: built-in editor provider.
+  // Note: 'modern-monaco' requires the host app to install modern-monaco.
+  codeEditor: {
+    provider: 'modern-monaco',
   },
 
   // Optional: Event callbacks
