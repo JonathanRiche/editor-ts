@@ -225,6 +225,25 @@ ${page.getHTML()}
   let imageEditTarget = null;
   let fileInput = null;
 
+  // Double-tap detection for mobile
+  const doubleTapDelay = 300; // ms
+  let lastTapTime = 0;
+  let lastTapElement = null;
+
+  // Detect if device supports touch
+  const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+  // Handle double-tap/double-click to edit
+  function handleDoubleAction(el) {
+    // Check if this is an image element or contains an image
+    const imgElement = getImageElement(el);
+    if (imgElement) {
+      startImageEdit(el, imgElement);
+    } else {
+      startTextEdit(el);
+    }
+  }
+
   // Initialize WYSIWYG
   function initWYSIWYG() {
     // Create hidden file input for image uploads
@@ -247,19 +266,33 @@ ${page.getHTML()}
         selectElement(el);
       });
 
-      // Double-click to edit (text or image)
+      // Double-click to edit (text or image) - desktop
       el.addEventListener('dblclick', (e) => {
         e.stopPropagation();
         e.preventDefault();
-        
-        // Check if this is an image element or contains an image
-        const imgElement = getImageElement(el);
-        if (imgElement) {
-          startImageEdit(el, imgElement);
-        } else {
-          startTextEdit(el);
-        }
+        handleDoubleAction(el);
       });
+
+      // Double-tap to edit - mobile/touch
+      if (isTouchDevice) {
+        el.addEventListener('touchend', (e) => {
+          const currentTime = Date.now();
+          const tapLength = currentTime - lastTapTime;
+          
+          if (lastTapElement === el && tapLength < doubleTapDelay && tapLength > 0) {
+            // Double tap detected
+            e.preventDefault();
+            e.stopPropagation();
+            handleDoubleAction(el);
+            lastTapTime = 0;
+            lastTapElement = null;
+          } else {
+            // First tap - record it
+            lastTapTime = currentTime;
+            lastTapElement = el;
+          }
+        }, { passive: false });
+      }
     });
   }
 
@@ -381,14 +414,28 @@ ${page.getHTML()}
     el.classList.remove('editorts-selected');
     el.classList.add('editorts-editing');
     el.contentEditable = 'true';
-    el.focus();
-
-    // Select all text for easy replacement
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    selection.removeAllRanges();
-    selection.addRange(range);
+    
+    // Focus the element - use setTimeout for mobile to ensure keyboard appears
+    // Mobile browsers sometimes need a small delay after touch events
+    if (isTouchDevice) {
+      setTimeout(() => {
+        el.focus();
+        // On iOS, we need to explicitly set selection to trigger keyboard
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }, 10);
+    } else {
+      el.focus();
+      // Select all text for easy replacement
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
 
     // Notify parent
     window.parent.postMessage({
