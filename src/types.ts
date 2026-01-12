@@ -13,6 +13,47 @@ export interface MultiPageData {
   activePageIndex?: number;
 }
 
+export type AiProviderType = 'disabled' | 'opencode';
+export type AiProviderMode = 'client' | 'client+server';
+
+export interface OpencodeAiProviderConfig {
+  provider: 'opencode';
+
+  /**
+   * - 'client': connect to an existing opencode server via baseUrl
+   * - 'client+server': start a server and create a client
+   */
+  mode?: AiProviderMode;
+
+  // Client-only mode
+  baseUrl?: string;
+
+  // Client+server mode
+  hostname?: string;
+  port?: number;
+
+  // opencode config overrides
+  config?: any;
+}
+
+export type AiProviderConfig =
+  | { provider?: 'disabled' }
+  | OpencodeAiProviderConfig;
+
+export interface EditorTsAiModule {
+  provider: 'opencode';
+  mode: AiProviderMode;
+
+  /** Lazily resolves to an opencode client */
+  getClient(): Promise<any>;
+
+  /** Returns current server URL/baseUrl if known */
+  getUrl(): string | null;
+
+  /** Closes embedded server if started */
+  close(): Promise<void>;
+}
+
 export interface PageBody {
   html: string;
   components: string | Component[]; // JSON string of Component[]
@@ -170,6 +211,11 @@ export interface InitConfig {
     provider?: 'textarea' | 'modern-monaco';
   };
 
+  // Optional: AI provider integration
+  // - 'disabled' (default): no AI integration
+  // - 'opencode': integrates with @opencode-ai/sdk
+  aiProvider?: AiProviderConfig;
+
   // Optional: event callbacks
   onComponentSelect?: (component: Component) => void;
   onComponentEdit?: (component: Component) => void;
@@ -235,6 +281,7 @@ export interface ToolbarInitConfig {
 export interface EditorTsEditor {
   page: any; // Page class (avoid circular dependency)
   storage: any; // StorageManager instance
+  ai?: EditorTsAiModule;
   on(event: string, callback: Function): void;
   off(event: string, callback: Function): void;
   refresh(): void;

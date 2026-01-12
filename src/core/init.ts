@@ -6,7 +6,7 @@
 import { Page } from './Page';
 import { LayerManager } from './LayerManager';
 import { StorageManager } from './StorageManager';
-import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData } from '../types';
+import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode } from '../types';
 
 /**
  * Initialize EditorTs Editor
@@ -238,6 +238,68 @@ export function init(config: InitConfig): EditorTsEditor {
   // Populate stats if container provided
   renderStats();
 
+  // Optional AI provider module (lazy)
+  let ai: EditorTsAiModule | undefined;
+
+  if (config.aiProvider?.provider === 'opencode') {
+    const aiConfig = config.aiProvider as OpencodeAiProviderConfig;
+    const mode: AiProviderMode = aiConfig.mode ?? 'client';
+
+    let server: { url?: string; close?: () => void } | null = null;
+    let clientPromise: Promise<any> | null = null;
+
+    const loadSdk = async () => {
+      const mod: any = await import('@opencode-ai/sdk');
+      return mod;
+    };
+
+    ai = {
+      provider: 'opencode',
+      mode,
+      getClient: async () => {
+        if (!clientPromise) {
+          clientPromise = loadSdk().then(async (sdk) => {
+            if (mode === 'client') {
+              const baseUrl = aiConfig.baseUrl;
+              if (!baseUrl) {
+                throw new Error("EditorTs: aiProvider.baseUrl is required when mode is 'client'");
+              }
+              if (typeof sdk.createOpencodeClient !== 'function') {
+                throw new Error('EditorTs: @opencode-ai/sdk missing createOpencodeClient');
+              }
+              return sdk.createOpencodeClient({ baseUrl });
+            }
+
+            if (typeof sdk.createOpencode !== 'function') {
+              throw new Error('EditorTs: @opencode-ai/sdk missing createOpencode');
+            }
+
+            const opencode = await sdk.createOpencode({
+              hostname: aiConfig.hostname,
+              port: aiConfig.port,
+              config: aiConfig.config ?? {},
+            });
+
+            server = opencode.server;
+            return opencode.client;
+          });
+        }
+
+        return clientPromise;
+      },
+      getUrl: () => {
+        if (mode === 'client') return aiConfig.baseUrl ?? null;
+        return server?.url ?? null;
+      },
+      close: async () => {
+        if (server?.close) {
+          server.close();
+        }
+        server = null;
+      },
+    };
+  }
+
   // Built-in code editor setup (optional)
   const codeEditorProvider = config.codeEditor?.provider ?? 'textarea';
 
@@ -312,7 +374,22 @@ export function init(config: InitConfig): EditorTsEditor {
       minimap: { enabled: false },
     });
 
-    const model = monaco.editor.createModel(initialValue ?? '', language);
+    // modern-monaco/monaco-editor-core expects model resources to be real Uri objects.
+    // If the resource is a string/plain object, Monaco will crash in resource comparisons.
+    const extByLanguage: Record<string, string> = {
+      javascript: 'js',
+      typescript: 'ts',
+      css: 'css',
+      json: 'json',
+    };
+
+    const ext = extByLanguage[language] ?? 'txt';
+
+    const uri = monaco?.Uri?.parse
+      ? monaco.Uri.parse(`file:///editorts/${language}/${Date.now()}.${ext}`)
+      : undefined;
+
+    const model = monaco.editor.createModel(initialValue ?? '', language, uri);
     editor.setModel(model);
 
     return {
@@ -1464,6 +1541,8 @@ ${page.getHTML()}
     cssEditor?.dispose();
     jsonEditor?.dispose();
 
+    void ai?.close();
+
     if (sidebarContainer) sidebarContainer.innerHTML = '';
     if (statsContainer) statsContainer.innerHTML = '';
     if (selectedInfoContainer) selectedInfoContainer.innerHTML = '';
@@ -1481,6 +1560,7 @@ ${page.getHTML()}
   return {
     page,
     storage,
+    ai,
     on,
     off,
     refresh,

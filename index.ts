@@ -51,6 +51,8 @@ export type {
   InitConfig,
   ToolbarInitConfig,
   EditorTsEditor,
+  AiProviderConfig,
+  EditorTsAiModule,
   ImageFileInfo,
   StorageConfig,
   LocalStorageConfig,

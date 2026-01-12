@@ -22,6 +22,8 @@ const default_data: PageData = {
 }
 
 
+const aiBaseUrlInput = document.getElementById('ai-base-url') as HTMLInputElement | null;
+
 // Initialize the editor - user controls layout in index.html
 const editor = init({
   // Required: The iframe element ID (user creates this in HTML)
@@ -105,6 +107,14 @@ const editor = init({
     provider: 'modern-monaco',
   },
 
+  // Optional: AI provider
+  // Requires a running opencode server (client-only mode).
+  aiProvider: {
+    provider: 'opencode',
+    mode: 'client',
+    baseUrl: aiBaseUrlInput?.value ?? 'http://localhost:4096',
+  },
+
   // Optional: Event callbacks
   onComponentSelect: (component: any) => {
     console.log('🎯 Selected:', component.attributes?.id);
@@ -155,6 +165,28 @@ console.log('📜 Custom code components:', customCode.length);
 
 // Set up save button
 
+
+const aiHealthButton = document.getElementById('ai-health-btn') as HTMLButtonElement | null;
+const aiHealthStatus = document.getElementById('ai-health-status') as HTMLElement | null;
+
+if (aiHealthButton && aiHealthStatus) {
+  aiHealthButton.addEventListener('click', async () => {
+    if (!editor.ai) {
+      aiHealthStatus.textContent = 'AI provider is disabled.';
+      return;
+    }
+
+    aiHealthStatus.textContent = 'Checking...';
+
+    try {
+      const client = await editor.ai.getClient();
+      const health = await client.global.health();
+      aiHealthStatus.textContent = JSON.stringify(health.data ?? health, null, 2);
+    } catch (err) {
+      aiHealthStatus.textContent = (err as Error).message;
+    }
+  });
+}
 
 console.log('✅ EditorTs Editor initialized!');
 console.log('💡 Click any element in the canvas to see the toolbar');
