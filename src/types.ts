@@ -8,11 +8,6 @@ export interface PageData {
   body: PageBody;
 }
 
-export interface MultiPageData {
-  pages: PageData[];
-  activePageIndex?: number;
-}
-
 export interface PageBody {
   html: string;
   components: string | Component[]; // JSON string of Component[]
@@ -112,7 +107,7 @@ export interface InitConfig {
   iframeId: string;
 
   // Required: page data
-  data: PageData | MultiPageData | string;
+  data: PageData | string;
 
   // Optional: toolbar configuration (runtime only)
   toolbars?: ToolbarInitConfig;
@@ -165,13 +160,7 @@ export interface ImageFileInfo {
 
 // Storage types (imported from StorageManager)
 export interface LocalStorageConfig {
-  /**
-   * Local storage is the default when `storage` is omitted.
-   *
-   * This field is optional to allow concise configs like:
-   *   { prefix: 'myapp_' }
-   */
-  type?: 'local';
+  type: 'local';
   prefix?: string;
 }
 

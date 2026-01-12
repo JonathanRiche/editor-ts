@@ -19,13 +19,7 @@ export interface StorageAdapter {
 }
 
 export interface LocalStorageConfig {
-  /**
-   * Local storage is the default when `storage` is omitted.
-   *
-   * This field is optional to allow concise configs like:
-   *   { prefix: 'myapp_' }
-   */
-  type?: 'local';
+  type: 'local';
   prefix?: string; // Key prefix for localStorage, default: 'editorts_'
 }
 
@@ -267,10 +261,8 @@ export class StorageManager {
   private adapter: StorageAdapter;
 
   constructor(config?: StorageConfig) {
-    // Local storage is the default.
-    // Only use remote storage when explicitly requested.
-    if (!config || config.type !== 'remote') {
-      this.adapter = new LocalStorageAdapter(config as LocalStorageConfig | undefined);
+    if (!config || config.type === 'local') {
+      this.adapter = new LocalStorageAdapter(config as LocalStorageConfig);
     } else {
       this.adapter = new RemoteStorageAdapter(config);
     }

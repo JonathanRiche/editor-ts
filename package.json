@@ -22,11 +22,11 @@
   "license": "MIT",
   "scripts": {
     "dev": "bun run local-server.ts",
-    "server": "bun run local-server.ts",
+    "server": "bun run server.ts",
     "build": "bun build index.ts --outdir=dist",
-    "example": "bun run local-server.ts",
-    "test": "bun run build",
-    "test:api": "bun run build"
+    "example": "bun run examples/basic-usage.ts",
+    "test": "bun run examples/basic-usage.ts",
+    "test:api": "bun run examples/test-api.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
