@@ -10,7 +10,7 @@ export interface PageData {
 
 export interface PageBody {
   html: string;
-  components: string; // JSON string of Component[]
+  components: string | Component[]; // JSON string of Component[]
   assets: Asset[];
   css: string;
   styles: Style[];
@@ -94,7 +94,7 @@ export interface ToolbarRule {
   config: ToolbarConfig;
 }
 
-export type ComponentSelector = 
+export type ComponentSelector =
   | { id: string }
   | { type: string }
   | { tagName: string }
@@ -104,13 +104,13 @@ export type ComponentSelector =
 export interface InitConfig {
   // Required: iframe element ID (user creates this in their HTML)
   iframeId: string;
-  
+
   // Required: page data
   data: PageData | string;
-  
+
   // Optional: toolbar configuration (runtime only)
   toolbars?: ToolbarInitConfig;
-  
+
   // Optional: UI container IDs (user controls placement)
   ui?: {
     sidebar?: {
@@ -126,7 +126,7 @@ export interface InitConfig {
       enabled?: boolean;
     };
   };
-  
+
   // Optional: event callbacks
   onComponentSelect?: (component: Component) => void;
   onComponentEdit?: (component: Component) => void;

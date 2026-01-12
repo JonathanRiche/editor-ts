@@ -480,6 +480,11 @@ When adding a new feature:
 
 5. **Document:** Update this file if architecture changes
 
+6. **Respect User Edits:** 
+   - If the user has removed a component/feature from their code, DO NOT add it back
+   - The user is actively editing files - check recent changes before suggesting additions
+   - Example: If user removed a save button, don't re-introduce it
+
 ---
 
 **This principle applies to ALL future features in EditorTs.**
