@@ -6,7 +6,7 @@
 import { Page } from './Page';
 import { LayerManager } from './LayerManager';
 import { StorageManager } from './StorageManager';
-import type { InitConfig, EditorTsEditor, Component } from '../types';
+import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData } from '../types';
 
 /**
  * Initialize EditorTs Editor
@@ -19,8 +19,29 @@ export function init(config: InitConfig): EditorTsEditor {
     throw new Error(`Iframe element #${config.iframeId} not found or is not an iframe`);
   }
 
+  const isMultiPageData = (data: any): data is MultiPageData => {
+    return !!data && typeof data === 'object' && Array.isArray(data.pages);
+  };
+
+  const rawData = typeof config.data === 'string' ? JSON.parse(config.data) : config.data;
+  let multiPageData: MultiPageData | null = null;
+  let activePageIndex = 0;
+
+  let initialPageData: PageData;
+  if (isMultiPageData(rawData)) {
+    if (rawData.pages.length === 0) {
+      throw new Error('MultiPageData.pages cannot be empty');
+    }
+
+    multiPageData = rawData;
+    activePageIndex = rawData.activePageIndex ?? 0;
+    initialPageData = rawData.pages[activePageIndex] ?? rawData.pages[0]!;
+  } else {
+    initialPageData = rawData as PageData;
+  }
+
   // Create Page instance
-  const page = new Page(config.data);
+  const page = new Page(initialPageData);
 
   // Configure toolbars from config
   if (config.toolbars) {
@@ -138,7 +159,8 @@ export function init(config: InitConfig): EditorTsEditor {
   }
 
   // Build iframe content with WYSIWYG
-  const iframeContent = `<!DOCTYPE html>
+  // NOTE: this must be built on-demand so refresh() reflects current Page state.
+  const buildIframeContent = () => `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
@@ -599,7 +621,7 @@ ${page.getHTML()}
 </html>`;
 
   // Load content into iframe
-  iframe.srcdoc = iframeContent;
+  iframe.srcdoc = buildIframeContent();
 
   // Handle messages from iframe
   window.addEventListener('message', (event) => {
@@ -608,10 +630,7 @@ ${page.getHTML()}
       if (component) {
         // Update selected info container if provided
         if (selectedInfoContainer && config.ui?.selectedInfo?.enabled !== false) {
-          selectedInfoContainer.innerHTML = `
-            <div><strong>ID:</strong> ${event.data.id}</div>
-            <div><strong>Tag:</strong> ${event.data.tagName}</div>
-          `;
+          renderSelectedInfo(component, event.data.id, event.data.tagName);
         }
 
         // Sync layer panel selection
@@ -701,6 +720,94 @@ ${page.getHTML()}
     }
   });
 
+  function renderSelectedInfo(component: Component, elementId: string, tagName: string) {
+    if (!selectedInfoContainer) return;
+
+    const selectedElement = iframe.contentDocument?.getElementById(elementId) as HTMLElement | null;
+    const isPlainTextElement = !!selectedElement && selectedElement.childElementCount === 0;
+
+    // For text, only allow editing inner text (not HTML).
+    // Also avoid wiping nested markup by requiring a plain-text element.
+    const canEditText = isPlainTextElement && tagName?.toLowerCase() !== 'img';
+
+    const canEditImageSrc =
+      tagName?.toLowerCase() === 'img' ||
+      typeof component.attributes?.src === 'string' ||
+      (selectedElement?.tagName.toLowerCase() === 'img');
+
+    selectedInfoContainer.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:0.75rem;">
+        <div>
+          <div><strong>ID:</strong> ${elementId}</div>
+          <div><strong>Tag:</strong> ${tagName}</div>
+        </div>
+
+        ${canEditText ? `
+          <div>
+            <div style="font-weight:600; margin-bottom:0.25rem;">Text</div>
+            <textarea data-editorts-field="text-content" style="width:100%; min-height:6rem;"></textarea>
+            <button data-editorts-action="apply-text" style="margin-top:0.25rem;">Apply</button>
+          </div>
+        ` : ''}
+
+        ${canEditImageSrc ? `
+          <div>
+            <div style="font-weight:600; margin-bottom:0.25rem;">Image URL</div>
+            <input data-editorts-field="image-src" type="text" style="width:100%;" />
+            <button data-editorts-action="apply-image-src" style="margin-top:0.25rem;">Apply</button>
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    const textArea = selectedInfoContainer.querySelector('[data-editorts-field="text-content"]') as HTMLTextAreaElement | null;
+    if (textArea) {
+      textArea.value = selectedElement?.textContent ?? '';
+    }
+
+    const imageSrcInput = selectedInfoContainer.querySelector('[data-editorts-field="image-src"]') as HTMLInputElement | null;
+    if (imageSrcInput) {
+      const currentImgEl =
+        selectedElement?.tagName.toLowerCase() === 'img'
+          ? (selectedElement as HTMLImageElement)
+          : (selectedElement?.querySelector('img') as HTMLImageElement | null);
+
+      imageSrcInput.value = currentImgEl?.getAttribute('src') ?? component.attributes?.src ?? '';
+    }
+
+    const applyTextButton = selectedInfoContainer.querySelector('[data-editorts-action="apply-text"]') as HTMLButtonElement | null;
+    if (applyTextButton && textArea) {
+      applyTextButton.addEventListener('click', () => {
+        const nextText = textArea.value;
+
+        page.components.updateTextContent(elementId, nextText);
+        if (selectedElement) {
+          selectedElement.textContent = nextText;
+        }
+      });
+    }
+
+    const applyImageSrcButton = selectedInfoContainer.querySelector('[data-editorts-action="apply-image-src"]') as HTMLButtonElement | null;
+    if (applyImageSrcButton && imageSrcInput) {
+      applyImageSrcButton.addEventListener('click', () => {
+        const nextSrc = imageSrcInput.value;
+
+        page.components.updateImageSrc(elementId, nextSrc);
+
+        if (selectedElement) {
+          const imgEl =
+            selectedElement.tagName.toLowerCase() === 'img'
+              ? (selectedElement as HTMLImageElement)
+              : (selectedElement.querySelector('img') as HTMLImageElement | null);
+
+          if (imgEl) {
+            imgEl.src = nextSrc;
+          }
+        }
+      });
+    }
+  }
+
   // Handle toolbar actions
   function handleToolbarAction(actionId: string, elementId: string) {
     const component = page.components.findById(elementId);
@@ -752,7 +859,7 @@ ${page.getHTML()}
 
   // Refresh iframe and layer panel
   function refresh() {
-    iframe.srcdoc = iframeContent;
+    iframe.srcdoc = buildIframeContent();
     if (layerManager) {
       layerManager.update(page.components.getAll());
     }
@@ -761,14 +868,23 @@ ${page.getHTML()}
   // Initialize storage manager
   const storage = new StorageManager(config.storage);
 
+  function serializeData(): string {
+    if (!multiPageData) {
+      return page.toJSON();
+    }
+
+    multiPageData.pages[activePageIndex] = page.toObject();
+    return JSON.stringify(multiPageData, null, 2);
+  }
+
   // Save page data (returns JSON string)
   function save(): string {
-    return page.toJSON();
+    return serializeData();
   }
 
   // Save page to storage
   async function saveTo(key: string): Promise<void> {
-    const data = page.toJSON();
+    const data = serializeData();
     await storage.savePage(key, data);
     emit('pageSaved', key);
   }
@@ -776,16 +892,32 @@ ${page.getHTML()}
   // Load page from storage
   async function loadFrom(key: string): Promise<boolean> {
     const data = await storage.loadPage(key);
-    if (data) {
-      // Reload page with new data
-      const newPage = new Page(data);
-      // Copy data to existing page instance
+    if (!data) return false;
+
+    const parsed = JSON.parse(data);
+
+    if (isMultiPageData(parsed)) {
+      if (parsed.pages.length === 0) {
+        throw new Error('MultiPageData.pages cannot be empty');
+      }
+
+      multiPageData = parsed;
+      activePageIndex = parsed.activePageIndex ?? 0;
+
+      const loadedPageData = parsed.pages[activePageIndex] ?? parsed.pages[0]!;
+      const newPage = new Page(loadedPageData);
       Object.assign(page, newPage);
-      refresh();
-      emit('pageLoaded', key);
-      return true;
+    } else {
+      multiPageData = null;
+      activePageIndex = 0;
+
+      const newPage = new Page(parsed as PageData);
+      Object.assign(page, newPage);
     }
-    return false;
+
+    refresh();
+    emit('pageLoaded', key);
+    return true;
   }
 
   // Destroy editor

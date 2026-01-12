@@ -33,6 +33,7 @@ export { init } from './src/core/init';
 // Type exports
 export type {
   PageData,
+  MultiPageData,
   PageBody,
   Component,
   Asset,
