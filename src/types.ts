@@ -138,6 +138,17 @@ export interface InitConfig {
   onTextEditStart?: (component: Component) => void;
   onTextUpdate?: (component: Component, newContent: string, originalContent: string) => void;
   onTextEditEnd?: (component: Component, saved: boolean) => void;
+
+  // Image editing callbacks
+  onImageEditStart?: (component: Component, currentSrc: string) => void;
+  onImageUpdate?: (component: Component, newSrc: string, originalSrc: string, fileInfo: ImageFileInfo) => void;
+  onImageEditEnd?: (component: Component, saved: boolean) => void;
+}
+
+export interface ImageFileInfo {
+  fileName: string;
+  fileType: string;
+  fileSize: number;
 }
 
 export interface ToolbarInitConfig {

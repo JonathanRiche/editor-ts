@@ -176,6 +176,35 @@ export class ComponentManager {
   }
 
   /**
+   * Update image src for a component (handles img tags and components with nested images)
+   */
+  updateImageSrc(id: string, src: string): boolean {
+    const component = this.findById(id);
+    if (component) {
+      // If component is an image type or has tagName img
+      if (component.tagName === 'img' || component.type === 'image') {
+        component.attributes = component.attributes || {};
+        component.attributes.src = src;
+        return true;
+      }
+      // Check if component has nested image in its content
+      if (component.content && component.content.includes('<img')) {
+        // Update src in content HTML
+        component.content = component.content.replace(
+          /(<img[^>]*src=["'])[^"']*["']/i,
+          `$1${src}"`
+        );
+        return true;
+      }
+      // Store as a generic image src attribute
+      component.attributes = component.attributes || {};
+      component.attributes.src = src;
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Get all components
    */
   getAll(): Component[] {

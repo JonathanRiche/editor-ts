@@ -159,6 +159,16 @@ export function init(config: InitConfig): EditorTsEditor {
       outline: 3px solid #2563eb !important;
       background-color: rgba(59, 130, 246, 0.15) !important;
     }
+    /* Image editing mode */
+    .editorts-image-editing {
+      outline: 3px solid #f59e0b !important;
+      background-color: rgba(245, 158, 11, 0.1) !important;
+      cursor: pointer !important;
+    }
+    /* Hidden file input */
+    #editorts-file-input {
+      display: none;
+    }
   </style>
 </head>
 ${page.getHTML()}
@@ -166,9 +176,19 @@ ${page.getHTML()}
   let selectedElement = null;
   let editingElement = null;
   let originalContent = '';
+  let imageEditTarget = null;
+  let fileInput = null;
 
   // Initialize WYSIWYG
   function initWYSIWYG() {
+    // Create hidden file input for image uploads
+    fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.id = 'editorts-file-input';
+    fileInput.accept = 'image/*';
+    fileInput.addEventListener('change', handleImageSelect);
+    document.body.appendChild(fileInput);
+
     document.querySelectorAll('[id]').forEach(el => {
       if (!el.id || el.id.startsWith('editorts-')) return;
 
@@ -181,13 +201,118 @@ ${page.getHTML()}
         selectElement(el);
       });
 
-      // Double-click to edit text
+      // Double-click to edit (text or image)
       el.addEventListener('dblclick', (e) => {
         e.stopPropagation();
         e.preventDefault();
-        startTextEdit(el);
+        
+        // Check if this is an image element or contains an image
+        const imgElement = getImageElement(el);
+        if (imgElement) {
+          startImageEdit(el, imgElement);
+        } else {
+          startTextEdit(el);
+        }
       });
     });
+  }
+
+  // Check if element is an image or contains a direct image child
+  function getImageElement(el) {
+    // If the element itself is an img
+    if (el.tagName === 'IMG') {
+      return el;
+    }
+    // If the element contains a direct img child (e.g., a wrapper div)
+    const img = el.querySelector('img');
+    if (img) {
+      return img;
+    }
+    return null;
+  }
+
+  // Start image editing mode
+  function startImageEdit(containerEl, imgEl) {
+    // End any current text editing
+    if (editingElement) {
+      endTextEdit(true);
+    }
+
+    imageEditTarget = { container: containerEl, image: imgEl };
+    
+    // Visual feedback
+    containerEl.classList.remove('editorts-selected');
+    containerEl.classList.add('editorts-image-editing');
+
+    // Notify parent
+    window.parent.postMessage({
+      type: 'editorts:imageEditStart',
+      id: containerEl.id,
+      currentSrc: imgEl.src
+    }, '*');
+
+    // Trigger file input
+    fileInput.click();
+  }
+
+  // Handle image file selection
+  function handleImageSelect(e) {
+    const file = e.target.files[0];
+    
+    if (!file || !imageEditTarget) {
+      endImageEdit(false);
+      return;
+    }
+
+    // Read file as data URL
+    const reader = new FileReader();
+    reader.onload = function(event) {
+      const newSrc = event.target.result;
+      const oldSrc = imageEditTarget.image.src;
+      
+      // Update the image in DOM
+      imageEditTarget.image.src = newSrc;
+      
+      // Notify parent of image update
+      window.parent.postMessage({
+        type: 'editorts:imageUpdate',
+        id: imageEditTarget.container.id,
+        src: newSrc,
+        originalSrc: oldSrc,
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size
+      }, '*');
+
+      endImageEdit(true);
+    };
+    reader.onerror = function() {
+      endImageEdit(false);
+    };
+    reader.readAsDataURL(file);
+
+    // Reset file input for next use
+    fileInput.value = '';
+  }
+
+  // End image editing mode
+  function endImageEdit(saved) {
+    if (!imageEditTarget) return;
+
+    const containerEl = imageEditTarget.container;
+    containerEl.classList.remove('editorts-image-editing');
+
+    // Notify parent editing ended
+    window.parent.postMessage({
+      type: 'editorts:imageEditEnd',
+      id: containerEl.id,
+      saved: saved
+    }, '*');
+
+    // Re-select the element
+    selectElement(containerEl);
+
+    imageEditTarget = null;
   }
 
   // Start text editing mode
@@ -432,6 +557,39 @@ ${page.getHTML()}
         emit('textEditEnd', component, event.data.saved);
         if (config.onTextEditEnd) {
           config.onTextEditEnd(component, event.data.saved);
+        }
+      }
+    } else if (event.data.type === 'editorts:imageEditStart') {
+      const component = page.components.findById(event.data.id);
+      if (component) {
+        emit('imageEditStart', component, event.data.currentSrc);
+        if (config.onImageEditStart) {
+          config.onImageEditStart(component, event.data.currentSrc);
+        }
+      }
+    } else if (event.data.type === 'editorts:imageUpdate') {
+      const component = page.components.findById(event.data.id);
+      if (component) {
+        // Update the component's image src
+        page.components.updateImageSrc(event.data.id, event.data.src);
+        
+        const fileInfo = {
+          fileName: event.data.fileName,
+          fileType: event.data.fileType,
+          fileSize: event.data.fileSize
+        };
+        
+        emit('imageUpdate', component, event.data.src, event.data.originalSrc, fileInfo);
+        if (config.onImageUpdate) {
+          config.onImageUpdate(component, event.data.src, event.data.originalSrc, fileInfo);
+        }
+      }
+    } else if (event.data.type === 'editorts:imageEditEnd') {
+      const component = page.components.findById(event.data.id);
+      if (component) {
+        emit('imageEditEnd', component, event.data.saved);
+        if (config.onImageEditEnd) {
+          config.onImageEditEnd(component, event.data.saved);
         }
       }
     }
