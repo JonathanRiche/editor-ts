@@ -5,6 +5,7 @@
 
 import { Page } from './Page';
 import { LayerManager } from './LayerManager';
+import { StorageManager } from './StorageManager';
 import type { InitConfig, EditorTsEditor, Component } from '../types';
 
 /**
@@ -710,9 +711,34 @@ ${page.getHTML()}
     }
   }
 
-  // Save page data
+  // Initialize storage manager
+  const storage = new StorageManager(config.storage);
+
+  // Save page data (returns JSON string)
   function save(): string {
     return page.toJSON();
+  }
+
+  // Save page to storage
+  async function saveTo(key: string): Promise<void> {
+    const data = page.toJSON();
+    await storage.savePage(key, data);
+    emit('pageSaved', key);
+  }
+
+  // Load page from storage
+  async function loadFrom(key: string): Promise<boolean> {
+    const data = await storage.loadPage(key);
+    if (data) {
+      // Reload page with new data
+      const newPage = new Page(data);
+      // Copy data to existing page instance
+      Object.assign(page, newPage);
+      refresh();
+      emit('pageLoaded', key);
+      return true;
+    }
+    return false;
   }
 
   // Destroy editor
@@ -731,10 +757,13 @@ ${page.getHTML()}
   // Return EditorTsEditor instance
   return {
     page,
+    storage,
     on,
     off,
     refresh,
     save,
+    saveTo,
+    loadFrom,
     destroy,
     elements: {
       iframe,

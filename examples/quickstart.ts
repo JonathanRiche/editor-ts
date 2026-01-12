@@ -71,6 +71,10 @@ const editor = init({
     selectedInfo: {
       containerId: 'selected-info',
       enabled: true
+    },
+    layers: {
+      containerId: 'layers-container',
+      enabled: true
     }
   },
 

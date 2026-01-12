@@ -147,6 +147,9 @@ export interface InitConfig {
   onImageEditStart?: (component: Component, currentSrc: string) => void;
   onImageUpdate?: (component: Component, newSrc: string, originalSrc: string, fileInfo: ImageFileInfo) => void;
   onImageEditEnd?: (component: Component, saved: boolean) => void;
+
+  // Optional: storage configuration
+  storage?: StorageConfig;
 }
 
 export interface ImageFileInfo {
@@ -154,6 +157,29 @@ export interface ImageFileInfo {
   fileType: string;
   fileSize: number;
 }
+
+// Storage types (imported from StorageManager)
+export interface LocalStorageConfig {
+  type: 'local';
+  prefix?: string;
+}
+
+export interface RemoteStorageConfig {
+  type: 'remote';
+  baseUrl: string;
+  imageUploadMethod?: 'form' | 'json';
+  headers?: Record<string, string>;
+  endpoints?: {
+    savePage?: string;
+    loadPage?: string;
+    deletePage?: string;
+    uploadImage?: string;
+    deleteImage?: string;
+    listPages?: string;
+  };
+}
+
+export type StorageConfig = LocalStorageConfig | RemoteStorageConfig;
 
 export interface ToolbarInitConfig {
   byId?: Record<string, ToolbarConfig>;
@@ -164,10 +190,15 @@ export interface ToolbarInitConfig {
 
 export interface EditorTsEditor {
   page: any; // Page class (avoid circular dependency)
+  storage: any; // StorageManager instance
   on(event: string, callback: Function): void;
   off(event: string, callback: Function): void;
   refresh(): void;
   save(): string;
+  /** Save page to storage */
+  saveTo(key: string): Promise<void>;
+  /** Load page from storage */
+  loadFrom(key: string): Promise<boolean>;
   destroy(): void;
   elements: {
     iframe: HTMLIFrameElement;

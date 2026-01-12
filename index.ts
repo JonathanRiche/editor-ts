@@ -27,6 +27,7 @@ export { StyleManager } from './src/core/StyleManager';
 export { AssetManager } from './src/core/AssetManager';
 export { ToolbarManager } from './src/core/ToolbarManager';
 export { LayerManager } from './src/core/LayerManager';
+export { StorageManager, LocalStorageAdapter, RemoteStorageAdapter } from './src/core/StorageManager';
 export { init } from './src/core/init';
 
 // Type exports
@@ -50,9 +51,13 @@ export type {
   ToolbarInitConfig,
   EditorTsEditor,
   ImageFileInfo,
+  StorageConfig,
+  LocalStorageConfig,
+  RemoteStorageConfig,
 } from './src/types';
 
 export type { LayerManagerConfig } from './src/core/LayerManager';
+export type { StorageAdapter } from './src/core/StorageManager';
 
 // Utility exports
 export {

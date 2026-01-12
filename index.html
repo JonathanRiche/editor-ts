@@ -64,6 +64,16 @@
 			display: block;
 		}
 
+		.layers-section {
+			background: white;
+			padding: 1rem;
+			border-radius: 6px;
+			margin-bottom: 1rem;
+			box-shadow: var(--shadow-sm);
+			max-height: 400px;
+			overflow-y: auto;
+		}
+
 		.canvas-container {
 			flex: 1;
 			padding: 2rem;
@@ -115,6 +125,12 @@
 			<div class="stats-section">
 				<h3>Page Stats</h3>
 				<div id="stats-container"></div>
+			</div>
+
+			<!-- Layer panel - component hierarchy -->
+			<div class="layers-section">
+				<h3>Layers</h3>
+				<div id="layers-container"></div>
 			</div>
 
 			<!-- Selected component info -->
