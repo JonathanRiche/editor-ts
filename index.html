@@ -111,14 +111,90 @@
 			transform: translateY(-2px);
 			box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
 		}
+
+		/* Mobile sidebar toggle */
+		.sidebar-toggle {
+			display: none;
+			position: fixed;
+			top: 1rem;
+			left: 1rem;
+			z-index: 1001;
+			width: 44px;
+			height: 44px;
+			background: var(--color-editor-light-text, #212C3E);
+			color: white;
+			border: none;
+			border-radius: 8px;
+			font-size: 1.5rem;
+			cursor: pointer;
+			box-shadow: var(--shadow-lg);
+			transition: transform 0.2s;
+		}
+
+		.sidebar-toggle:hover {
+			transform: scale(1.05);
+		}
+
+		/* Mobile styles */
+		@media (max-width: 768px) {
+			.sidebar-toggle {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+			}
+
+			.sidebar {
+				position: fixed;
+				top: 0;
+				left: 0;
+				height: 100vh;
+				z-index: 1000;
+				transform: translateX(-100%);
+				transition: transform 0.3s ease;
+				width: 280px;
+				padding-top: 4rem;
+			}
+
+			.sidebar.open {
+				transform: translateX(0);
+			}
+
+			.sidebar-overlay {
+				display: none;
+				position: fixed;
+				top: 0;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				background: rgba(0, 0, 0, 0.5);
+				z-index: 999;
+			}
+
+			.sidebar-overlay.open {
+				display: block;
+			}
+
+			.canvas-container {
+				padding: 1rem;
+				padding-top: 4rem;
+			}
+		}
 	</style>
 </head>
 
 <body>
+	<!-- Mobile sidebar toggle button -->
+	<button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">
+		<span id="toggle-icon">&#9776;</span>
+	</button>
+	
+	<!-- Mobile overlay -->
+	<div class="sidebar-overlay" id="sidebar-overlay"></div>
+
 	<!-- User controls the entire layout -->
 	<div class="editor-container">
 		<!-- Sidebar (optional) -->
-		<div class="sidebar">
+		<div class="sidebar" id="sidebar">
 			<h2>EditorTs Editor</h2>
 
 			<!-- Stats container -->
@@ -150,6 +226,36 @@
 
 	<!-- Initialize editor -->
 	<script type="module" src="./examples/quickstart.ts"></script>
+
+	<!-- Mobile sidebar toggle script -->
+	<script>
+		const sidebar = document.getElementById('sidebar');
+		const sidebarToggle = document.getElementById('sidebar-toggle');
+		const sidebarOverlay = document.getElementById('sidebar-overlay');
+		const toggleIcon = document.getElementById('toggle-icon');
+
+		function toggleSidebar() {
+			const isOpen = sidebar.classList.toggle('open');
+			sidebarOverlay.classList.toggle('open', isOpen);
+			toggleIcon.innerHTML = isOpen ? '&#10005;' : '&#9776;';
+		}
+
+		function closeSidebar() {
+			sidebar.classList.remove('open');
+			sidebarOverlay.classList.remove('open');
+			toggleIcon.innerHTML = '&#9776;';
+		}
+
+		sidebarToggle.addEventListener('click', toggleSidebar);
+		sidebarOverlay.addEventListener('click', closeSidebar);
+
+		// Close sidebar when clicking a layer item on mobile
+		document.addEventListener('click', (e) => {
+			if (e.target.closest('.editorts-layer-item') && window.innerWidth <= 768) {
+				closeSidebar();
+			}
+		});
+	</script>
 </body>
 
 </html>
