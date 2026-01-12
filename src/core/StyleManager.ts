@@ -6,6 +6,7 @@ import type { PageBody, Style, StyleQuery, CSSProperties } from '../types';
 export class StyleManager {
   private body: PageBody;
   private styles: Style[];
+  private compiledCSSOverride: string | null = null;
 
   constructor(body: PageBody) {
     this.body = body;
@@ -65,6 +66,7 @@ export class StyleManager {
    * Add a new style rule
    */
   addStyle(style: Style): void {
+    this.compiledCSSOverride = null;
     this.styles.push(style);
   }
 
@@ -72,6 +74,7 @@ export class StyleManager {
    * Remove styles by selector
    */
   removeBySelector(selector: string): number {
+    this.compiledCSSOverride = null;
     const initialLength = this.styles.length;
     this.styles = this.styles.filter((style) => {
       const hasSelector = style.selectors.some((sel) => {
@@ -89,6 +92,8 @@ export class StyleManager {
    * Update styles for a selector
    */
   updateStyle(selector: string, properties: CSSProperties, options?: { mediaText?: string; state?: string }): boolean {
+    this.compiledCSSOverride = null;
+
     const matchingStyles = this.styles.filter((style) => {
       const hasSelector = style.selectors.some((sel) => {
         if (typeof sel === 'string') {
@@ -145,6 +150,22 @@ export class StyleManager {
    */
   count(): number {
     return this.styles.length;
+  }
+
+  /**
+   * Override the compiled CSS string.
+   * Useful when you want to edit raw CSS instead of structured Style[] rules.
+   */
+  setCompiledCSS(css: string): void {
+    this.compiledCSSOverride = css;
+    this.body.css = css;
+  }
+
+  /**
+   * Clear any compiled CSS override (returns to Style[] -> CSS compilation).
+   */
+  clearCompiledCSSOverride(): void {
+    this.compiledCSSOverride = null;
   }
 
   /**
@@ -209,13 +230,14 @@ export class StyleManager {
    */
   sync(): void {
     this.body.styles = this.styles;
-    this.body.css = this.compileToCSS();
+    this.body.css = this.compiledCSSOverride ?? this.compileToCSS();
   }
 
   /**
    * Replace all styles
    */
   replaceAll(styles: Style[]): void {
+    this.compiledCSSOverride = null;
     this.styles = styles;
   }
 }

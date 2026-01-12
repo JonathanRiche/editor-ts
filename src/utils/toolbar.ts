@@ -20,7 +20,21 @@ export const defaultToolbarActions: ToolbarAction[] = [
     label: 'Edit JS',
     icon: '📜',
     enabled: true,
-    description: 'Edit component JavaScript with Monaco editor',
+    description: 'Edit component JavaScript',
+  },
+  {
+    id: 'editCSS',
+    label: 'Edit CSS',
+    icon: '🎨',
+    enabled: true,
+    description: 'Edit page CSS',
+  },
+  {
+    id: 'editJSON',
+    label: 'Edit JSON',
+    icon: '🧱',
+    enabled: true,
+    description: 'View/edit full page JSON structure',
   },
   {
     id: 'duplicate',

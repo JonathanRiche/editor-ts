@@ -107,6 +107,19 @@ export function init(config: InitConfig): EditorTsEditor {
     ? document.getElementById(config.ui.layers.containerId)
     : null;
 
+  // Optional code editor containers
+  const jsEditorContainer = config.ui?.editors?.js?.containerId
+    ? document.getElementById(config.ui.editors.js.containerId)
+    : null;
+
+  const cssEditorContainer = config.ui?.editors?.css?.containerId
+    ? document.getElementById(config.ui.editors.css.containerId)
+    : null;
+
+  const jsonEditorContainer = config.ui?.editors?.json?.containerId
+    ? document.getElementById(config.ui.editors.json.containerId)
+    : null;
+
   // Initialize layer manager if container provided
   let layerManager: LayerManager | null = null;
   if (layersContainer && config.ui?.layers?.enabled !== false) {
@@ -147,8 +160,9 @@ export function init(config: InitConfig): EditorTsEditor {
     layerManager.update(page.components.getAll());
   }
 
-  // Populate stats if container provided
-  if (statsContainer && config.ui?.stats?.enabled !== false) {
+  const renderStats = () => {
+    if (!statsContainer || config.ui?.stats?.enabled === false) return;
+
     statsContainer.innerHTML = `
       <div style="font-size: 0.85rem;">
         <div>Components: ${page.components.count()}</div>
@@ -156,7 +170,124 @@ export function init(config: InitConfig): EditorTsEditor {
         <div>Assets: ${page.assets.count()}</div>
       </div>
     `;
+  };
+
+  // Populate stats if container provided
+  renderStats();
+
+  // Built-in code editor setup (optional)
+  const codeEditorProvider = config.codeEditor?.provider ?? 'textarea';
+
+  type RuntimeCodeEditor = {
+    getValue(): string;
+    setValue(value: string): void;
+    focus(): void;
+    dispose(): void;
+  };
+
+  function createTextareaCodeEditor(host: HTMLElement, initialValue: string): RuntimeCodeEditor {
+    host.innerHTML = '';
+
+    const textarea = document.createElement('textarea');
+    textarea.value = initialValue;
+    textarea.spellcheck = false;
+    textarea.style.width = '100%';
+    textarea.style.minHeight = '16rem';
+    textarea.style.fontFamily = 'monospace';
+    textarea.style.fontSize = '0.9rem';
+
+    host.appendChild(textarea);
+
+    return {
+      getValue: () => textarea.value,
+      setValue: (value: string) => {
+        textarea.value = value;
+      },
+      focus: () => textarea.focus(),
+      dispose: () => {
+        textarea.remove();
+      },
+    };
   }
+
+  let modernMonacoInitPromise: Promise<any> | null = null;
+
+  async function loadModernMonaco(): Promise<any> {
+    if (!modernMonacoInitPromise) {
+      modernMonacoInitPromise = import('modern-monaco')
+        .then((mod: any) => {
+          if (!mod?.init) {
+            throw new Error('modern-monaco missing init() export');
+          }
+          return mod.init();
+        })
+        .catch((err) => {
+          modernMonacoInitPromise = null;
+          throw err;
+        });
+    }
+
+    return modernMonacoInitPromise;
+  }
+
+  async function createModernMonacoCodeEditor(
+    host: HTMLElement,
+    initialValue: string,
+    language: 'javascript' | 'css' | 'json'
+  ): Promise<RuntimeCodeEditor> {
+    host.innerHTML = '';
+
+    const monacoHost = document.createElement('div');
+    monacoHost.style.width = '100%';
+    monacoHost.style.minHeight = '16rem';
+    host.appendChild(monacoHost);
+
+    const monaco = await loadModernMonaco();
+
+    const editor = monaco.editor.create(monacoHost, {
+      automaticLayout: true,
+      minimap: { enabled: false },
+    });
+
+    const model = monaco.editor.createModel(initialValue ?? '', language);
+    editor.setModel(model);
+
+    return {
+      getValue: () => model.getValue(),
+      setValue: (value: string) => model.setValue(value ?? ''),
+      focus: () => editor.focus(),
+      dispose: () => {
+        editor.dispose();
+        model.dispose();
+        monacoHost.remove();
+      },
+    };
+  }
+
+  async function createCodeEditor(
+    host: HTMLElement,
+    initialValue: string,
+    language: 'javascript' | 'css' | 'json'
+  ): Promise<RuntimeCodeEditor> {
+    if (codeEditorProvider === 'modern-monaco') {
+      try {
+        return await createModernMonacoCodeEditor(host, initialValue, language);
+      } catch (err) {
+        console.warn('Failed to load modern-monaco; falling back to textarea:', err);
+        return createTextareaCodeEditor(host, initialValue);
+      }
+    }
+
+    return createTextareaCodeEditor(host, initialValue);
+  }
+
+  // Code editor instances
+  let jsEditor: RuntimeCodeEditor | null = null;
+  let cssEditor: RuntimeCodeEditor | null = null;
+  let jsonEditor: RuntimeCodeEditor | null = null;
+
+  // Track selected component for JS editor
+  let selectedComponentId: string | null = null;
 
   // Build iframe content with WYSIWYG
   // NOTE: this must be built on-demand so refresh() reflects current Page state.
@@ -182,6 +313,13 @@ export function init(config: InitConfig): EditorTsEditor {
     .editorts-selected {
       outline: 3px solid #10b981 !important;
       background-color: rgba(16, 185, 129, 0.1) !important;
+    }
+    .editorts-drag-over {
+      outline: 3px dashed #3b82f6 !important;
+      outline-offset: 2px;
+    }
+    .editorts-dragging {
+      opacity: 0.5 !important;
     }
     .editorts-context-toolbar {
       position: absolute;
@@ -247,6 +385,10 @@ ${page.getHTML()}
   let imageEditTarget = null;
   let fileInput = null;
 
+  // Drag and drop state
+  let draggedElement = null;
+  let draggedId = null;
+
   // Double-tap detection for mobile
   const doubleTapDelay = 300; // ms
   let lastTapTime = 0;
@@ -280,6 +422,54 @@ ${page.getHTML()}
       if (!el.id || el.id.startsWith('editorts-')) return;
 
       el.classList.add('editorts-highlight');
+
+      // Enable drag-and-drop reordering in the canvas
+      el.setAttribute('draggable', 'true');
+
+      el.addEventListener('dragstart', (e) => {
+        // Don't interfere with editing states
+        if (editingElement || imageEditTarget) {
+          e.preventDefault();
+          return;
+        }
+
+        draggedElement = el;
+        draggedId = el.id;
+        el.classList.add('editorts-dragging');
+
+        e.dataTransfer?.setData('text/plain', el.id);
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+      });
+
+      el.addEventListener('dragend', () => {
+        if (draggedElement) draggedElement.classList.remove('editorts-dragging');
+        document.querySelectorAll('.editorts-drag-over').forEach(n => n.classList.remove('editorts-drag-over'));
+        draggedElement = null;
+        draggedId = null;
+      });
+
+      el.addEventListener('dragover', (e) => {
+        if (!draggedId || draggedId === el.id) return;
+        e.preventDefault();
+        el.classList.add('editorts-drag-over');
+      });
+
+      el.addEventListener('dragleave', () => {
+        el.classList.remove('editorts-drag-over');
+      });
+
+      el.addEventListener('drop', (e) => {
+        e.preventDefault();
+        el.classList.remove('editorts-drag-over');
+
+        if (!draggedId || draggedId === el.id) return;
+
+        window.parent.postMessage({
+          type: 'editorts:canvasReorder',
+          draggedId: draggedId,
+          targetId: el.id,
+        }, '*');
+      });
       
       el.addEventListener('click', (e) => {
         // Don't interfere with text editing
@@ -623,11 +813,191 @@ ${page.getHTML()}
   // Load content into iframe
   iframe.srcdoc = buildIframeContent();
 
+  // --- Optional code editors (JS/CSS/JSON) ---
+  const shouldEnableJsEditor = !!jsEditorContainer && config.ui?.editors?.js?.enabled !== false;
+  const shouldEnableCssEditor = !!cssEditorContainer && config.ui?.editors?.css?.enabled !== false;
+  const shouldEnableJsonEditor = !!jsonEditorContainer && config.ui?.editors?.json?.enabled !== false;
+
+  // Render editor panels
+  if (shouldEnableJsEditor && jsEditorContainer) {
+    jsEditorContainer.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:0.5rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+          <strong>Component JavaScript</strong>
+          <button data-editorts-action="save-js" type="button">Save</button>
+        </div>
+        <div data-editorts-field="js-status" style="font-size:0.85rem; opacity:0.8;">Select a component to edit its script</div>
+        <div data-editorts-field="js-editor"></div>
+      </div>
+    `;
+  }
+
+  if (shouldEnableCssEditor && cssEditorContainer) {
+    cssEditorContainer.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:0.5rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+          <strong>Page CSS</strong>
+          <button data-editorts-action="save-css" type="button">Save</button>
+        </div>
+        <div data-editorts-field="css-editor"></div>
+      </div>
+    `;
+  }
+
+  if (shouldEnableJsonEditor && jsonEditorContainer) {
+    jsonEditorContainer.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:0.5rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+          <strong>Page JSON</strong>
+          <button data-editorts-action="save-json" type="button">Apply</button>
+        </div>
+        <div data-editorts-field="json-error" style="display:none; color:#ef4444; font-size:0.85rem;"></div>
+        <div data-editorts-field="json-editor"></div>
+      </div>
+    `;
+  }
+
+  async function ensureCssEditorReady() {
+    if (!shouldEnableCssEditor || !cssEditorContainer) return;
+    const host = cssEditorContainer.querySelector('[data-editorts-field="css-editor"]') as HTMLElement | null;
+    if (!host) return;
+
+    if (!cssEditor) {
+      cssEditor = await createCodeEditor(host, page.getCSS() ?? '', 'css');
+    } else {
+      cssEditor.setValue(page.getCSS() ?? '');
+    }
+  }
+
+  async function ensureJsonEditorReady() {
+    if (!shouldEnableJsonEditor || !jsonEditorContainer) return;
+    const host = jsonEditorContainer.querySelector('[data-editorts-field="json-editor"]') as HTMLElement | null;
+    if (!host) return;
+
+    const nextValue = serializeData();
+
+    if (!jsonEditor) {
+      jsonEditor = await createCodeEditor(host, nextValue, 'json');
+    } else {
+      jsonEditor.setValue(nextValue);
+    }
+  }
+
+  async function ensureJsEditorReadyFor(component: Component | null) {
+    if (!shouldEnableJsEditor || !jsEditorContainer) return;
+
+    const status = jsEditorContainer.querySelector('[data-editorts-field="js-status"]') as HTMLElement | null;
+    const host = jsEditorContainer.querySelector('[data-editorts-field="js-editor"]') as HTMLElement | null;
+    if (!host) return;
+
+    if (!component) {
+      selectedComponentId = null;
+      if (status) status.textContent = 'Select a component to edit its script';
+      if (!jsEditor) {
+        jsEditor = await createCodeEditor(host, '', 'javascript');
+      } else {
+        jsEditor.setValue('');
+      }
+      return;
+    }
+
+    selectedComponentId = component.attributes?.id ?? null;
+    if (status) status.textContent = selectedComponentId ? `Editing: ${selectedComponentId}` : 'Editing: (no id)';
+
+    const nextValue = typeof component.script === 'string' ? component.script : '';
+
+    if (!jsEditor) {
+      jsEditor = await createCodeEditor(host, nextValue, 'javascript');
+    } else {
+      jsEditor.setValue(nextValue);
+    }
+  }
+
+  // Wire Save buttons
+  if (shouldEnableCssEditor && cssEditorContainer) {
+    const btn = cssEditorContainer.querySelector('[data-editorts-action="save-css"]') as HTMLButtonElement | null;
+    btn?.addEventListener('click', async () => {
+      await ensureCssEditorReady();
+      if (!cssEditor) return;
+
+      page.styles.setCompiledCSS(cssEditor.getValue());
+      refresh();
+    });
+  }
+
+  if (shouldEnableJsEditor && jsEditorContainer) {
+    const btn = jsEditorContainer.querySelector('[data-editorts-action="save-js"]') as HTMLButtonElement | null;
+    btn?.addEventListener('click', async () => {
+      if (!selectedComponentId) return;
+      const component = page.components.findById(selectedComponentId);
+      if (!component) return;
+
+      await ensureJsEditorReadyFor(component);
+      if (!jsEditor) return;
+
+      page.components.updateComponent(selectedComponentId, { script: jsEditor.getValue() });
+      refresh();
+    });
+  }
+
+  if (shouldEnableJsonEditor && jsonEditorContainer) {
+    const btn = jsonEditorContainer.querySelector('[data-editorts-action="save-json"]') as HTMLButtonElement | null;
+    btn?.addEventListener('click', async () => {
+      await ensureJsonEditorReady();
+      if (!jsonEditor) return;
+
+      const errorEl = jsonEditorContainer.querySelector('[data-editorts-field="json-error"]') as HTMLElement | null;
+
+      try {
+        const next = JSON.parse(jsonEditor.getValue());
+
+        const toolbarRuntimeConfig = page.toolbars.exportConfig();
+
+        if (isMultiPageData(next)) {
+          if (!next.pages || next.pages.length === 0) throw new Error('MultiPageData.pages cannot be empty');
+          multiPageData = next;
+          activePageIndex = next.activePageIndex ?? 0;
+          const loadedPageData = next.pages[activePageIndex] ?? next.pages[0]!;
+          const newPage = new Page(loadedPageData);
+          Object.assign(page, newPage);
+        } else {
+          multiPageData = null;
+          activePageIndex = 0;
+          const newPage = new Page(next as PageData);
+          Object.assign(page, newPage);
+        }
+
+        // Reapply runtime toolbar configuration
+        page.toolbars.importConfig(toolbarRuntimeConfig);
+
+        if (errorEl) {
+          errorEl.style.display = 'none';
+          errorEl.textContent = '';
+        }
+
+        refresh();
+      } catch (err: any) {
+        if (errorEl) {
+          errorEl.style.display = 'block';
+          errorEl.textContent = err?.message || String(err);
+        }
+      }
+    });
+  }
+
+  // Initial editor content
+  void ensureCssEditorReady();
+  void ensureJsonEditorReady();
+  void ensureJsEditorReadyFor(null);
+
   // Handle messages from iframe
   window.addEventListener('message', (event) => {
     if (event.data.type === 'editorts:componentSelected') {
       const component = page.components.findById(event.data.id);
       if (component) {
+        // Update JS editor panel (if enabled)
+        void ensureJsEditorReadyFor(component);
+
         // Update selected info container if provided
         if (selectedInfoContainer && config.ui?.selectedInfo?.enabled !== false) {
           renderSelectedInfo(component, event.data.id, event.data.tagName);
@@ -657,6 +1027,23 @@ ${page.getHTML()}
       }
     } else if (event.data.type === 'editorts:toolbarAction') {
       handleToolbarAction(event.data.action, event.data.elementId);
+    } else if (event.data.type === 'editorts:canvasReorder') {
+      const draggedId = event.data.draggedId as string;
+      const targetId = event.data.targetId as string;
+
+      if (!draggedId || !targetId || draggedId === targetId) return;
+
+      const targetInfo = page.components.getParentAndIndex(targetId);
+      if (!targetInfo) return;
+
+      page.components.moveComponent(draggedId, targetInfo.parentId, targetInfo.index);
+
+      const component = page.components.findById(draggedId);
+      if (component) {
+        emit('componentReorder', component, targetInfo.parentId, targetInfo.index);
+      }
+
+      refresh();
     } else if (event.data.type === 'editorts:textEditStart') {
       const component = page.components.findById(event.data.id);
       if (component) {
@@ -823,6 +1210,17 @@ ${page.getHTML()}
 
       case 'editJS':
         emit('componentEditJS', component);
+        void ensureJsEditorReadyFor(component).then(() => jsEditor?.focus());
+        break;
+
+      case 'editCSS':
+        emit('pageEditCSS', page.getBody());
+        void ensureCssEditorReady().then(() => cssEditor?.focus());
+        break;
+
+      case 'editJSON':
+        emit('pageEditJSON', page.getBody());
+        void ensureJsonEditorReady().then(() => jsonEditor?.focus());
         break;
 
       case 'duplicate':
@@ -860,9 +1258,17 @@ ${page.getHTML()}
   // Refresh iframe and layer panel
   function refresh() {
     iframe.srcdoc = buildIframeContent();
+
     if (layerManager) {
       layerManager.update(page.components.getAll());
     }
+
+    renderStats();
+    void ensureCssEditorReady();
+    void ensureJsonEditorReady();
+
+    const selected = selectedComponentId ? page.components.findById(selectedComponentId) : null;
+    void ensureJsEditorReadyFor(selected);
   }
 
   // Initialize storage manager
@@ -923,9 +1329,17 @@ ${page.getHTML()}
   // Destroy editor
   function destroy() {
     iframe.srcdoc = '';
+
+    jsEditor?.dispose();
+    cssEditor?.dispose();
+    jsonEditor?.dispose();
+
     if (sidebarContainer) sidebarContainer.innerHTML = '';
     if (statsContainer) statsContainer.innerHTML = '';
     if (selectedInfoContainer) selectedInfoContainer.innerHTML = '';
+    if (jsEditorContainer) jsEditorContainer.innerHTML = '';
+    if (cssEditorContainer) cssEditorContainer.innerHTML = '';
+    if (jsonEditorContainer) jsonEditorContainer.innerHTML = '';
     if (layerManager) layerManager.destroy();
     
     Object.keys(eventListeners).forEach(key => {

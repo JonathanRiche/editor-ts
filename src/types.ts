@@ -135,6 +135,27 @@ export interface InitConfig {
       containerId?: string;  // Where to render layer panel (optional)
       enabled?: boolean;
     };
+    editors?: {
+      js?: {
+        containerId?: string; // Where to render component JS editor
+        enabled?: boolean;
+      };
+      css?: {
+        containerId?: string; // Where to render page CSS editor
+        enabled?: boolean;
+      };
+      json?: {
+        containerId?: string; // Where to render page JSON editor
+        enabled?: boolean;
+      };
+    };
+  };
+
+  // Optional: built-in code editor provider
+  // - 'textarea' (default): lightweight, zero deps
+  // - 'modern-monaco': advanced editor (requires optional peer dependency)
+  codeEditor?: {
+    provider?: 'textarea' | 'modern-monaco';
   };
 
   // Optional: event callbacks

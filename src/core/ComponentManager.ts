@@ -16,12 +16,22 @@ export class ComponentManager {
    * Parse components from JSON string
    */
   private parse(): Component[] {
-    try {
-      return JSON.parse(this.body.components) as Component[];
-    } catch (error) {
-      console.error('Failed to parse components:', error);
-      return [];
+    const raw = this.body.components;
+
+    if (Array.isArray(raw)) {
+      return raw as Component[];
     }
+
+    if (typeof raw === 'string') {
+      try {
+        return JSON.parse(raw) as Component[];
+      } catch (error) {
+        console.error('Failed to parse components:', error);
+        return [];
+      }
+    }
+
+    return [];
   }
 
   /**
@@ -306,6 +316,20 @@ export class ComponentManager {
     components.splice(insertIndex, 0, component!);
 
     return true;
+  }
+
+  /**
+   * Get the parent component ID and index for a component.
+   * Returns { parentId: null } when the component is at the root.
+   */
+  getParentAndIndex(componentId: string): { parentId: string | null; index: number } | null {
+    const result = this.findParentAndIndex(componentId);
+    if (!result) return null;
+
+    return {
+      parentId: result.parent?.attributes?.id ?? null,
+      index: result.index,
+    };
   }
 
   /**
