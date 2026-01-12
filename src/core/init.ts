@@ -148,11 +148,24 @@ export function init(config: InitConfig): EditorTsEditor {
       border-color: #ef4444;
       color: #ef4444;
     }
+    /* Text editing mode */
+    .editorts-editing {
+      outline: 3px solid #3b82f6 !important;
+      background-color: rgba(59, 130, 246, 0.1) !important;
+      cursor: text !important;
+      min-height: 1em;
+    }
+    .editorts-editing:focus {
+      outline: 3px solid #2563eb !important;
+      background-color: rgba(59, 130, 246, 0.15) !important;
+    }
   </style>
 </head>
 ${page.getHTML()}
 <script>
   let selectedElement = null;
+  let editingElement = null;
+  let originalContent = '';
 
   // Initialize WYSIWYG
   function initWYSIWYG() {
@@ -162,10 +175,122 @@ ${page.getHTML()}
       el.classList.add('editorts-highlight');
       
       el.addEventListener('click', (e) => {
+        // Don't interfere with text editing
+        if (editingElement === el) return;
         e.stopPropagation();
         selectElement(el);
       });
+
+      // Double-click to edit text
+      el.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        startTextEdit(el);
+      });
     });
+  }
+
+  // Start text editing mode
+  function startTextEdit(el) {
+    // If already editing, do nothing
+    if (editingElement) {
+      if (editingElement === el) return;
+      // Save current edit first
+      endTextEdit(true);
+    }
+
+    editingElement = el;
+    originalContent = el.innerHTML;
+
+    // Remove toolbar during editing
+    const toolbar = el.querySelector('.editorts-context-toolbar');
+    if (toolbar) toolbar.remove();
+
+    // Enter edit mode
+    el.classList.remove('editorts-selected');
+    el.classList.add('editorts-editing');
+    el.contentEditable = 'true';
+    el.focus();
+
+    // Select all text for easy replacement
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    // Notify parent
+    window.parent.postMessage({
+      type: 'editorts:textEditStart',
+      id: el.id
+    }, '*');
+
+    // Handle blur to save
+    el.addEventListener('blur', handleEditBlur);
+    
+    // Handle keyboard shortcuts
+    el.addEventListener('keydown', handleEditKeydown);
+  }
+
+  function handleEditBlur(e) {
+    // Small delay to allow for click events
+    setTimeout(() => {
+      if (editingElement && !editingElement.contains(document.activeElement)) {
+        endTextEdit(true);
+      }
+    }, 100);
+  }
+
+  function handleEditKeydown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      endTextEdit(false); // Cancel - restore original
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      endTextEdit(true); // Save
+    }
+  }
+
+  // End text editing mode
+  function endTextEdit(save) {
+    if (!editingElement) return;
+
+    const el = editingElement;
+    const newContent = el.innerHTML;
+    
+    // Remove event listeners
+    el.removeEventListener('blur', handleEditBlur);
+    el.removeEventListener('keydown', handleEditKeydown);
+
+    // Exit edit mode
+    el.contentEditable = 'false';
+    el.classList.remove('editorts-editing');
+
+    if (save && newContent !== originalContent) {
+      // Notify parent of text update
+      window.parent.postMessage({
+        type: 'editorts:textUpdate',
+        id: el.id,
+        content: newContent,
+        originalContent: originalContent
+      }, '*');
+    } else if (!save) {
+      // Restore original content
+      el.innerHTML = originalContent;
+    }
+
+    // Notify parent editing ended
+    window.parent.postMessage({
+      type: 'editorts:textEditEnd',
+      id: el.id,
+      saved: save && newContent !== originalContent
+    }, '*');
+
+    editingElement = null;
+    originalContent = '';
+
+    // Re-select the element
+    selectElement(el);
   }
 
   function selectElement(el) {
@@ -282,6 +407,33 @@ ${page.getHTML()}
       }
     } else if (event.data.type === 'editorts:toolbarAction') {
       handleToolbarAction(event.data.action, event.data.elementId);
+    } else if (event.data.type === 'editorts:textEditStart') {
+      const component = page.components.findById(event.data.id);
+      if (component) {
+        emit('textEditStart', component);
+        if (config.onTextEditStart) {
+          config.onTextEditStart(component);
+        }
+      }
+    } else if (event.data.type === 'editorts:textUpdate') {
+      const component = page.components.findById(event.data.id);
+      if (component) {
+        // Update the component's text content
+        page.components.updateTextContent(event.data.id, event.data.content);
+        
+        emit('textUpdate', component, event.data.content, event.data.originalContent);
+        if (config.onTextUpdate) {
+          config.onTextUpdate(component, event.data.content, event.data.originalContent);
+        }
+      }
+    } else if (event.data.type === 'editorts:textEditEnd') {
+      const component = page.components.findById(event.data.id);
+      if (component) {
+        emit('textEditEnd', component, event.data.saved);
+        if (config.onTextEditEnd) {
+          config.onTextEditEnd(component, event.data.saved);
+        }
+      }
     }
   });
 

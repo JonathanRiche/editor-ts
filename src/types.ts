@@ -24,6 +24,7 @@ export interface Component {
   void?: boolean;
   style?: string;
   script?: string;
+  content?: string;  // Text content for the component
   [key: string]: any;
 }
 
@@ -132,6 +133,11 @@ export interface InitConfig {
   onComponentEdit?: (component: Component) => void;
   onComponentDelete?: (component: Component) => void;
   onComponentDuplicate?: (component: Component, duplicate: Component) => void;
+  
+  // Text editing callbacks
+  onTextEditStart?: (component: Component) => void;
+  onTextUpdate?: (component: Component, newContent: string, originalContent: string) => void;
+  onTextEditEnd?: (component: Component, saved: boolean) => void;
 }
 
 export interface ToolbarInitConfig {

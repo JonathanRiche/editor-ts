@@ -164,6 +164,18 @@ export class ComponentManager {
   }
 
   /**
+   * Update a component's text content
+   */
+  updateTextContent(id: string, content: string): boolean {
+    const component = this.findById(id);
+    if (component) {
+      component.content = content;
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Get all components
    */
   getAll(): Component[] {
