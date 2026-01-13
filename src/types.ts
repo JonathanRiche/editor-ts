@@ -2,7 +2,7 @@
  * Core type definitions for the HTML content editing library
  */
 
-import type { OpencodeClient, ServerOptions } from '@opencode-ai/sdk';
+import type { OpencodeClient, ServerOptions, createOpencode } from '@opencode-ai/sdk';
 import type { Page } from './core/Page';
 import type { StorageManager } from './core/StorageManager';
 
@@ -24,8 +24,26 @@ export interface MultiPageData {
 export type AiProviderType = 'disabled' | 'opencode';
 export type AiProviderMode = 'client' | 'client+server';
 
+export type OpencodeServer = Awaited<ReturnType<typeof createOpencode>>['server'];
+
 export interface OpencodeAiProviderConfig {
   provider: 'opencode';
+
+  /**
+   * Use your own SDK client instance.
+   *
+   * This is useful when your app already created a client via:
+   *   `createOpencodeClient({ baseUrl })`
+   * or
+   *   `const { client } = await createOpencode()`
+   */
+  client?: OpencodeClient;
+
+  /**
+   * Optional server instance for `getUrl()`.
+   * If you pass this, EditorTs will NOT manage its lifecycle.
+   */
+  server?: OpencodeServer;
 
   /**
    * - 'client': connect to an existing opencode server via baseUrl

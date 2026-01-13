@@ -247,6 +247,9 @@ export function init(config: InitConfig): EditorTsEditor {
     const aiConfig: OpencodeAiProviderConfig = config.aiProvider;
     const mode: AiProviderMode = aiConfig.mode ?? 'client';
 
+    const externalClient = aiConfig.client;
+    const externalServer = aiConfig.server;
+
     let server: { url: string; close(): void } | null = null;
     let clientPromise: Promise<import('@opencode-ai/sdk').OpencodeClient> | null = null;
 
@@ -259,43 +262,48 @@ export function init(config: InitConfig): EditorTsEditor {
       mode,
       getClient: async () => {
         if (!clientPromise) {
-          clientPromise = loadSdk().then(async (sdk) => {
-            if (mode === 'client') {
-              const baseUrl = aiConfig.baseUrl;
-              if (!baseUrl) {
-                throw new Error("EditorTs: aiProvider.baseUrl is required when mode is 'client'");
+          if (externalClient) {
+            clientPromise = Promise.resolve(externalClient);
+          } else {
+            clientPromise = loadSdk().then(async (sdk) => {
+              if (mode === 'client') {
+                const baseUrl = aiConfig.baseUrl;
+                if (!baseUrl) {
+                  throw new Error("EditorTs: aiProvider.baseUrl is required when mode is 'client'");
+                }
+                if (typeof sdk.createOpencodeClient !== 'function') {
+                  throw new Error('EditorTs: @opencode-ai/sdk missing createOpencodeClient');
+                }
+                return sdk.createOpencodeClient({ baseUrl });
               }
-              if (typeof sdk.createOpencodeClient !== 'function') {
-                throw new Error('EditorTs: @opencode-ai/sdk missing createOpencodeClient');
+
+              if (typeof sdk.createOpencode !== 'function') {
+                throw new Error('EditorTs: @opencode-ai/sdk missing createOpencode');
               }
-              return sdk.createOpencodeClient({ baseUrl });
-            }
 
-            if (typeof sdk.createOpencode !== 'function') {
-              throw new Error('EditorTs: @opencode-ai/sdk missing createOpencode');
-            }
+              const opencode = await sdk.createOpencode({
+                hostname: aiConfig.hostname,
+                port: aiConfig.port,
+                signal: aiConfig.signal,
+                timeout: aiConfig.timeout,
+                config: aiConfig.config ?? {},
+              });
 
-            const opencode = await sdk.createOpencode({
-              hostname: aiConfig.hostname,
-              port: aiConfig.port,
-              signal: aiConfig.signal,
-              timeout: aiConfig.timeout,
-              config: aiConfig.config ?? {},
+              server = opencode.server;
+              return opencode.client;
             });
-
-            server = opencode.server;
-            return opencode.client;
-          });
+          }
         }
 
         return clientPromise;
       },
       getUrl: () => {
-        if (mode === 'client') return aiConfig.baseUrl ?? null;
-        return server?.url ?? null;
+        if (mode === 'client') return aiConfig.baseUrl ?? externalServer?.url ?? null;
+        return server?.url ?? externalServer?.url ?? null;
       },
       close: async () => {
-        if (server?.close) {
+        // Only close server that EditorTs started itself.
+        if (server) {
           server.close();
         }
         server = null;

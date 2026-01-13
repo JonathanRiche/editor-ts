@@ -4,6 +4,7 @@
  */
 
 import { init, type PageData, type Component } from '../index';
+import { createOpencodeClient } from '@opencode-ai/sdk';
 import sampleData from '../samples/page_template.json';
 
 console.log('QuickStart script loaded');
@@ -108,11 +109,12 @@ const editor = init({
   },
 
   // Optional: AI provider
-  // Requires a running opencode server (client-only mode).
+  // Demonstrates passing a user-created OpenCode client instance.
   aiProvider: {
     provider: 'opencode',
     mode: 'client',
     baseUrl: aiBaseUrlInput?.value ?? 'http://localhost:4096',
+    client: createOpencodeClient({ baseUrl: aiBaseUrlInput?.value ?? 'http://localhost:4096' }),
   },
 
   // Optional: Event callbacks
