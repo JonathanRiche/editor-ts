@@ -1,15 +1,54 @@
 import type { PageBody, Component, ComponentQuery } from '../types';
+import { sanitizeHTML } from '../utils/helpers';
 
 /**
  * Manager for handling component operations
  */
+export type DomAdapter = {
+  createTemplate(): HTMLTemplateElement;
+};
+
 export class ComponentManager {
+  private static readonly voidTags = new Set([
+    'area',
+    'base',
+    'br',
+    'col',
+    'embed',
+    'hr',
+    'img',
+    'input',
+    'link',
+    'meta',
+    'param',
+    'source',
+    'track',
+    'wbr',
+  ]);
+
   private body: PageBody;
   private parsedComponents: Component[];
+  private dom: DomAdapter | null;
 
-  constructor(body: PageBody) {
+  constructor(body: PageBody, options?: { dom?: DomAdapter | null }) {
     this.body = body;
     this.parsedComponents = this.parse();
+
+    this.dom = options?.dom ?? (typeof document !== 'undefined'
+      ? {
+          createTemplate: () => document.createElement('template'),
+        }
+      : null);
+
+    // If we were given HTML without components, derive components from HTML.
+    if (this.parsedComponents.length === 0 && typeof this.body.html === 'string' && this.body.html.trim() !== '') {
+      this.setFromHTML(this.body.html);
+    }
+
+    // Keep html in sync when components are available.
+    if (this.parsedComponents.length > 0) {
+      this.syncHtmlFromComponents();
+    }
   }
 
   /**
@@ -19,16 +58,18 @@ export class ComponentManager {
     const raw = this.body.components;
 
     if (Array.isArray(raw)) {
-      return raw as Component[];
+      return raw;
     }
 
     if (typeof raw === 'string') {
       try {
         return JSON.parse(raw) as Component[];
-      } catch (error) {
-        console.error('Failed to parse components:', error);
-        return [];
-      }
+       } catch (error: unknown) {
+         const message = error instanceof Error ? error.message : String(error);
+         console.error('Failed to parse components:', message);
+         return [];
+       }
+
     }
 
     return [];
@@ -242,10 +283,136 @@ export class ComponentManager {
   }
 
   /**
+   * Convert the current component tree to HTML.
+   */
+  toHTML(): string {
+    return this.componentsToHTML(this.parsedComponents);
+  }
+
+  /**
+   * Replace current components by parsing the provided HTML.
+   */
+  setFromHTML(html: string): void {
+    if (!this.dom) {
+      console.warn('EditorTs: ComponentManager.setFromHTML() requires DOM; provide a dom adapter when running server-side.');
+      return;
+    }
+
+    this.parsedComponents = this.htmlToComponents(html);
+    this.sync();
+  }
+
+  /**
+   * Sync HTML from components back to body.html.
+   */
+  syncHtmlFromComponents(): void {
+    this.body.html = `<body>${this.toHTML()}</body>`;
+  }
+
+  /**
    * Sync changes back to page body
    */
   sync(): void {
     this.body.components = JSON.stringify(this.parsedComponents);
+    if (this.parsedComponents.length > 0) {
+      this.syncHtmlFromComponents();
+    }
+  }
+
+  private componentsToHTML(components: Component[]): string {
+    return components.map((component) => this.componentToHTML(component)).join('');
+  }
+
+  private componentToHTML(component: Component): string {
+    const tagName = component.tagName ?? 'div';
+    const attributes = this.attributesToString(component.attributes);
+    const style = typeof component.style === 'string' && component.style.trim() !== '' ? ` style="${sanitizeHTML(component.style)}"` : '';
+
+    const contentText = typeof component.content === 'string' ? sanitizeHTML(component.content) : '';
+    const childrenHtml = component.components ? this.componentsToHTML(component.components) : '';
+
+    const isVoid = component.void === true || ComponentManager.voidTags.has(tagName.toLowerCase());
+
+    if (isVoid) {
+      return `<${tagName}${attributes}${style} />`;
+    }
+
+    return `<${tagName}${attributes}${style}>${contentText}${childrenHtml}</${tagName}>`;
+  }
+
+  private attributesToString(attributes: Component['attributes']): string {
+    if (!attributes) return '';
+
+    const parts: string[] = [];
+
+    Object.entries(attributes).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      if (key === 'style') return;
+
+      if (typeof value === 'boolean') {
+        if (value) parts.push(`${key}`);
+        return;
+      }
+
+      const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
+      parts.push(`${key}="${sanitizeHTML(stringValue)}"`);
+    });
+
+    return parts.length > 0 ? ` ${parts.join(' ')}` : '';
+  }
+
+  private htmlToComponents(html: string): Component[] {
+    // Strip outer <body> wrapper if present.
+    const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    const bodyHtml = bodyMatch ? bodyMatch[1]! : html;
+
+    if (!this.dom) {
+      console.warn('EditorTs: ComponentManager.htmlToComponents() requires DOM; provide a dom adapter when running server-side.');
+      return [];
+    }
+
+    const template = this.dom.createTemplate();
+    template.innerHTML = bodyHtml;
+
+    const elements = Array.from(template.content.children) as HTMLElement[];
+    return elements.map((el) => this.elementToComponent(el));
+  }
+
+  private elementToComponent(el: HTMLElement): Component {
+    const tagName = el.tagName.toLowerCase();
+
+    const attributes: Component['attributes'] = {};
+    Array.from(el.attributes).forEach((attr) => {
+      if (attributes) {
+        attributes[attr.name] = attr.value;
+      }
+    });
+
+    const childElements = Array.from(el.children) as HTMLElement[];
+
+    const component: Component = {
+      type: tagName,
+      tagName,
+      attributes,
+    };
+
+    // Only treat as text content when there are no nested elements.
+    if (childElements.length === 0) {
+      const text = el.textContent ?? '';
+      if (text.trim() !== '') {
+        component.content = text;
+      }
+    }
+
+    if (childElements.length > 0) {
+      component.components = childElements.map((child) => this.elementToComponent(child));
+    }
+
+    if (ComponentManager.voidTags.has(tagName)) {
+      component.void = true;
+    }
+
+    return component;
   }
 
   /**

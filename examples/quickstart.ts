@@ -9,8 +9,8 @@ import { createOpencodeClient } from '@opencode-ai/sdk';
 
 console.log('QuickStart script loaded');
 
-const default_data: PageData = {
-  title: "New Page",
+const componentsData: PageData = {
+  title: "Components example",
   item_id: 0,
   body: {
     assets: [],
@@ -38,12 +38,21 @@ const default_data: PageData = {
           "padding": "1rem",
           "margin": "0",
         }
-
-
       }
     ]
   }
 }
+
+const htmlOnlyData: PageData = {
+  title: 'HTML-only example',
+  item_id: 0,
+  body: {
+    html: '<body><div id="html-only-root"><h1 id="html-only-title">Hello from HTML-only</h1></div></body>',
+    css: '',
+    assets: [],
+    styles: [],
+  },
+};
 
 
 const aiBaseUrlInput = document.getElementById('ai-base-url') as HTMLInputElement | null;
@@ -54,8 +63,8 @@ const editor = init({
   iframeId: 'preview-iframe',
 
   // Required: Page data (clean JSON)
-  // data: sampleData as unknown as PageData,
-  data: default_data,
+  // To test HTML->components conversion, use `htmlOnlyData`.
+  data: htmlOnlyData,
 
   // Optional: Configure toolbars (runtime only, NOT saved to JSON)
   toolbars: {

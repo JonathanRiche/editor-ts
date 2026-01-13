@@ -22,7 +22,13 @@ export class Page {
     }
 
     // Initialize managers
-    this.components = new ComponentManager(this.data.body);
+    this.components = new ComponentManager(this.data.body, {
+      dom: typeof document !== 'undefined'
+        ? {
+            createTemplate: () => document.createElement('template'),
+          }
+        : null,
+    });
     this.styles = new StyleManager(this.data.body);
     this.assets = new AssetManager(this.data.body);
     this.toolbars = new ToolbarManager();
@@ -60,7 +66,20 @@ export class Page {
    * Get the raw HTML
    */
   getHTML(): string {
-    return this.data.body.html;
+    // Prefer components when available.
+    // (ComponentManager keeps body.html synced, but this avoids stale html.)
+    const components = this.components.getAll();
+    if (components.length > 0) {
+      return `<body>${this.components.toHTML()}</body>`;
+    }
+
+    const html = this.data.body.html ?? '';
+
+    if (/<body[\s>]/i.test(html)) {
+      return html;
+    }
+
+    return `<body>${html}</body>`;
   }
 
   /**
@@ -74,7 +93,7 @@ export class Page {
    * Get the compiled CSS
    */
   getCSS(): string {
-    return this.data.body.css;
+    return this.data.body.css ?? '';
   }
 
   /**
