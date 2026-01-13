@@ -122,13 +122,17 @@ export function init(config: InitConfig): EditorTsEditor {
     ? document.getElementById(config.ui.editors.json.containerId)
     : null;
 
+  const jsxEditorContainer = config.ui?.editors?.jsx?.containerId
+    ? document.getElementById(config.ui.editors.jsx.containerId)
+    : null;
+
   // Optional: tabbed view toggle between canvas + code panels
   // This does not create UI; it only wires existing buttons.
   let setView: ((view: 'editor' | 'code') => void) | null = null;
 
   const viewTabs = config.ui?.viewTabs;
   if (viewTabs) {
-    const codeViewContainers = [jsEditorContainer, cssEditorContainer, jsonEditorContainer]
+    const codeViewContainers = [jsEditorContainer, cssEditorContainer, jsonEditorContainer, jsxEditorContainer]
       .filter(Boolean) as HTMLElement[];
 
     const originalDisplayByEl = new Map<HTMLElement, string>();
@@ -367,7 +371,7 @@ export function init(config: InitConfig): EditorTsEditor {
   async function createModernMonacoCodeEditor(
     host: HTMLElement,
     initialValue: string,
-    language: 'javascript' | 'css' | 'json'
+    language: 'javascript' | 'typescript' | 'css' | 'json'
   ): Promise<RuntimeCodeEditor> {
     host.innerHTML = '';
 
@@ -387,7 +391,7 @@ export function init(config: InitConfig): EditorTsEditor {
     // If the resource is a string/plain object, Monaco will crash in resource comparisons.
     const extByLanguage: Record<string, string> = {
       javascript: 'js',
-      typescript: 'ts',
+      typescript: 'tsx',
       css: 'css',
       json: 'json',
     };
@@ -398,7 +402,7 @@ export function init(config: InitConfig): EditorTsEditor {
       ? monaco.Uri.parse(`file:///editorts/${language}/${Date.now()}.${ext}`)
       : undefined;
 
-    const model = monaco.editor.createModel(initialValue ?? '', language, uri);
+    const model = monaco.editor.createModel(initialValue ?? '', language === 'typescript' ? 'typescript' : language, uri);
     editor.setModel(model);
 
     return {
@@ -416,7 +420,7 @@ export function init(config: InitConfig): EditorTsEditor {
   async function createCodeEditor(
     host: HTMLElement,
     initialValue: string,
-    language: 'javascript' | 'css' | 'json'
+    language: 'javascript' | 'typescript' | 'css' | 'json'
   ): Promise<RuntimeCodeEditor> {
     if (codeEditorProvider === 'modern-monaco') {
       try {
@@ -968,6 +972,7 @@ ${page.getHTML()}
   const shouldEnableJsEditor = !!jsEditorContainer && config.ui?.editors?.js?.enabled !== false;
   const shouldEnableCssEditor = !!cssEditorContainer && config.ui?.editors?.css?.enabled !== false;
   const shouldEnableJsonEditor = !!jsonEditorContainer && config.ui?.editors?.json?.enabled !== false;
+  const shouldEnableJsxEditor = !!jsxEditorContainer && config.ui?.editors?.jsx?.enabled !== false;
 
   // Render editor panels
   if (shouldEnableJsEditor && jsEditorContainer) {
@@ -1000,16 +1005,30 @@ ${page.getHTML()}
 
   if (shouldEnableJsonEditor && jsonEditorContainer) {
     jsonEditorContainer.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:0.5rem;">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
-          <strong>Page JSON</strong>
-          <button data-editorts-action="save-json" type="button">Apply</button>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+        <div style="font-weight:600;">Page JSON</div>
+        <div style="display:flex; gap:0.5rem;">
+          <button data-editorts-action="save-json">Apply</button>
         </div>
-        <div data-editorts-field="json-error" style="display:none; color:#ef4444; font-size:0.85rem;"></div>
-        <div data-editorts-field="json-editor"></div>
       </div>
+      <div data-editorts-field="json-editor" style="margin-top:0.5rem;"></div>
+      <div data-editorts-field="json-error" style="margin-top:0.5rem; color:#ef4444; display:none;"></div>
     `;
   }
+
+  if (shouldEnableJsxEditor && jsxEditorContainer) {
+    jsxEditorContainer.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+        <div style="font-weight:600;">JSX</div>
+        <div style="display:flex; gap:0.5rem;">
+          <button data-editorts-action="export-jsx">Export</button>
+        </div>
+      </div>
+      <div data-editorts-field="jsx-editor" style="margin-top:0.5rem;"></div>
+      <div data-editorts-field="jsx-error" style="margin-top:0.5rem; color:#ef4444; display:none;"></div>
+    `;
+  }
+
 
   async function ensureCssEditorReady() {
     if (!shouldEnableCssEditor || !cssEditorContainer) return;
@@ -1034,6 +1053,22 @@ ${page.getHTML()}
       jsonEditor = await createCodeEditor(host, nextValue, 'json');
     } else {
       jsonEditor.setValue(nextValue);
+    }
+  }
+
+  let jsxEditor: RuntimeCodeEditor | null = null;
+
+  async function ensureJsxEditorReady() {
+    if (!shouldEnableJsxEditor || !jsxEditorContainer) return;
+    const host = jsxEditorContainer.querySelector('[data-editorts-field="jsx-editor"]') as HTMLElement | null;
+    if (!host) return;
+
+    const nextValue = page.components.toJSX({ pretty: true });
+
+    if (!jsxEditor) {
+      jsxEditor = await createCodeEditor(host, nextValue, 'typescript');
+    } else {
+      jsxEditor.setValue(nextValue);
     }
   }
 
@@ -1125,7 +1160,15 @@ ${page.getHTML()}
     });
   }
 
-  // Wire Save buttons
+  // Wire Save/Export buttons
+  if (shouldEnableJsxEditor && jsxEditorContainer) {
+    const btn = jsxEditorContainer.querySelector('[data-editorts-action="export-jsx"]') as HTMLButtonElement | null;
+    btn?.addEventListener('click', async () => {
+      await ensureJsxEditorReady();
+      jsxEditor?.focus();
+    });
+  }
+
   if (shouldEnableCssEditor && cssEditorContainer) {
     const btn = cssEditorContainer.querySelector('[data-editorts-action="save-css"]') as HTMLButtonElement | null;
     btn?.addEventListener('click', async () => {
@@ -1203,6 +1246,7 @@ ${page.getHTML()}
   void ensureCssEditorReady();
   void ensureJsonEditorReady();
   void ensureJsEditorReadyFor(null);
+  void ensureJsxEditorReady();
   renderJsFileList();
 
   // Handle messages from iframe
@@ -1553,6 +1597,7 @@ ${page.getHTML()}
     jsEditor?.dispose();
     cssEditor?.dispose();
     jsonEditor?.dispose();
+    jsxEditor?.dispose();
 
     void ai?.close();
 
@@ -1562,6 +1607,7 @@ ${page.getHTML()}
     if (jsEditorContainer) jsEditorContainer.innerHTML = '';
     if (cssEditorContainer) cssEditorContainer.innerHTML = '';
     if (jsonEditorContainer) jsonEditorContainer.innerHTML = '';
+    if (jsxEditorContainer) jsxEditorContainer.innerHTML = '';
     if (layerManager) layerManager.destroy();
 
     (Object.keys(eventListeners) as EditorTsEventName[]).forEach((key) => {

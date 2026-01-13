@@ -127,6 +127,10 @@ const editor = init({
         containerId: 'json-editor-container',
         enabled: true,
       },
+      jsx: {
+        containerId: 'jsx-editor-container',
+        enabled: true,
+      },
     },
     viewTabs: {
       editorButtonId: 'tab-editor',
@@ -204,6 +208,7 @@ console.log('📜 Custom code components:', customCode.length);
 const aiHealthButton = document.getElementById('ai-health-btn') as HTMLButtonElement | null;
 const aiHealthStatus = document.getElementById('ai-health-status') as HTMLElement | null;
 
+
 if (aiHealthButton && aiHealthStatus) {
   aiHealthButton.addEventListener('click', async () => {
     if (!editor.ai) {
@@ -222,6 +227,7 @@ if (aiHealthButton && aiHealthStatus) {
     }
   });
 }
+
 
 console.log('✅ EditorTs Editor initialized!');
 console.log('💡 Click any element in the canvas to see the toolbar');

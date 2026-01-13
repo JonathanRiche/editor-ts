@@ -225,6 +225,10 @@ export interface InitConfig {
         containerId?: string; // Where to render page JSON editor
         enabled?: boolean;
       };
+      jsx?: {
+        containerId?: string; // Where to render JSX/TSX view
+        enabled?: boolean;
+      };
     };
 
     /**

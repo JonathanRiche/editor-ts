@@ -45,6 +45,9 @@
     },
     "@opencode-ai/sdk": {
       "optional": true
+    },
+    "typescript": {
+      "optional": true
     }
   },
   "files": [

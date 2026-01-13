@@ -1,5 +1,5 @@
 import type { PageBody, Component, ComponentQuery } from '../types';
-import { sanitizeHTML } from '../utils/helpers';
+import { sanitizeHTML, cssStringToObject } from '../utils/helpers';
 
 /**
  * Manager for handling component operations
@@ -290,6 +290,68 @@ export class ComponentManager {
   }
 
   /**
+   * Convert the current component tree to JSX/TSX source.
+   *
+   * Notes:
+   * - This is a best-effort export for round-tripping.
+   * - Attributes are emitted as JSX props; `class` becomes `className`.
+   * - Inline style strings are converted to an object expression.
+   */
+  toJSX(options?: { pretty?: boolean; indent?: string }): string {
+    const pretty = options?.pretty ?? true;
+    const indent = options?.indent ?? '  ';
+
+    const newline = pretty ? '\n' : '';
+
+    const toComponentName = (id: string): string => {
+      const cleaned = id
+        .replace(/[^a-zA-Z0-9_\-]/g, ' ')
+        .trim()
+        .split(/\s+|\-/g)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join('');
+
+      return cleaned.match(/^[A-Z]/) ? cleaned : `C${cleaned}`;
+    };
+
+    const definitions: string[] = [];
+
+    const exportComponent = (component: Component) => {
+      const id = typeof component.attributes?.id === 'string' ? component.attributes.id : null;
+      if (!id) return;
+
+      const name = toComponentName(id);
+      const body = this.componentToJSX(component, 2, { pretty, indent, newline });
+
+      definitions.push(
+        `export function ${name}() {${newline}` +
+          `${indent}return (${newline}` +
+          `${body}${newline}` +
+          `${indent});${newline}` +
+          `}${newline}`
+      );
+    };
+
+    this.parsedComponents.forEach(exportComponent);
+
+    if (definitions.length === 0) {
+      // No ids to create named components; fall back to inline JSX.
+      const inline = this.parsedComponents
+        .map((component) => this.componentToJSX(component, 0, { pretty, indent, newline }))
+        .join(newline);
+
+      return `export function Template() {${newline}` +
+        `${indent}return (${newline}` +
+        `${pretty ? inline.split('\n').map((l) => (l ? indent + l : l)).join('\n') : inline}${newline}` +
+        `${indent});${newline}` +
+        `}`;
+    }
+
+    return definitions.join(newline);
+  }
+
+  /**
    * Replace current components by parsing the provided HTML.
    */
   setFromHTML(html: string): void {
@@ -299,6 +361,20 @@ export class ComponentManager {
     }
 
     this.parsedComponents = this.htmlToComponents(html);
+    this.sync();
+  }
+
+  /**
+   * Replace current components by parsing the provided JSX/TSX.
+   *
+   * This is intended for server/build-time usage. It uses `typescript` (peer dep)
+   * and does not require DOM.
+   */
+  async setFromJSX(source: string): Promise<void> {
+    const components = await this.jsxToComponents(source);
+    if (components.length === 0) return;
+
+    this.parsedComponents = components;
     this.sync();
   }
 
@@ -359,6 +435,292 @@ export class ComponentManager {
     });
 
     return parts.length > 0 ? ` ${parts.join(' ')}` : '';
+  }
+
+  private componentToJSX(
+    component: Component,
+    depth: number,
+    options: { pretty: boolean; indent: string; newline: string }
+  ): string {
+    const tagName = component.tagName ?? 'div';
+
+    const { pretty, indent, newline } = options;
+    const leading = pretty ? indent.repeat(depth) : '';
+
+    const isVoid = component.void === true || ComponentManager.voidTags.has(tagName.toLowerCase());
+
+    const props = this.attributesToJSXProps(component);
+    const open = `<${tagName}${props}>`;
+
+    if (isVoid) {
+      return `${leading}<${tagName}${props} />`;
+    }
+
+    const children: string[] = [];
+
+    if (typeof component.content === 'string' && component.content.trim() !== '') {
+      children.push(this.escapeJsxText(component.content));
+    }
+
+    if (component.components && component.components.length > 0) {
+      const rendered = component.components.map((c) => this.componentToJSX(c, depth + 1, options));
+      children.push(rendered.join(newline));
+    }
+
+    if (children.length === 0) {
+      return `${leading}${open}</${tagName}>`;
+    }
+
+    if (!pretty) {
+      return `${leading}${open}${children.join('')}</${tagName}>`;
+    }
+
+    const inner = children
+      .map((child) => {
+        // If the child already has indentation (nested JSX), keep it as-is.
+        if (child.startsWith(indent.repeat(depth + 1))) return child;
+        return `${indent.repeat(depth + 1)}${child}`;
+      })
+      .join(newline);
+
+    return `${leading}${open}${newline}${inner}${newline}${leading}</${tagName}>`;
+  }
+
+  private escapeJsxText(text: string): string {
+    // Escape braces so the output remains valid JSX text.
+    return text.replace(/\{/g, '&#123;').replace(/\}/g, '&#125;');
+  }
+
+  private cssKeyToJsx(key: string): string {
+    return key.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+  }
+
+  private toJsxStyleObject(styleText: string): Record<string, string> {
+    const raw = cssStringToObject(styleText);
+    const out: Record<string, string> = {};
+
+    Object.entries(raw).forEach(([key, value]) => {
+      out[this.cssKeyToJsx(key)] = value;
+    });
+
+    return out;
+  }
+
+  private attributesToJSXProps(component: Component): string {
+    const attributes = component.attributes;
+    const props: string[] = [];
+
+    if (attributes) {
+      Object.entries(attributes).forEach(([rawKey, value]) => {
+        if (value === undefined || value === null) return;
+
+        const key = rawKey === 'class' ? 'className' : rawKey;
+
+        if (typeof value === 'string') {
+          props.push(`${key}=${JSON.stringify(value)}`);
+          return;
+        }
+
+        if (typeof value === 'number' || typeof value === 'boolean') {
+          props.push(`${key}={${String(value)}}`);
+          return;
+        }
+
+        // Fallback: JSON
+        props.push(`${key}={${JSON.stringify(value)}}`);
+      });
+    }
+
+    if (typeof component.style === 'string' && component.style.trim() !== '') {
+      const styleObj = this.toJsxStyleObject(component.style);
+      props.push(`style={${JSON.stringify(styleObj)}}`);
+    }
+
+    return props.length > 0 ? ` ${props.join(' ')}` : '';
+  }
+
+  private async jsxToComponents(source: string): Promise<Component[]> {
+    const ts = await this.loadTypeScript();
+    if (!ts) return [];
+
+    const file = ts.createSourceFile('editorts.tsx', source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TSX);
+
+    const roots: Component[] = [];
+
+    const visit = (node: import('typescript').Node) => {
+      if (ts.isJsxElement(node)) {
+        const component = this.jsxElementToComponent(ts, node);
+        if (component) roots.push(component);
+        return;
+      }
+
+      if (ts.isJsxSelfClosingElement(node)) {
+        const component = this.jsxSelfClosingElementToComponent(ts, node);
+        if (component) roots.push(component);
+        return;
+      }
+
+      ts.forEachChild(node, visit);
+    };
+
+    ts.forEachChild(file, visit);
+
+    return roots;
+  }
+
+  private async loadTypeScript(): Promise<typeof import('typescript') | null> {
+    try {
+      return await import('typescript');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn('EditorTs: setFromJSX() requires optional peer dependency typescript:', message);
+      return null;
+    }
+  }
+
+  private jsxElementToComponent(
+    ts: typeof import('typescript'),
+    node: import('typescript').JsxElement
+  ): Component | null {
+    const opening = node.openingElement;
+
+    const tagName = this.jsxTagName(ts, opening.tagName);
+    if (!tagName) return null;
+
+    const component: Component = {
+      type: tagName,
+      tagName,
+      attributes: this.jsxAttributesToRecord(ts, opening.attributes),
+    };
+
+    const children = this.jsxChildrenToComponents(ts, node.children);
+    if (children.length > 0) {
+      component.components = children;
+    }
+
+    // Prefer textContent only when there are no nested JSX elements.
+    const textContent = node.children
+      .filter((c) => ts.isJsxText(c))
+      .map((c) => c.getText())
+      .join('')
+      .trim();
+
+    if (children.length === 0 && textContent !== '') {
+      component.content = textContent;
+    }
+
+    return component;
+  }
+
+  private jsxSelfClosingElementToComponent(
+    ts: typeof import('typescript'),
+    node: import('typescript').JsxSelfClosingElement
+  ): Component | null {
+    const tagName = this.jsxTagName(ts, node.tagName);
+    if (!tagName) return null;
+
+    const component: Component = {
+      type: tagName,
+      tagName,
+      attributes: this.jsxAttributesToRecord(ts, node.attributes),
+      void: true,
+    };
+
+    return component;
+  }
+
+  private jsxChildrenToComponents(
+    ts: typeof import('typescript'),
+    children: readonly import('typescript').JsxChild[]
+  ): Component[] {
+    const out: Component[] = [];
+
+    children.forEach((child) => {
+      if (ts.isJsxElement(child)) {
+        const next = this.jsxElementToComponent(ts, child);
+        if (next) out.push(next);
+      } else if (ts.isJsxSelfClosingElement(child)) {
+        const next = this.jsxSelfClosingElementToComponent(ts, child);
+        if (next) out.push(next);
+      }
+    });
+
+    return out;
+  }
+
+  private jsxTagName(
+    ts: typeof import('typescript'),
+    tagName: import('typescript').JsxTagNameExpression
+  ): string | null {
+    if (ts.isIdentifier(tagName)) {
+      // Only allow intrinsic tags here.
+      return tagName.text;
+    }
+
+    if (ts.isPropertyAccessExpression(tagName)) {
+      return tagName.getText();
+    }
+
+    return tagName.getText();
+  }
+
+  private jsxAttributesToRecord(
+    ts: typeof import('typescript'),
+    attrs: import('typescript').JsxAttributes
+  ): Component['attributes'] {
+    const out: Component['attributes'] = {};
+
+    attrs.properties.forEach((prop) => {
+      if (ts.isJsxAttribute(prop)) {
+        const key = ts.isIdentifier(prop.name) ? prop.name.text : prop.name.getText();
+
+        if (!prop.initializer) {
+          out[key] = true;
+          return;
+        }
+
+        if (ts.isStringLiteral(prop.initializer)) {
+          out[key] = prop.initializer.text;
+          return;
+        }
+
+        if (ts.isJsxExpression(prop.initializer)) {
+          const expr = prop.initializer.expression;
+          if (!expr) return;
+
+          if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) {
+            out[key] = expr.text;
+            return;
+          }
+
+          if (ts.isNumericLiteral(expr)) {
+            out[key] = Number(expr.text);
+            return;
+          }
+
+          if (expr.kind === ts.SyntaxKind.TrueKeyword) {
+            out[key] = true;
+            return;
+          }
+
+          if (expr.kind === ts.SyntaxKind.FalseKeyword) {
+            out[key] = false;
+            return;
+          }
+
+          // For now, fall back to source string.
+          out[key] = expr.getText();
+          return;
+        }
+      }
+
+      if (ts.isJsxSpreadAttribute(prop)) {
+        // Spread props are not representable in JSON; ignore for now.
+        return;
+      }
+    });
+
+    return out;
   }
 
   private htmlToComponents(html: string): Component[] {
