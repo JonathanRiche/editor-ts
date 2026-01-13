@@ -83,11 +83,13 @@ export interface EditorTsAiModule {
 }
 
 export interface PageBody {
-  html: string;
-  components: string | Component[]; // JSON string of Component[]
-  assets: Asset[];
-  css: string;
-  styles: Style[];
+  //NOTE: only need one of these
+  html?: string;
+  components?: string | Component[]; // JSON string of Component[]
+  assets?: Asset[];
+  //NOTE: only need one of these
+  css?: string;
+  styles?: Style[];
 }
 
 export type ComponentAttributes = JsonObject & {
@@ -255,7 +257,7 @@ export interface InitConfig {
   onComponentEdit?: (component: Component) => void;
   onComponentDelete?: (component: Component) => void;
   onComponentDuplicate?: (component: Component, duplicate: Component) => void;
-  
+
   // Text editing callbacks
   onTextEditStart?: (component: Component) => void;
   onTextUpdate?: (component: Component, newContent: string, originalContent: string) => void;

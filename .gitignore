@@ -35,3 +35,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Example outputs
 examples/output/*.json
+
+# bv (beads viewer) local config and caches
+.bv/

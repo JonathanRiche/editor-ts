@@ -99,7 +99,7 @@ export class Page {
     this.components.sync();
     this.styles.sync();
     this.assets.sync();
-    
+
     return JSON.stringify(this.data, null, 2);
   }
 
@@ -111,7 +111,7 @@ export class Page {
     this.components.sync();
     this.styles.sync();
     this.assets.sync();
-    
+
     return this.data;
   }
 

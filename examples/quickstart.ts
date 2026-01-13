@@ -5,7 +5,7 @@
 
 import { init, type PageData, type Component } from '../index';
 import { createOpencodeClient } from '@opencode-ai/sdk';
-import sampleData from '../samples/page_template.json';
+// import sampleData from '../samples/page_template.json';
 
 console.log('QuickStart script loaded');
 
@@ -13,12 +13,35 @@ const default_data: PageData = {
   title: "New Page",
   item_id: 0,
   body: {
-    html: "",
-    css: "",
     assets: [],
     components: [
+      {
+        type: "box",
+        attributes: {
+          id: "box-1",
+        },
+        components: [
+          { type: "text", content: "Hello World!", attributes: { id: "text-1" } }
+        ]
+      }
     ],
-    styles: []
+    styles: [
+      {
+        selectors: [
+          { name: "box-1" }
+        ],
+        style: {
+          "min-height": "200px",
+          "background-color": "white",
+          "font-family": "sans-serif",
+          "font-size": "16px",
+          "padding": "1rem",
+          "margin": "0",
+        }
+
+
+      }
+    ]
   }
 }
 
@@ -31,7 +54,8 @@ const editor = init({
   iframeId: 'preview-iframe',
 
   // Required: Page data (clean JSON)
-  data: sampleData as unknown as PageData,
+  // data: sampleData as unknown as PageData,
+  data: default_data,
 
   // Optional: Configure toolbars (runtime only, NOT saved to JSON)
   toolbars: {
