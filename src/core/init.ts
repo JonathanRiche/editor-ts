@@ -129,11 +129,45 @@ export function init(config: InitConfig): EditorTsEditor {
   // Optional: tabbed view toggle between canvas + code panels
   // This does not create UI; it only wires existing buttons.
   let setView: ((view: 'editor' | 'code') => void) | null = null;
+  let setCodeTab: ((tab: 'js' | 'css' | 'json' | 'jsx') => void) | null = null;
 
   const viewTabs = config.ui?.viewTabs;
   if (viewTabs) {
     const codeViewContainers = [jsEditorContainer, cssEditorContainer, jsonEditorContainer, jsxEditorContainer]
       .filter(Boolean) as HTMLElement[];
+
+    const codeTabs = config.ui?.codeTabs;
+
+    const codeTabButtons = {
+      js: codeTabs?.jsButtonId ? document.getElementById(codeTabs.jsButtonId) : null,
+      css: codeTabs?.cssButtonId ? document.getElementById(codeTabs.cssButtonId) : null,
+      json: codeTabs?.jsonButtonId ? document.getElementById(codeTabs.jsonButtonId) : null,
+      jsx: codeTabs?.jsxButtonId ? document.getElementById(codeTabs.jsxButtonId) : null,
+    };
+
+    setCodeTab = (tab: 'js' | 'css' | 'json' | 'jsx') => {
+      document.documentElement.dataset.editortsCodeTab = tab;
+
+      const containers: Record<'js' | 'css' | 'json' | 'jsx', HTMLElement | null> = {
+        js: jsEditorContainer,
+        css: cssEditorContainer,
+        json: jsonEditorContainer,
+        jsx: jsxEditorContainer,
+      };
+
+      (Object.keys(containers) as Array<'js' | 'css' | 'json' | 'jsx'>).forEach((key) => {
+        const el = containers[key];
+        if (!el) return;
+        el.style.display = key === tab ? '' : 'none';
+      });
+
+      (Object.keys(codeTabButtons) as Array<'js' | 'css' | 'json' | 'jsx'>).forEach((key) => {
+        const btn = codeTabButtons[key];
+        if (!btn) return;
+        btn.classList.toggle('active', key === tab);
+        btn.setAttribute('aria-pressed', String(key === tab));
+      });
+    };
 
     const originalDisplayByEl = new Map<HTMLElement, string>();
     codeViewContainers.forEach((el) => originalDisplayByEl.set(el, el.style.display));
@@ -149,6 +183,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
     setView = (view: 'editor' | 'code') => {
       document.documentElement.dataset.editortsView = view;
+      document.documentElement.setAttribute('data-editorts-view', view);
 
       editorButton?.classList.toggle('active', view === 'editor');
       editorButton?.setAttribute('aria-pressed', String(view === 'editor'));
@@ -157,10 +192,18 @@ export function init(config: InitConfig): EditorTsEditor {
 
       if (view === 'code') {
         iframe.style.display = 'none';
+
+        // Show the code containers, then if code tabs are enabled,
+        // immediately apply the active tab to hide the others.
         codeViewContainers.forEach((el) => {
           const original = originalDisplayByEl.get(el);
           el.style.display = original ?? '';
         });
+
+        if (codeTabs) {
+          const active = (document.documentElement.dataset.editortsCodeTab as 'js' | 'css' | 'json' | 'jsx' | undefined) ?? (codeTabs.defaultTab ?? 'js');
+          setCodeTab?.(active);
+        }
       } else {
         iframe.style.display = originalIframeDisplay ?? '';
         codeViewContainers.forEach((el) => {
@@ -187,6 +230,14 @@ export function init(config: InitConfig): EditorTsEditor {
 
     // Default to the canvas unless configured otherwise.
     setView(viewTabs.defaultView ?? 'editor');
+
+    if (codeTabs) {
+      (Object.entries(codeTabButtons) as Array<[keyof typeof codeTabButtons, HTMLElement | null]>).forEach(([tab, btn]) => {
+        btn?.addEventListener('click', () => setCodeTab?.(tab));
+      });
+
+      setCodeTab?.(codeTabs.defaultTab ?? 'js');
+    }
   }
 
   // Initialize layer manager if container provided
@@ -332,7 +383,8 @@ export function init(config: InitConfig): EditorTsEditor {
     textarea.value = initialValue;
     textarea.spellcheck = false;
     textarea.style.width = '100%';
-    textarea.style.minHeight = '16rem';
+    textarea.style.height = '100%';
+    textarea.style.minHeight = '0';
     textarea.style.fontFamily = 'monospace';
     textarea.style.fontSize = '0.9rem';
 
@@ -377,7 +429,8 @@ export function init(config: InitConfig): EditorTsEditor {
 
     const monacoHost = document.createElement('div');
     monacoHost.style.width = '100%';
-    monacoHost.style.minHeight = '16rem';
+    monacoHost.style.height = '100%';
+    monacoHost.style.minHeight = '0';
     host.appendChild(monacoHost);
 
     const monaco = await loadModernMonaco();
@@ -977,55 +1030,59 @@ ${page.getHTML()}
   // Render editor panels
   if (shouldEnableJsEditor && jsEditorContainer) {
     jsEditorContainer.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:0.5rem;">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
-          <strong>Component JavaScript</strong>
-          <button data-editorts-action="save-js" type="button">Save</button>
+        <div style="display:flex; flex-direction:column; gap:0.5rem; height:100%;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex:0 0 auto;">
+            <strong>Component JavaScript</strong>
+            <button data-editorts-action="save-js" type="button">Save</button>
+          </div>
+          <div data-editorts-field="js-status" style="font-size:0.85rem; opacity:0.8; flex:0 0 auto;">Select a component to edit its script</div>
+          <div style="display:flex; gap:0.75rem; align-items:stretch; flex:1 1 auto; min-height:0;">
+            <div data-editorts-field="js-files" style="width:12rem; border:1px solid rgba(0,0,0,0.1); border-radius:6px; padding:0.5rem; overflow:auto; min-height:0;"></div>
+            <div style="flex:1; min-width:0; min-height:0;" data-editorts-field="js-editor"></div>
+          </div>
         </div>
-        <div data-editorts-field="js-status" style="font-size:0.85rem; opacity:0.8;">Select a component to edit its script</div>
-        <div style="display:flex; gap:0.75rem; align-items:stretch;">
-          <div data-editorts-field="js-files" style="width:12rem; border:1px solid rgba(0,0,0,0.1); border-radius:6px; padding:0.5rem; overflow:auto; max-height:18rem;"></div>
-          <div style="flex:1; min-width:0;" data-editorts-field="js-editor"></div>
-        </div>
-      </div>
     `;
   }
 
   if (shouldEnableCssEditor && cssEditorContainer) {
     cssEditorContainer.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:0.5rem;">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+      <div style="display:flex; flex-direction:column; gap:0.5rem; height:100%;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex:0 0 auto;">
           <strong>Page CSS</strong>
           <button data-editorts-action="save-css" type="button">Save</button>
         </div>
-        <div data-editorts-field="css-editor"></div>
+        <div data-editorts-field="css-editor" style="flex:1 1 auto; min-height:0;"></div>
       </div>
     `;
   }
 
   if (shouldEnableJsonEditor && jsonEditorContainer) {
     jsonEditorContainer.innerHTML = `
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
-        <div style="font-weight:600;">Page JSON</div>
-        <div style="display:flex; gap:0.5rem;">
-          <button data-editorts-action="save-json">Apply</button>
+      <div style="display:flex; flex-direction:column; gap:0.5rem; height:100%;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex:0 0 auto;">
+          <div style="font-weight:600;">Page JSON</div>
+          <div style="display:flex; gap:0.5rem;">
+            <button data-editorts-action="save-json">Apply</button>
+          </div>
         </div>
+        <div data-editorts-field="json-editor" style="flex:1 1 auto; min-height:0;"></div>
+        <div data-editorts-field="json-error" style="color:#ef4444; display:none; flex:0 0 auto;"></div>
       </div>
-      <div data-editorts-field="json-editor" style="margin-top:0.5rem;"></div>
-      <div data-editorts-field="json-error" style="margin-top:0.5rem; color:#ef4444; display:none;"></div>
     `;
   }
 
   if (shouldEnableJsxEditor && jsxEditorContainer) {
     jsxEditorContainer.innerHTML = `
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
-        <div style="font-weight:600;">JSX</div>
-        <div style="display:flex; gap:0.5rem;">
-          <button data-editorts-action="export-jsx">Export</button>
+      <div style="display:flex; flex-direction:column; gap:0.5rem; height:100%;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex:0 0 auto;">
+          <div style="font-weight:600;">JSX</div>
+          <div style="display:flex; gap:0.5rem;">
+            <button data-editorts-action="export-jsx">Export</button>
+          </div>
         </div>
+        <div data-editorts-field="jsx-editor" style="flex:1 1 auto; min-height:0;"></div>
+        <div data-editorts-field="jsx-error" style="color:#ef4444; display:none; flex:0 0 auto;"></div>
       </div>
-      <div data-editorts-field="jsx-editor" style="margin-top:0.5rem;"></div>
-      <div data-editorts-field="jsx-error" style="margin-top:0.5rem; color:#ef4444; display:none;"></div>
     `;
   }
 
@@ -1471,18 +1528,21 @@ ${page.getHTML()}
       case 'editJS':
         emit('componentEditJS', component);
         setView?.('code');
+        setCodeTab?.('js');
         void ensureJsEditorReadyFor(component).then(() => jsEditor?.focus());
         break;
 
       case 'editCSS':
         emit('pageEditCSS', page.getBody());
         setView?.('code');
+        setCodeTab?.('css');
         void ensureCssEditorReady().then(() => cssEditor?.focus());
         break;
 
       case 'editJSON':
         emit('pageEditJSON', page.getBody());
         setView?.('code');
+        setCodeTab?.('json');
         void ensureJsonEditorReady().then(() => jsonEditor?.focus());
         break;
 
@@ -1529,6 +1589,7 @@ ${page.getHTML()}
     renderStats();
     void ensureCssEditorReady();
     void ensureJsonEditorReady();
+    void ensureJsxEditorReady();
 
     const selected = selectedComponentId ? page.components.findById(selectedComponentId) : null;
     void ensureJsEditorReadyFor(selected);

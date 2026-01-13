@@ -137,6 +137,13 @@ const editor = init({
       codeButtonId: 'tab-code',
       defaultView: 'editor',
     },
+    codeTabs: {
+      defaultTab: 'js',
+      jsButtonId: 'code-tab-js',
+      cssButtonId: 'code-tab-css',
+      jsonButtonId: 'code-tab-json',
+      jsxButtonId: 'code-tab-jsx',
+    },
   },
 
   // Optional: built-in editor provider.

@@ -87,6 +87,18 @@
 			margin-bottom: 1rem;
 		}
 
+		html[data-editorts-view="editor"] .code-tabs {
+			display: none;
+		}
+
+		html[data-editorts-view="code"] .preview-frame {
+			display: none;
+		}
+
+		html[data-editorts-view="editor"] .code-panels {
+			display: none;
+		}
+
 		.tab-button {
 			padding: 0.5rem 0.75rem;
 			border: 1px solid var(--color-primary-border);
@@ -110,7 +122,10 @@
 			border-radius: 8px;
 			box-shadow: var(--shadow-lg);
 			padding: 1rem;
-			overflow: auto;
+			overflow: hidden;
+			display: flex;
+			flex-direction: column;
+			min-height: 0;
 		}
 
 		.preview-frame {
@@ -269,15 +284,19 @@
 			<!-- The iframe where the template renders -->
 			<iframe id="preview-iframe" class="preview-frame"></iframe>
 
+			<div class="canvas-tabs code-tabs">
+				<button id="code-tab-js" class="tab-button" type="button">JS</button>
+				<button id="code-tab-css" class="tab-button" type="button">CSS</button>
+				<button id="code-tab-json" class="tab-button" type="button">JSON</button>
+				<button id="code-tab-jsx" class="tab-button" type="button">JSX</button>
+			</div>
+
 			<!-- Code panels (JS/CSS/JSON/JSX) -->
 			<div id="code-panels" class="code-panels">
-				<div id="js-editor-container"></div>
-				<div style="height: 1rem;"></div>
-				<div id="css-editor-container"></div>
-				<div style="height: 1rem;"></div>
-				<div id="json-editor-container"></div>
-				<div style="height: 1rem;"></div>
-				<div id="jsx-editor-container"></div>
+				<div id="js-editor-container" style="flex: 1 1 auto; min-height: 0;"></div>
+				<div id="css-editor-container" style="flex: 1 1 auto; min-height: 0;"></div>
+				<div id="json-editor-container" style="flex: 1 1 auto; min-height: 0;"></div>
+				<div id="jsx-editor-container" style="flex: 1 1 auto; min-height: 0;"></div>
 			</div>
 		</div>
 	</div>

@@ -242,6 +242,20 @@ export interface InitConfig {
       codeButtonId?: string;
       defaultView?: 'editor' | 'code';
     };
+
+    /**
+     * Optional: tabs within the code view (JS/CSS/JSON/JSX).
+     *
+     * This does not create any UI; it only wires existing buttons and toggles
+     * visibility of the editor containers.
+     */
+    codeTabs?: {
+      defaultTab?: 'js' | 'css' | 'json' | 'jsx';
+      jsButtonId?: string;
+      cssButtonId?: string;
+      jsonButtonId?: string;
+      jsxButtonId?: string;
+    };
   };
 
   // Optional: built-in code editor provider
