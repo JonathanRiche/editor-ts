@@ -501,6 +501,28 @@ When adding a new feature:
 10. **Quickstart Rule**
    - When a task adds user-facing functionality, wire it into `index.html` + `examples/quickstart.ts` so it can be tested immediately.
 
+11. **Repo Orientation (Quick Map)**
+   - Core entry: `src/core/init.ts` (iframe injection, UI panels, events)
+   - Data model: `src/core/Page.ts`, `src/core/ComponentManager.ts`, `src/core/StyleManager.ts`, `src/core/AssetManager.ts`
+   - Storage: `src/core/StorageManager.ts` (local is default)
+   - Demo harness: `index.html` + `examples/quickstart.ts`
+
+12. **Common Runtime Config**
+   - Code view tabs: `ui.viewTabs` toggles iframe vs code panels
+   - Editors: `ui.editors.{js,css,json,jsx}` must point at user-provided containers
+   - Optional Monaco: `codeEditor.provider = 'modern-monaco'` (fallback is textarea)
+   - Optional AI: `aiProvider.provider = 'opencode'` (supports `client` injection)
+
+13. **Content Precedence + Server Safety**
+   - Components are source of truth when present; `Page.getHTML()` renders from components.
+   - HTML-only input can be converted to components when DOM is available.
+   - DOM-dependent parsing uses an injectable adapter (warns if missing); JSX parsing uses optional `typescript` and does not require DOM.
+
+14. **Validation Loop**
+   - Build: `bun run build`
+   - Tests: `bun run test` (currently aliases build)
+   - Beads JSONL: after `bd close/update`, run `bd export -o .beads/issues.jsonl` before committing.
+
 ---
 
 **This principle applies to ALL future features in EditorTs.**
