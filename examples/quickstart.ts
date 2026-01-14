@@ -44,16 +44,16 @@ const componentsData: PageData = {
   }
 }
 
-const htmlOnlyData: PageData = {
-  title: 'HTML-only example',
-  item_id: 0,
-  body: {
-    html: '<body><div id="html-only-root"><h1 id="html-only-title">Hello from HTML-only</h1></div></body>',
-    css: '',
-    assets: [],
-    styles: [],
-  },
-};
+// const htmlOnlyData: PageData = {
+//   title: 'HTML-only example',
+//   item_id: 0,
+//   body: {
+//     html: '<body><div id="html-only-root"><h1 id="html-only-title">Hello from HTML-only</h1></div></body>',
+//     css: '',
+//     assets: [],
+//     styles: [],
+//   },
+// };
 
 
 const aiBaseUrlInput = document.getElementById('ai-base-url') as HTMLInputElement | null;
@@ -139,6 +139,14 @@ const editor = init({
       enabled: true,
     },
     editors: {
+      files: {
+        containerId: 'files-viewer-container',
+        enabled: true,
+      },
+      viewer: {
+        containerId: 'viewer-editor-container',
+        enabled: true,
+      },
       js: {
         containerId: 'js-editor-container',
         enabled: true,
@@ -162,7 +170,9 @@ const editor = init({
       defaultView: 'editor',
     },
     codeTabs: {
-      defaultTab: 'js',
+      defaultTab: 'files',
+      filesButtonId: 'code-tab-files',
+      viewerButtonId: 'code-tab-viewer',
       jsButtonId: 'code-tab-js',
       cssButtonId: 'code-tab-css',
       jsonButtonId: 'code-tab-json',
@@ -174,6 +184,10 @@ const editor = init({
   // Note: 'modern-monaco' requires the host app to install modern-monaco.
   codeEditor: {
     provider: 'modern-monaco',
+    workspace: {
+      enabled: true,
+      name: 'quickstart',
+    },
   },
 
   // Optional: AI provider

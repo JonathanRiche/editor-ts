@@ -294,6 +294,8 @@
 			<iframe id="preview-iframe" class="preview-frame"></iframe>
 
 			<div class="canvas-tabs code-tabs">
+				<button id="code-tab-files" class="tab-button" type="button">Files</button>
+				<button id="code-tab-viewer" class="tab-button" type="button">View</button>
 				<button id="code-tab-js" class="tab-button" type="button">JS</button>
 				<button id="code-tab-css" class="tab-button" type="button">CSS</button>
 				<button id="code-tab-json" class="tab-button" type="button">JSON</button>
@@ -302,6 +304,8 @@
 
 			<!-- Code panels (JS/CSS/JSON/JSX) -->
 			<div id="code-panels" class="code-panels">
+				<div id="files-viewer-container" style="flex: 1 1 auto; min-height: 0;"></div>
+				<div id="viewer-editor-container" style="flex: 1 1 auto; min-height: 0;"></div>
 				<div id="js-editor-container" style="flex: 1 1 auto; min-height: 0;"></div>
 				<div id="css-editor-container" style="flex: 1 1 auto; min-height: 0;"></div>
 				<div id="json-editor-container" style="flex: 1 1 auto; min-height: 0;"></div>

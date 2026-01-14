@@ -1,9 +1,13 @@
 import homepage from "./index.html";
+
+const portEnv = process.env.PORT;
+const port = portEnv ? Number(portEnv) : 5021;
+
 const server = Bun.serve({
   development: {
     console: true
   },
-  port: 5021,
+  port,
   routes: {
     "/": homepage
   },

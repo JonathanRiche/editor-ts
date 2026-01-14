@@ -191,47 +191,89 @@ export function init(config: InitConfig): EditorTsEditor {
     ? document.getElementById(config.ui.editors.jsx.containerId)
     : null;
 
+  const filesViewerContainer = config.ui?.editors?.files?.containerId
+    ? document.getElementById(config.ui.editors.files.containerId)
+    : null;
+
+  const viewerEditorContainer = config.ui?.editors?.viewer?.containerId
+    ? document.getElementById(config.ui.editors.viewer.containerId)
+    : null;
+
   // Optional: tabbed view toggle between canvas + code panels
   // This does not create UI; it only wires existing buttons.
+  type CodeTab = 'files' | 'viewer' | 'js' | 'css' | 'json' | 'jsx';
+
   let setView: ((view: 'editor' | 'code') => void) | null = null;
-  let setCodeTab: ((tab: 'js' | 'css' | 'json' | 'jsx') => void) | null = null;
+  let setCodeTab: ((tab: CodeTab) => void) | null = null;
+
+  // Avoid TDZ by deferring workspace-dependent hooks until after the
+  // workspace variables are initialized later in init().
+  let codeTabHooksReady = false;
+
+  const onCodeTabChange = (tab: CodeTab) => {
+    if (!codeTabHooksReady) return;
+    if (tab !== 'files') return;
+
+    void (async () => {
+      if (workspaceEnabled && !workspace) {
+        try {
+          const mod = await import('modern-monaco');
+          await ensureWorkspace(mod);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn('Failed to load modern-monaco workspace:', message);
+          return;
+        }
+      }
+
+      await syncWorkspaceFiles();
+      await renderFilesList();
+    })();
+  };
 
   const viewTabs = config.ui?.viewTabs;
   if (viewTabs) {
-    const codeViewContainers = [jsEditorContainer, cssEditorContainer, jsonEditorContainer, jsxEditorContainer]
+    const codeViewContainers = [filesViewerContainer, viewerEditorContainer, jsEditorContainer, cssEditorContainer, jsonEditorContainer, jsxEditorContainer]
       .filter(Boolean) as HTMLElement[];
 
     const codeTabs = config.ui?.codeTabs;
 
-    const codeTabButtons = {
+    const codeTabButtons: Record<CodeTab, HTMLElement | null> = {
+      files: codeTabs?.filesButtonId ? document.getElementById(codeTabs.filesButtonId) : null,
+      viewer: codeTabs?.viewerButtonId ? document.getElementById(codeTabs.viewerButtonId) : null,
       js: codeTabs?.jsButtonId ? document.getElementById(codeTabs.jsButtonId) : null,
       css: codeTabs?.cssButtonId ? document.getElementById(codeTabs.cssButtonId) : null,
       json: codeTabs?.jsonButtonId ? document.getElementById(codeTabs.jsonButtonId) : null,
       jsx: codeTabs?.jsxButtonId ? document.getElementById(codeTabs.jsxButtonId) : null,
     };
 
-    setCodeTab = (tab: 'js' | 'css' | 'json' | 'jsx') => {
+    setCodeTab = (tab: CodeTab) => {
       document.documentElement.dataset.editortsCodeTab = tab;
 
-      const containers: Record<'js' | 'css' | 'json' | 'jsx', HTMLElement | null> = {
+      const containers: Record<CodeTab, HTMLElement | null> = {
+        files: filesViewerContainer,
+        viewer: viewerEditorContainer,
         js: jsEditorContainer,
         css: cssEditorContainer,
         json: jsonEditorContainer,
         jsx: jsxEditorContainer,
       };
 
-      (Object.keys(containers) as Array<'js' | 'css' | 'json' | 'jsx'>).forEach((key) => {
+      (Object.keys(containers) as CodeTab[]).forEach((key) => {
         const el = containers[key];
         if (!el) return;
         el.style.display = key === tab ? '' : 'none';
       });
 
-      (Object.keys(codeTabButtons) as Array<'js' | 'css' | 'json' | 'jsx'>).forEach((key) => {
+      (Object.keys(codeTabButtons) as CodeTab[]).forEach((key) => {
         const btn = codeTabButtons[key];
         if (!btn) return;
         btn.classList.toggle('active', key === tab);
         btn.setAttribute('aria-pressed', String(key === tab));
       });
+
+      onCodeTabChange?.(tab);
+
     };
 
     const originalDisplayByEl = new Map<HTMLElement, string>();
@@ -266,8 +308,8 @@ export function init(config: InitConfig): EditorTsEditor {
         });
 
         if (codeTabs) {
-          const active = (document.documentElement.dataset.editortsCodeTab as 'js' | 'css' | 'json' | 'jsx' | undefined) ?? (codeTabs.defaultTab ?? 'js');
-          setCodeTab?.(active);
+          const active = (document.documentElement.dataset.editortsCodeTab as CodeTab | undefined) ?? (codeTabs.defaultTab ?? 'js');
+          setCodeTab?.(active as CodeTab);
         }
       } else {
         iframe.style.display = originalIframeDisplay ?? '';
@@ -498,6 +540,67 @@ export function init(config: InitConfig): EditorTsEditor {
 
   let modernMonacoInitPromise: Promise<ModernMonaco> | null = null;
 
+  type MonacoWorkspace = import('modern-monaco').Workspace;
+
+  const workspaceEnabled = codeEditorProvider === 'modern-monaco' && config.codeEditor?.workspace?.enabled !== false;
+  const workspaceName = config.codeEditor?.workspace?.name ?? 'editorts';
+
+  // Workspace variables are initialized now; code tab hooks are safe.
+  codeTabHooksReady = true;
+
+  let workspace: MonacoWorkspace | null = null;
+
+  const buildWorkspaceFiles = (): Record<string, string> => {
+    const files: Record<string, string> = {};
+
+    files['page.json'] = save();
+    files['styles.css'] = page.getCSS() ?? '';
+    files['index.html'] = `<!DOCTYPE html><html><head><meta charset="utf-8" /><link rel="stylesheet" href="styles.css" /></head>${page.getHTML()}</html>`;
+
+    // Per-component scripts
+    const collect = (components: Component[]) => {
+      components.forEach((component) => {
+        const id = typeof component.attributes?.id === 'string' ? component.attributes.id : null;
+        if (id) {
+          const content = typeof component.script === 'string' ? component.script : '';
+          files[`components/${id}.js`] = content;
+        }
+        if (component.components && component.components.length > 0) {
+          collect(component.components);
+        }
+      });
+    };
+
+    collect(page.components.getAll());
+
+    return files;
+  };
+
+  const ensureWorkspace = async (mod: ModernMonacoModule): Promise<MonacoWorkspace | null> => {
+    if (!workspaceEnabled) return null;
+    if (workspace) return workspace;
+
+    const files = buildWorkspaceFiles();
+    workspace = new mod.Workspace({
+      name: workspaceName,
+      initialFiles: files,
+      entryFile: 'index.html',
+    });
+
+    return workspace;
+  };
+
+  async function syncWorkspaceFiles(): Promise<void> {
+    if (!workspace) return;
+
+    const files = buildWorkspaceFiles();
+    await Promise.all(
+      Object.entries(files).map(async ([path, content]) => {
+        await workspace!.fs.writeFile(path, content, { isModelContentChange: false });
+      })
+    );
+  }
+
   async function loadModernMonaco(): Promise<ModernMonaco> {
     if (!modernMonacoInitPromise) {
       modernMonacoInitPromise = import('modern-monaco').then((mod) => {
@@ -524,41 +627,64 @@ export function init(config: InitConfig): EditorTsEditor {
     monacoHost.style.minHeight = '0';
     host.appendChild(monacoHost);
 
-    const monaco = await loadModernMonaco();
+     const mod = await import('modern-monaco');
+     const ws = await ensureWorkspace(mod);
 
-    const editor = monaco.editor.create(monacoHost, {
-      automaticLayout: true,
-      minimap: { enabled: false },
-    });
+     const monaco = await loadModernMonaco();
 
-    // modern-monaco/monaco-editor-core expects model resources to be real Uri objects.
-    // If the resource is a string/plain object, Monaco will crash in resource comparisons.
-    const extByLanguage: Record<string, string> = {
-      javascript: 'js',
-      typescript: 'tsx',
-      css: 'css',
-      json: 'json',
-    };
+     const editor = monaco.editor.create(monacoHost, {
+       automaticLayout: true,
+       minimap: { enabled: false },
+     });
 
-    const ext = extByLanguage[language] ?? 'txt';
+     const openFile = async (path: string, fallback: string): Promise<ReturnType<typeof monaco.editor.createModel>> => {
+       if (ws) {
+         await ws.fs.writeFile(path, fallback, { isModelContentChange: false });
+         return ws.openTextDocument(path);
+       }
 
-    const uri = monaco?.Uri?.parse
-      ? monaco.Uri.parse(`file:///editorts/${language}/${Date.now()}.${ext}`)
-      : undefined;
+       const extByLanguage: Record<string, string> = {
+         javascript: 'js',
+         typescript: 'tsx',
+         css: 'css',
+         json: 'json',
+       };
 
-    const model = monaco.editor.createModel(initialValue ?? '', language === 'typescript' ? 'typescript' : language, uri);
-    editor.setModel(model);
+       const ext = extByLanguage[language] ?? 'txt';
 
-    return {
-      getValue: () => model.getValue(),
-      setValue: (value: string) => model.setValue(value ?? ''),
-      focus: () => editor.focus(),
-      dispose: () => {
-        editor.dispose();
-        model.dispose();
-        monacoHost.remove();
-      },
-    };
+       const uri = monaco?.Uri?.parse
+         ? monaco.Uri.parse(`file:///editorts/${language}/${Date.now()}.${ext}`)
+         : undefined;
+
+       const model = monaco.editor.createModel(fallback ?? '', language === 'typescript' ? 'typescript' : language, uri);
+       return model;
+     };
+
+     // Default file mapping per language
+     const defaultPathByLanguage: Record<typeof language, string> = {
+       javascript: 'components/selected.js',
+       typescript: 'export.tsx',
+       css: 'styles.css',
+       json: 'page.json',
+     };
+
+     const initialPath = defaultPathByLanguage[language];
+     const model = await openFile(initialPath, initialValue ?? '');
+
+     editor.setModel(model);
+
+     return {
+       getValue: () => model.getValue(),
+       setValue: (value: string) => model.setValue(value ?? ''),
+       focus: () => editor.focus(),
+       dispose: () => {
+         editor.dispose();
+         if (!ws) {
+           model.dispose();
+         }
+         monacoHost.remove();
+       },
+     };
   }
 
   async function createCodeEditor(
@@ -597,12 +723,37 @@ export function init(config: InitConfig): EditorTsEditor {
   iframe.srcdoc = buildIframeContent();
 
   // --- Optional code editors (JS/CSS/JSON) ---
+  const shouldEnableFilesViewer = !!filesViewerContainer && config.ui?.editors?.files?.enabled !== false;
+  const shouldEnableViewer = !!viewerEditorContainer && config.ui?.editors?.viewer?.enabled !== false;
   const shouldEnableJsEditor = !!jsEditorContainer && config.ui?.editors?.js?.enabled !== false;
   const shouldEnableCssEditor = !!cssEditorContainer && config.ui?.editors?.css?.enabled !== false;
   const shouldEnableJsonEditor = !!jsonEditorContainer && config.ui?.editors?.json?.enabled !== false;
   const shouldEnableJsxEditor = !!jsxEditorContainer && config.ui?.editors?.jsx?.enabled !== false;
 
   // Render editor panels
+  if (shouldEnableFilesViewer && filesViewerContainer) {
+    filesViewerContainer.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:0.5rem; height:100%;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex:0 0 auto;">
+          <strong>Workspace Files</strong>
+          <button data-editorts-action="refresh-files" type="button">Refresh</button>
+        </div>
+        <div data-editorts-field="files-list" style="flex:1 1 auto; min-height:0; overflow:auto; border:1px solid rgba(0,0,0,0.08); border-radius:6px; padding:0.5rem;"></div>
+      </div>
+    `;
+  }
+
+  if (shouldEnableViewer && viewerEditorContainer) {
+    viewerEditorContainer.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:0.5rem; height:100%;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex:0 0 auto;">
+          <strong>Preview</strong>
+        </div>
+        <div data-editorts-field="viewer-editor" style="flex:1 1 auto; min-height:0;"></div>
+      </div>
+    `;
+  }
+
   if (shouldEnableJsEditor && jsEditorContainer) {
     jsEditorContainer.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:0.5rem; height:100%;">
@@ -661,6 +812,140 @@ export function init(config: InitConfig): EditorTsEditor {
     `;
   }
 
+
+  const listWorkspaceFiles = async (): Promise<string[]> => {
+    if (!workspace) return [];
+
+    const out: string[] = [];
+
+    const walk = async (dir: string) => {
+      const entries = await workspace!.fs.readDirectory(dir);
+      for (const [name, type] of entries) {
+        const path = dir ? `${dir}/${name}` : name;
+        if (type === 2) {
+          await walk(path);
+        } else {
+          out.push(path);
+        }
+      }
+    };
+
+    await walk('');
+    return out.sort();
+  };
+
+  let viewerEditor: RuntimeCodeEditor | null = null;
+  let viewerPath: string | null = null;
+
+  const ensureViewerReady = async (path: string, content: string) => {
+    if (!shouldEnableViewer || !viewerEditorContainer) return;
+
+    const host = viewerEditorContainer.querySelector('[data-editorts-field="viewer-editor"]') as HTMLElement | null;
+    if (!host) return;
+
+    const language =
+      path.endsWith('.css') ? 'css' :
+      path.endsWith('.json') ? 'json' :
+      path.endsWith('.js') ? 'javascript' :
+      path.endsWith('.ts') || path.endsWith('.tsx') || path.endsWith('.jsx') ? 'typescript' :
+      'typescript';
+
+    if (!viewerEditor) {
+      viewerEditor = await createCodeEditor(host, content, language);
+
+      // Make it read-only.
+      const textarea = host.querySelector('textarea');
+      if (textarea) {
+        textarea.setAttribute('readonly', 'true');
+      }
+    } else {
+      viewerEditor.setValue(content);
+    }
+
+    viewerPath = path;
+  };
+
+  const renderFilesList = async () => {
+    if (!shouldEnableFilesViewer || !filesViewerContainer) return;
+    const host = filesViewerContainer.querySelector('[data-editorts-field="files-list"]') as HTMLElement | null;
+    if (!host) return;
+
+    host.innerHTML = '';
+
+    if (!workspace) {
+      host.textContent = 'Workspace not enabled';
+      return;
+    }
+
+    const files = await listWorkspaceFiles();
+
+    if (files.length === 0) {
+      host.textContent = 'No files';
+      return;
+    }
+
+    files.forEach((path) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = path;
+      btn.style.display = 'block';
+      btn.style.width = '100%';
+      btn.style.textAlign = 'left';
+      btn.style.padding = '0.25rem 0.5rem';
+      btn.style.border = 'none';
+      btn.style.borderRadius = '4px';
+      btn.style.background = viewerPath === path ? 'rgba(59, 130, 246, 0.10)' : 'transparent';
+      btn.style.cursor = 'pointer';
+
+      btn.addEventListener('click', async () => {
+        if (!workspace) return;
+
+        // Ensure the latest file contents exist.
+        await syncWorkspaceFiles();
+
+        const model = await workspace.openTextDocument(path);
+        const value = model.getValue();
+
+        if (path === 'styles.css') {
+          await ensureCssEditorReady();
+          cssEditor?.setValue(value);
+          setCodeTab?.('css');
+          cssEditor?.focus();
+          return;
+        }
+
+        if (path === 'page.json') {
+          await ensureJsonEditorReady();
+          jsonEditor?.setValue(value);
+          setCodeTab?.('json');
+          jsonEditor?.focus();
+          return;
+        }
+
+        if (path.startsWith('components/') && path.endsWith('.js')) {
+          const id = path.slice('components/'.length, -3);
+          const component = page.components.findById(id);
+          if (component) {
+            iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
+            layerManager?.setSelected(id);
+          }
+          await ensureJsEditorReadyFor(component);
+          jsEditor?.setValue(value);
+          setCodeTab?.('js');
+          jsEditor?.focus();
+          return;
+        }
+
+        // Switch first so Monaco has layout/size.
+        setCodeTab?.('viewer');
+        await ensureViewerReady(path, value);
+        viewerEditor?.focus();
+        void renderFilesList();
+      });
+
+      host.appendChild(btn);
+    });
+  };
 
   async function ensureCssEditorReady() {
     if (!shouldEnableCssEditor || !cssEditorContainer) return;
@@ -778,14 +1063,21 @@ export function init(config: InitConfig): EditorTsEditor {
         const component = page.components.findById(id);
         if (!component) return;
 
-        // Keep canvas + layers selection in sync
-        iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
-        layerManager?.setSelected(id);
+      // Keep canvas + layers selection in sync
+      iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
+      layerManager?.setSelected(id);
 
-        void ensureJsEditorReadyFor(component).then(() => {
-          renderJsFileList();
-          jsEditor?.focus();
+      void ensureJsEditorReadyFor(component).then(() => {
+        renderJsFileList();
+        jsEditor?.focus();
+      });
+
+      if (workspace) {
+        const filename = `components/${id}.js`;
+        void workspace.openTextDocument(filename, typeof component.script === 'string' ? component.script : '').then((model) => {
+          jsEditor?.setValue(model.getValue());
         });
+      }
       });
 
       host.appendChild(btn);
@@ -793,6 +1085,24 @@ export function init(config: InitConfig): EditorTsEditor {
   }
 
   // Wire Save/Export buttons
+  if (shouldEnableFilesViewer && filesViewerContainer) {
+    const btn = filesViewerContainer.querySelector('[data-editorts-action="refresh-files"]') as HTMLButtonElement | null;
+    btn?.addEventListener('click', async () => {
+      if (workspaceEnabled && !workspace) {
+        try {
+          const mod = await import('modern-monaco');
+          await ensureWorkspace(mod);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn('Failed to load modern-monaco workspace:', message);
+          return;
+        }
+      }
+
+      await syncWorkspaceFiles();
+      await renderFilesList();
+    });
+  }
   if (shouldEnableJsxEditor && jsxEditorContainer) {
     const btn = jsxEditorContainer.querySelector('[data-editorts-action="export-jsx"]') as HTMLButtonElement | null;
     btn?.addEventListener('click', async () => {
@@ -807,7 +1117,13 @@ export function init(config: InitConfig): EditorTsEditor {
       await ensureCssEditorReady();
       if (!cssEditor) return;
 
-      page.styles.setCompiledCSS(cssEditor.getValue());
+      const nextValue = cssEditor.getValue();
+      page.styles.setCompiledCSS(nextValue);
+
+      if (workspace) {
+        await workspace.fs.writeFile('styles.css', nextValue, { isModelContentChange: true });
+      }
+
       refresh();
     });
   }
@@ -822,8 +1138,14 @@ export function init(config: InitConfig): EditorTsEditor {
       await ensureJsEditorReadyFor(component);
       if (!jsEditor) return;
 
-      page.components.updateComponent(selectedComponentId, { script: jsEditor.getValue() });
-      refresh();
+       const nextValue = jsEditor.getValue();
+       page.components.updateComponent(selectedComponentId, { script: nextValue });
+
+       if (workspace) {
+         await workspace.fs.writeFile(`components/${selectedComponentId}.js`, nextValue, { isModelContentChange: true });
+       }
+
+       refresh();
     });
   }
 
@@ -862,6 +1184,10 @@ export function init(config: InitConfig): EditorTsEditor {
           errorEl.textContent = '';
         }
 
+        if (workspace) {
+          await workspace.fs.writeFile('page.json', jsonEditor.getValue(), { isModelContentChange: true });
+        }
+
         refresh();
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -880,6 +1206,10 @@ export function init(config: InitConfig): EditorTsEditor {
   void ensureJsEditorReadyFor(null);
   void ensureJsxEditorReady();
   renderJsFileList();
+
+  if (workspace) {
+    void renderFilesList();
+  }
 
   // Handle messages from iframe
   window.addEventListener('message', (event) => {
@@ -1177,6 +1507,7 @@ export function init(config: InitConfig): EditorTsEditor {
   // Refresh iframe and layer panel
   function refresh() {
     iframe.srcdoc = buildIframeContent();
+    void syncWorkspaceFiles();
 
     if (layerManager) {
       layerManager.update(page.components.getAll());
@@ -1186,6 +1517,7 @@ export function init(config: InitConfig): EditorTsEditor {
     void ensureCssEditorReady();
     void ensureJsonEditorReady();
     void ensureJsxEditorReady();
+    void renderFilesList();
 
     const selected = selectedComponentId ? page.components.findById(selectedComponentId) : null;
     void ensureJsEditorReadyFor(selected);

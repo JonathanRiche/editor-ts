@@ -242,6 +242,14 @@ export interface InitConfig {
       enabled?: boolean;
     };
     editors?: {
+      files?: {
+        containerId?: string; // Where to render workspace file list
+        enabled?: boolean;
+      };
+      viewer?: {
+        containerId?: string; // Where to render read-only file preview
+        enabled?: boolean;
+      };
       js?: {
         containerId?: string; // Where to render component JS editor
         enabled?: boolean;
@@ -279,7 +287,9 @@ export interface InitConfig {
      * visibility of the editor containers.
      */
     codeTabs?: {
-      defaultTab?: 'js' | 'css' | 'json' | 'jsx';
+      defaultTab?: 'files' | 'viewer' | 'js' | 'css' | 'json' | 'jsx';
+      filesButtonId?: string;
+      viewerButtonId?: string;
       jsButtonId?: string;
       cssButtonId?: string;
       jsonButtonId?: string;
@@ -292,6 +302,17 @@ export interface InitConfig {
   // - 'modern-monaco': advanced editor (requires optional peer dependency)
   codeEditor?: {
     provider?: 'textarea' | 'modern-monaco';
+
+    /**
+     * When using modern-monaco, enable a workspace-backed virtual filesystem.
+     *
+     * This makes editor models behave like real files and is the basis for
+     * later handing a file tree to AI/codegen.
+     */
+    workspace?: {
+      enabled?: boolean;
+      name?: string;
+    };
   };
 
   // Optional: AI provider integration
@@ -393,6 +414,13 @@ export interface EditorTsEditor {
   storage: StorageManager;
   ai?: EditorTsAiModule;
   components: CustomComponentRegistry;
+  workspace?: {
+    name: string;
+    listFiles(): string[];
+    readFile(path: string): Promise<string | null>;
+    writeFile(path: string, content: string): Promise<void>;
+    openFile(path: string): Promise<void>;
+  };
   on<K extends EditorTsEventName>(event: K, callback: (...args: EditorTsEventMap[K]) => void): void;
   off<K extends EditorTsEventName>(event: K, callback: (...args: EditorTsEventMap[K]) => void): void;
   refresh(): void;
