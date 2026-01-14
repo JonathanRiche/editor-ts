@@ -217,6 +217,15 @@ const editor = init({
       jsonButtonId: 'code-tab-json',
       jsxButtonId: 'code-tab-jsx',
     },
+
+    aiChat: {
+      rootId: 'ai-chat-root',
+      expandButtonId: 'ai-chat-expand',
+      expandedClassName: 'editorts-ai-chat-expanded',
+      collapsedClassName: 'editorts-ai-chat-collapsed',
+      defaultExpanded: false,
+      enabled: true,
+    },
   },
 
   // Optional: built-in editor provider.

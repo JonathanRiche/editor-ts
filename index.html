@@ -74,6 +74,26 @@
 			overflow-y: auto;
 		}
 
+		/* Expanded AI chat mode (library toggles class + dataset) */
+		#ai-chat-root.editorts-ai-chat-expanded {
+			position: sticky;
+			top: 0;
+			background: white;
+			border-radius: 6px;
+			padding: 0.75rem;
+			height: calc(100vh - 140px);
+		}
+
+		#ai-chat-root.editorts-ai-chat-expanded #ai-chat-log {
+			flex: 1 1 auto;
+			min-height: 0;
+			max-height: none;
+		}
+
+		#ai-chat-root.editorts-ai-chat-expanded #ai-chat-input {
+			height: 10rem;
+		}
+
 		.canvas-container {
 			flex: 1;
 			padding: 2rem;
@@ -282,14 +302,19 @@
 				<button id="ai-health-btn" type="button" style="margin-top:0.5rem;">Check health</button>
 				<pre id="ai-health-status" style="margin-top:0.5rem; white-space: pre-wrap;"></pre>
 
-				<div style="margin-top: 1rem; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 0.75rem;">
-					<div style="font-weight:600; margin-bottom:0.25rem;">Chat</div>
+				<div id="ai-chat-root" data-editorts-ai-chat-root style="margin-top: 1rem; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
+					<div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+						<div style="font-weight:600;">Chat</div>
+						<button id="ai-chat-expand" type="button" aria-expanded="false" title="Expand chat" style="padding:0.25rem 0.5rem;">
+							⤢
+						</button>
+					</div>
 					<textarea id="ai-chat-input" placeholder="Ask OpenCode to change your page…" style="width:100%; height: 6rem;"></textarea>
-					<div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+					<div style="display:flex; gap:0.5rem;">
 						<button id="ai-chat-send" type="button">Send</button>
 						<button id="ai-chat-apply" type="button" disabled>Apply last reply</button>
 					</div>
-					<pre id="ai-chat-log" style="margin-top:0.5rem; white-space: pre-wrap; max-height: 220px; overflow:auto;"></pre>
+					<pre id="ai-chat-log" style="white-space: pre-wrap; max-height: 220px; overflow:auto;"></pre>
 				</div>
 			</div>
 

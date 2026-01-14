@@ -162,6 +162,17 @@ export function init(config: InitConfig): EditorTsEditor {
   // Optional AI UI (user-provided elements)
   const aiBaseUrlInput = document.getElementById('ai-base-url') as HTMLInputElement | null;
 
+  const aiChatConfig = config.ui?.aiChat;
+  const shouldEnableAiChatUi = !!aiChatConfig && aiChatConfig.enabled !== false;
+
+  const aiChatRoot = shouldEnableAiChatUi
+    ? (aiChatConfig?.rootId ? document.getElementById(aiChatConfig.rootId) : null)
+    : null;
+
+  const aiChatExpandButton = shouldEnableAiChatUi && aiChatConfig?.expandButtonId
+    ? document.getElementById(aiChatConfig.expandButtonId)
+    : null;
+
   // If the host app serves the editor and can proxy requests, prefer that to avoid
   // CORS preflight issues with password-protected opencode servers.
   const aiProxiedBaseUrl = `${window.location.origin}/opencode`;
@@ -444,6 +455,36 @@ export function init(config: InitConfig): EditorTsEditor {
 
   // Populate multipage dropdown (if enabled)
   // Actual render function is defined later; we call it from refresh().
+
+  const setAiChatExpanded = (expanded: boolean) => {
+    if (!shouldEnableAiChatUi) return;
+
+    const root = aiChatRoot ?? aiChatExpandButton?.closest('[data-editorts-ai-chat-root]') as HTMLElement | null;
+    if (!root) return;
+
+    root.dataset.editortsAiChatExpanded = expanded ? 'true' : 'false';
+
+    const expandedClassName = aiChatConfig?.expandedClassName ?? 'editorts-ai-chat-expanded';
+    const collapsedClassName = aiChatConfig?.collapsedClassName ?? 'editorts-ai-chat-collapsed';
+
+    root.classList.toggle(expandedClassName, expanded);
+    root.classList.toggle(collapsedClassName, !expanded);
+
+    if (aiChatExpandButton) {
+      aiChatExpandButton.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    }
+  };
+
+  if (shouldEnableAiChatUi && aiChatExpandButton) {
+    const initial = aiChatConfig?.defaultExpanded === true;
+    setAiChatExpanded(initial);
+
+    aiChatExpandButton.addEventListener('click', () => {
+      const root = aiChatRoot ?? (aiChatExpandButton.closest('[data-editorts-ai-chat-root]') as HTMLElement | null);
+      const current = root?.dataset.editortsAiChatExpanded === 'true';
+      setAiChatExpanded(!current);
+    });
+  }
 
   // Optional AI provider module (lazy)
   let ai: EditorTsAiModule | undefined;

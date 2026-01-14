@@ -272,6 +272,26 @@ export interface InitConfig {
       containerId?: string;
       enabled?: boolean;
     };
+
+    /** Optional: AI chat view controls (expand/collapse). */
+    aiChat?: {
+      /** Root element to receive dataset/class toggles. Defaults to containerId if omitted. */
+      rootId?: string;
+
+      /** Expand/collapse button id. */
+      expandButtonId?: string;
+
+      /** Optional: set initial expanded state. */
+      defaultExpanded?: boolean;
+
+      /** Optional: set a class on the root when expanded. */
+      expandedClassName?: string;
+
+      /** Optional: set a class on the root when collapsed. */
+      collapsedClassName?: string;
+
+      enabled?: boolean;
+    };
     editors?: {
       files?: {
         containerId?: string; // Where to render workspace file list
