@@ -1545,6 +1545,41 @@ export function init(config: InitConfig): EditorTsEditor {
           <div><strong>Tag:</strong> ${tagName}</div>
         </div>
 
+        <div>
+          <div style="font-weight:600; margin-bottom:0.25rem;">Style</div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Margin top
+              <input data-editorts-style="margin-top" type="text" placeholder="e.g. 16px" />
+            </label>
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Margin bottom
+              <input data-editorts-style="margin-bottom" type="text" placeholder="e.g. 16px" />
+            </label>
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Padding top
+              <input data-editorts-style="padding-top" type="text" placeholder="e.g. 24px" />
+            </label>
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Padding bottom
+              <input data-editorts-style="padding-bottom" type="text" placeholder="e.g. 24px" />
+            </label>
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Width
+              <input data-editorts-style="width" type="text" placeholder="e.g. 100%" />
+            </label>
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Height
+              <input data-editorts-style="height" type="text" placeholder="e.g. 300px" />
+            </label>
+          </div>
+
+          <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+            <button data-editorts-action="apply-style">Apply</button>
+            <button data-editorts-action="clear-style" type="button">Clear</button>
+          </div>
+        </div>
+
         ${canEditText ? `
           <div>
             <div style="font-weight:600; margin-bottom:0.25rem;">Text</div>
@@ -1562,6 +1597,89 @@ export function init(config: InitConfig): EditorTsEditor {
         ` : ''}
       </div>
     `;
+
+    // StyleManager stores selector objects as component IDs (without '#').
+    // StyleManager.compileToCSS prefixes '#' for selector objects automatically.
+    const selector = elementId;
+
+    const populateStyleField = (prop: string) => {
+      const input = selectedInfoContainer.querySelector(`[data-editorts-style="${prop}"]`) as HTMLInputElement | null;
+      if (!input) return;
+
+      const props = page.styles.getStyleProperties(selector);
+      input.value = typeof props?.[prop] === 'string' ? String(props[prop]) : '';
+    };
+
+    ['margin-top', 'margin-bottom', 'padding-top', 'padding-bottom', 'width', 'height'].forEach(populateStyleField);
+
+    const applyStyleButton = selectedInfoContainer.querySelector('[data-editorts-action="apply-style"]') as HTMLButtonElement | null;
+    if (applyStyleButton) {
+      applyStyleButton.addEventListener('click', async () => {
+        const properties: Record<string, string> = {};
+        const readProp = (prop: string) => {
+          const input = selectedInfoContainer.querySelector(`[data-editorts-style="${prop}"]`) as HTMLInputElement | null;
+          const value = input?.value.trim();
+          if (value) properties[prop] = value;
+        };
+
+        ['margin-top', 'margin-bottom', 'padding-top', 'padding-bottom', 'width', 'height'].forEach(readProp);
+
+        if (Object.keys(properties).length === 0) return;
+
+        const updated = page.styles.updateStyle(selector, properties);
+        if (!updated) {
+          page.styles.addStyle({
+            selectors: [{ name: selector }],
+            style: { ...properties },
+          });
+        }
+
+        // Sync structured styles -> compiled css
+        page.styles.sync();
+        const nextCss = page.getCSS() ?? '';
+
+        if (workspace) {
+          await workspace.fs.writeFile('styles.css', nextCss, { isModelContentChange: true });
+          await workspace.fs.writeFile('page.json', save(), { isModelContentChange: true });
+        }
+
+        // Update live iframe style tag if possible.
+        const styleEl = iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null;
+        if (styleEl) styleEl.textContent = nextCss;
+
+        // Keep form fields in sync.
+        ['margin-top', 'margin-bottom', 'padding-top', 'padding-bottom', 'width', 'height'].forEach(populateStyleField);
+
+        void ensureCssEditorReady();
+        void ensureJsonEditorReady();
+      });
+    }
+
+    const clearStyleButton = selectedInfoContainer.querySelector('[data-editorts-action="clear-style"]') as HTMLButtonElement | null;
+    if (clearStyleButton) {
+      clearStyleButton.addEventListener('click', async () => {
+        page.styles.removeBySelector(selector);
+
+        page.styles.sync();
+        const nextCss = page.getCSS() ?? '';
+
+        if (workspace) {
+          await workspace.fs.writeFile('styles.css', nextCss, { isModelContentChange: true });
+          await workspace.fs.writeFile('page.json', save(), { isModelContentChange: true });
+        }
+
+        const styleEl = iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null;
+        if (styleEl) styleEl.textContent = nextCss;
+
+        ['margin-top', 'margin-bottom', 'padding-top', 'padding-bottom', 'width', 'height'].forEach((p) => {
+          const input = selectedInfoContainer.querySelector(`[data-editorts-style="${p}"]`) as HTMLInputElement | null;
+          if (input) input.value = '';
+        });
+
+        void ensureCssEditorReady();
+        void ensureJsonEditorReady();
+      });
+    }
 
     const textArea = selectedInfoContainer.querySelector('[data-editorts-field="text-content"]') as HTMLTextAreaElement | null;
     if (textArea) {
