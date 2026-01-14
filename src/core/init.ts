@@ -7,6 +7,7 @@ import { Page } from './Page';
 import { LayerManager } from './LayerManager';
 import { StorageManager } from './StorageManager';
 import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
+import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
 import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName } from '../types';
 
 /**
@@ -42,8 +43,66 @@ export function init(config: InitConfig): EditorTsEditor {
     initialPageData = rawData as PageData;
   }
 
+  const componentRegistry = mergeCustomComponentRegistry(defaultComponentRegistry, config.customComponents);
+
+  const resolveComponents = (components: Component[]): Component[] => {
+    const resolveComponent = (component: Component): Component => {
+      const def = componentRegistry[component.type];
+
+      const isStub =
+        component.tagName === undefined &&
+        component.components === undefined &&
+        component.content === undefined &&
+        component.script === undefined &&
+        component.style === undefined;
+
+      const base = def && isStub ? def.factory() : component;
+
+      const mergedAttributes = {
+        ...(base.attributes ?? {}),
+        ...(component.attributes ?? {}),
+      };
+
+      const next: Component = {
+        ...base,
+        ...component,
+        attributes: mergedAttributes,
+      };
+
+      if (next.components && next.components.length > 0) {
+        next.components = next.components.map(resolveComponent);
+      }
+
+      return next;
+    };
+
+    return components.map(resolveComponent);
+  };
+
+  const resolvePageData = (data: PageData): PageData => {
+    const raw = data.body.components;
+
+    if (Array.isArray(raw)) {
+      data.body.components = resolveComponents(raw);
+    } else if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw) as Component[];
+        data.body.components = JSON.stringify(resolveComponents(parsed));
+      } catch {
+        // ignore
+      }
+    }
+
+    return data;
+  };
+
+  const resolvedInitialPageData = resolvePageData(initialPageData);
+  if (multiPageData) {
+    multiPageData.pages[activePageIndex] = resolvedInitialPageData;
+  }
+
   // Create Page instance
-  const page = new Page(initialPageData);
+  const page = new Page(resolvedInitialPageData);
 
   // Configure toolbars from config
   if (config.toolbars) {
@@ -757,13 +816,13 @@ export function init(config: InitConfig): EditorTsEditor {
           if (!next.pages || next.pages.length === 0) throw new Error('MultiPageData.pages cannot be empty');
           multiPageData = next;
           activePageIndex = next.activePageIndex ?? 0;
-          const loadedPageData = next.pages[activePageIndex] ?? next.pages[0]!;
+          const loadedPageData = resolvePageData(next.pages[activePageIndex] ?? next.pages[0]!);
           const newPage = new Page(loadedPageData);
           Object.assign(page, newPage);
         } else {
           multiPageData = null;
           activePageIndex = 0;
-          const newPage = new Page(next as PageData);
+          const newPage = new Page(resolvePageData(next as PageData));
           Object.assign(page, newPage);
         }
 
@@ -1113,7 +1172,7 @@ export function init(config: InitConfig): EditorTsEditor {
     const data = await storage.loadPage(key);
     if (!data) return false;
 
-    const parsed = JSON.parse(data);
+    const parsed = JSON.parse(data) as PageData | MultiPageData;
 
     if (isMultiPageData(parsed)) {
       if (parsed.pages.length === 0) {
@@ -1123,14 +1182,14 @@ export function init(config: InitConfig): EditorTsEditor {
       multiPageData = parsed;
       activePageIndex = parsed.activePageIndex ?? 0;
 
-      const loadedPageData = parsed.pages[activePageIndex] ?? parsed.pages[0]!;
+      const loadedPageData = resolvePageData(parsed.pages[activePageIndex] ?? parsed.pages[0]!);
       const newPage = new Page(loadedPageData);
       Object.assign(page, newPage);
     } else {
       multiPageData = null;
       activePageIndex = 0;
 
-      const newPage = new Page(parsed as PageData);
+      const newPage = new Page(resolvePageData(parsed as PageData));
       Object.assign(page, newPage);
     }
 
@@ -1169,6 +1228,7 @@ export function init(config: InitConfig): EditorTsEditor {
     page,
     storage,
     ai,
+    components: componentRegistry,
     on,
     off,
     refresh,

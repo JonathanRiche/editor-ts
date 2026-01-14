@@ -243,15 +243,24 @@ function iframeWysiwygScript() {
     );
   }
 
-  function renderToolbar(toolbarConfig: any, elementId: string) {
+  type ToolbarAction = { id: string; label: string; icon: string; enabled: boolean; danger?: boolean };
+  type ToolbarConfig = { enabled: boolean; actions: ToolbarAction[] };
+
+  function isToolbarConfig(value: unknown): value is ToolbarConfig {
+    if (!value || typeof value !== 'object') return false;
+    const v = value as ToolbarConfig;
+    return typeof v.enabled === 'boolean' && Array.isArray(v.actions);
+  }
+
+  function renderToolbar(toolbarConfig: unknown, elementId: string) {
     const el = document.getElementById(elementId);
-    if (!el || !toolbarConfig?.enabled) return;
+    if (!el || !isToolbarConfig(toolbarConfig) || !toolbarConfig.enabled) return;
 
     const toolbar = document.createElement('div');
     toolbar.className = 'editorts-context-toolbar';
 
-    const enabledActions = (toolbarConfig.actions ?? []).filter((a: any) => a.enabled);
-    enabledActions.forEach((action: any) => {
+    const enabledActions = toolbarConfig.actions.filter((a) => a.enabled);
+    enabledActions.forEach((action) => {
       const btn = document.createElement('button');
       btn.className = 'toolbar-action' + (action.danger ? ' danger' : '');
       btn.textContent = action.icon + ' ' + action.label;

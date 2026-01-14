@@ -3,7 +3,7 @@
  * User controls the layout in index.html, init() populates it
  */
 
-import { init, type PageData, type Component } from '../index';
+import { init, createCustomComponentDefinition, type PageData, type Component } from '../index';
 import { createOpencodeClient } from '@opencode-ai/sdk';
 // import sampleData from '../samples/page_template.json';
 
@@ -21,7 +21,8 @@ const componentsData: PageData = {
           id: "box-1",
         },
         components: [
-          { type: "text", content: "Hello World!", attributes: { id: "text-1" } }
+          { type: "text", content: "Hello World!", attributes: { id: "text-1" } },
+          { type: 'hero', attributes: { id: 'hero-1' } }
         ]
       }
     ],
@@ -64,7 +65,24 @@ const editor = init({
 
   // Required: Page data (clean JSON)
   // To test HTML->components conversion, use `htmlOnlyData`.
-  data: htmlOnlyData,
+  data: componentsData,
+
+  // Optional: Custom components
+  customComponents: {
+    hero: createCustomComponentDefinition({
+      type: 'hero',
+      label: 'Hero',
+      factory: () => ({
+        type: 'hero',
+        tagName: 'section',
+        attributes: { id: 'hero-1', class: 'hero' },
+        components: [
+          { type: 'text', tagName: 'h1', attributes: { id: 'hero-title' }, content: 'Hero Title' },
+          { type: 'text', tagName: 'p', attributes: { id: 'hero-subtitle' }, content: 'Hero subtitle text' },
+        ],
+      }),
+    }),
+  },
 
   // Optional: Configure toolbars (runtime only, NOT saved to JSON)
   toolbars: {

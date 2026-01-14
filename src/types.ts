@@ -184,6 +184,23 @@ export type ComponentSelector =
   | { attributes: Record<string, JsonValue> }
   | { custom: (component: Component) => boolean };
 
+export type CustomComponentDefinition = {
+  /** Unique type identifier for this component (e.g. 'hero', 'button'). */
+  type: string;
+
+  /** Display name for UI (optional). */
+  label?: string;
+
+  /**
+   * Create a default component JSON object.
+   *
+   * This should return clean JSON-only component data.
+   */
+  factory: () => Component;
+};
+
+export type CustomComponentRegistry = Record<string, CustomComponentDefinition>;
+
 export interface InitConfig {
   // Required: iframe element ID (user creates this in their HTML)
   iframeId: string;
@@ -193,6 +210,9 @@ export interface InitConfig {
 
   // Optional: toolbar configuration (runtime only)
   toolbars?: ToolbarInitConfig;
+
+  // Optional: custom component registry
+  customComponents?: CustomComponentRegistry;
 
   // Optional: UI container IDs (user controls placement)
   ui?: {
@@ -362,6 +382,7 @@ export interface EditorTsEditor {
   page: Page;
   storage: StorageManager;
   ai?: EditorTsAiModule;
+  components: CustomComponentRegistry;
   on<K extends EditorTsEventName>(event: K, callback: (...args: EditorTsEventMap[K]) => void): void;
   off<K extends EditorTsEventName>(event: K, callback: (...args: EditorTsEventMap[K]) => void): void;
   refresh(): void;

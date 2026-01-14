@@ -29,6 +29,7 @@ export { ToolbarManager } from './src/core/ToolbarManager';
 export { LayerManager } from './src/core/LayerManager';
 export { StorageManager, LocalStorageAdapter, RemoteStorageAdapter } from './src/core/StorageManager';
 export { init } from './src/core/init';
+export { defaultComponentRegistry, mergeCustomComponentRegistry, createCustomComponentDefinition, defaultComponentFactories } from './src/core/CustomComponentRegistry';
 
 // Type exports
 export type {
@@ -57,6 +58,8 @@ export type {
   StorageConfig,
   LocalStorageConfig,
   RemoteStorageConfig,
+  CustomComponentDefinition,
+  CustomComponentRegistry,
 } from './src/types';
 
 export type { LayerManagerConfig } from './src/core/LayerManager';
