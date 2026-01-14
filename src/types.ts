@@ -191,6 +191,9 @@ export type CustomComponentDefinition = {
   /** Display name for UI (optional). */
   label?: string;
 
+  /** Optional SVG icon (raw <svg>...</svg> markup). */
+  iconSvg?: string;
+
   /**
    * Create a default component JSON object.
    *
@@ -230,6 +233,12 @@ export interface InitConfig {
     };
     layers?: {
       containerId?: string;  // Where to render layer panel (optional)
+      enabled?: boolean;
+    };
+
+    // Optional: component palette (click-to-place)
+    componentPalette?: {
+      containerId?: string;
       enabled?: boolean;
     };
     editors?: {
@@ -354,6 +363,7 @@ export interface ToolbarInitConfig {
 
 export interface EditorTsEventMap {
   componentSelect: [component: Component];
+  componentInsert: [component: Component, parentId: string | null];
   componentReorder: [component: Component, newParentId: string | null, newIndex: number];
 
   componentEdit: [component: Component];

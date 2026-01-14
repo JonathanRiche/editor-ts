@@ -5,6 +5,7 @@
 
 import { Page } from './Page';
 import { LayerManager } from './LayerManager';
+import { ComponentPalette } from './ComponentPalette';
 import { StorageManager } from './StorageManager';
 import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
 import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
@@ -169,6 +170,10 @@ export function init(config: InitConfig): EditorTsEditor {
     ? document.getElementById(config.ui.layers.containerId)
     : null;
 
+  const componentPaletteContainer = config.ui?.componentPalette?.containerId
+    ? document.getElementById(config.ui.componentPalette.containerId)
+    : null;
+
   // Optional code editor containers
   const jsEditorContainer = config.ui?.editors?.js?.containerId
     ? document.getElementById(config.ui.editors.js.containerId)
@@ -301,6 +306,29 @@ export function init(config: InitConfig): EditorTsEditor {
 
       setCodeTab?.(codeTabs.defaultTab ?? 'js');
     }
+  }
+
+  // Initialize component palette if container provided
+  let componentPalette: ComponentPalette | null = null;
+  let pendingInsertType: string | null = null;
+
+  if (componentPaletteContainer && config.ui?.componentPalette?.enabled !== false) {
+    componentPalette = new ComponentPalette({
+      container: componentPaletteContainer,
+      registry: componentRegistry,
+      onPick: (type) => {
+        pendingInsertType = type;
+        componentPalette?.setSelected(type);
+
+        iframe.contentWindow?.postMessage(
+          {
+            type: 'editorts:placementMode',
+            enabled: true,
+          },
+          '*'
+        );
+      },
+    });
   }
 
   // Initialize layer manager if container provided
@@ -908,6 +936,24 @@ export function init(config: InitConfig): EditorTsEditor {
       }
 
       refresh();
+    } else if (event.data.type === 'editorts:placeComponent') {
+      const targetId = event.data.targetId as string;
+      if (!pendingInsertType) return;
+      const def = componentRegistry[pendingInsertType];
+      if (!def) return;
+
+      const componentToInsert = def.factory();
+
+      // Insert as child of target for now.
+      page.components.addChildComponent(targetId, componentToInsert);
+
+      pendingInsertType = null;
+      componentPalette?.setSelected(null);
+      iframe.contentWindow?.postMessage({ type: 'editorts:placementMode', enabled: false }, '*');
+
+      emit('componentInsert', componentToInsert, targetId);
+
+      refresh();
     } else if (event.data.type === 'editorts:textEditStart') {
       const component = page.components.findById(event.data.id);
       if (component) {
@@ -1216,7 +1262,8 @@ export function init(config: InitConfig): EditorTsEditor {
     if (cssEditorContainer) cssEditorContainer.innerHTML = '';
     if (jsonEditorContainer) jsonEditorContainer.innerHTML = '';
     if (jsxEditorContainer) jsxEditorContainer.innerHTML = '';
-    if (layerManager) layerManager.destroy();
+     if (layerManager) layerManager.destroy();
+     componentPalette?.destroy();
 
     (Object.keys(eventListeners) as EditorTsEventName[]).forEach((key) => {
       eventListeners[key] = [];

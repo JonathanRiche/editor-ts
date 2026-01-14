@@ -392,6 +392,8 @@ function iframeWysiwygScript() {
     reader.readAsDataURL(file);
   }
 
+  let placementMode = false;
+
   window.addEventListener('message', (event) => {
     if (event.data.type === 'editorts:toolbarConfig') {
       renderToolbar(event.data.config, event.data.elementId);
@@ -403,8 +405,33 @@ function iframeWysiwygScript() {
         selectElement(el);
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
+    } else if (event.data.type === 'editorts:placementMode') {
+      placementMode = !!event.data.enabled;
+      document.body.style.cursor = placementMode ? 'crosshair' : '';
     }
   });
+
+  document.addEventListener('click', (e) => {
+    if (!placementMode) return;
+
+    const target = e.target as HTMLElement | null;
+    const el = target?.closest('[id]') as HTMLElement | null;
+    if (!el || !el.id || el.id.startsWith('editorts-')) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    placementMode = false;
+    document.body.style.cursor = '';
+
+    window.parent.postMessage(
+      {
+        type: 'editorts:placeComponent',
+        targetId: el.id,
+      },
+      '*'
+    );
+  }, true);
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initWYSIWYG);

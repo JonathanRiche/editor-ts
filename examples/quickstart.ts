@@ -132,6 +132,10 @@ const editor = init({
       containerId: 'layers-container',
       enabled: true
     },
+    componentPalette: {
+      containerId: 'component-palette',
+      enabled: true,
+    },
     editors: {
       js: {
         containerId: 'js-editor-container',
