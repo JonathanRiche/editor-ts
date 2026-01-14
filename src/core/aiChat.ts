@@ -16,6 +16,84 @@ const stripCodeFences = (text: string): string => {
   return trimmed.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
 };
 
+const extractJsonFromText = (text: string): string | null => {
+  const trimmed = text.trim();
+
+  // Prefer fenced JSON blocks.
+  const fenceStart = trimmed.indexOf('```');
+  if (fenceStart >= 0) {
+    const fenceLangEnd = trimmed.indexOf('\n', fenceStart);
+    const contentStart = fenceLangEnd >= 0 ? fenceLangEnd + 1 : fenceStart + 3;
+    const fenceEnd = trimmed.indexOf('```', contentStart);
+    if (fenceEnd > contentStart) {
+      const inner = trimmed.slice(contentStart, fenceEnd).trim();
+      if (inner.startsWith('{') || inner.startsWith('[')) {
+        return inner;
+      }
+    }
+  }
+
+  // Fallback: scan for the first valid JSON object/array within the text.
+  const tryParseSlice = (slice: string): boolean => {
+    try {
+      JSON.parse(slice);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const scan = (open: '{' | '[', close: '}' | ']'): string | null => {
+    let depth = 0;
+    let start: number | null = null;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = 0; i < trimmed.length; i++) {
+      const ch = trimmed[i] ?? '';
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch === '\\') {
+          escaped = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (ch === open) {
+        if (depth === 0) start = i;
+        depth++;
+        continue;
+      }
+
+      if (ch === close && depth > 0) {
+        depth--;
+        if (depth === 0 && start !== null) {
+          const slice = trimmed.slice(start, i + 1);
+          if (tryParseSlice(slice)) return slice;
+          start = null;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  return scan('{', '}') ?? scan('[', ']');
+};
+
 const decodeBase64ToString = (b64: string): string => {
   // Browser-safe base64 decode
   const binary = atob(b64);
@@ -25,7 +103,9 @@ const decodeBase64ToString = (b64: string): string => {
 
 export const parseAiChatResponse = (assistantText: string, sessionId: string): EditorTsAiChatResult => {
   const rawText = assistantText;
-  const jsonText = stripCodeFences(assistantText);
+
+  const extracted = extractJsonFromText(assistantText);
+  const jsonText = extracted ?? stripCodeFences(assistantText);
 
   const parsed = JSON.parse(jsonText) as ParsedChatResponse;
   const rawReplacements = Array.isArray(parsed.replacements) ? parsed.replacements : [];
