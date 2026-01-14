@@ -251,6 +251,7 @@ const editor = init({
     mode: 'client',
     // Point at the local server proxy by default (avoids CORS+BasicAuth preflight).
     baseUrl: `${window.location.origin}/opencode`,
+    stream: { enabled: true },
 
     // If you want direct-to-opencode (no proxy), set baseUrl to the server URL and
     // supply credentials via the dev server env vars.
@@ -405,6 +406,11 @@ const appendChatLog = (label: string, text: string) => {
   aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${label}: ${text}\n\n`;
 };
 
+const appendChatStreamDelta = (delta: string) => {
+  if (!aiChatLog) return;
+  aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${delta}`;
+};
+
 
 if (aiHealthButton && aiHealthStatus) {
   aiHealthButton.addEventListener('click', async () => {
@@ -441,9 +447,25 @@ if (aiChatSend && aiChatInput) {
 
     try {
       const selectedSessionId = aiSessionSelect?.value?.trim() || undefined;
-      const result = await editor.ai.chat(prompt, { sessionId: selectedSessionId });
 
-      appendChatLog('assistant', result.rawText);
+      let streamed = '';
+      const streamEnabled = true;
+
+      const result = await editor.ai.chat(prompt, {
+        sessionId: selectedSessionId,
+        stream: streamEnabled,
+        onStream: (delta) => {
+          streamed += delta;
+          appendChatStreamDelta(delta);
+        },
+      });
+
+      if (streamEnabled) {
+        // After streaming, ensure the log ends cleanly.
+        appendChatLog('assistant', result.rawText);
+      } else {
+        appendChatLog('assistant', result.rawText);
+      }
 
       if (result.replacements.length === 0) {
         lastAiReplacements = null;

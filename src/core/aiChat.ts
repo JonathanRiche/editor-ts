@@ -1,4 +1,4 @@
-import type { OpencodeClient, Part } from '@opencode-ai/sdk';
+import type { OpencodeClient, Part, Event, Message, TextPart } from '@opencode-ai/sdk';
 import type { Page } from './Page';
 import type { EditorTsAiChatReplacement, EditorTsAiChatResult } from '../types';
 
@@ -199,8 +199,20 @@ export const requestAiReplacements = async (args: {
   componentScripts: Record<string, string>;
   sessionId?: string;
   sessionTitle?: string;
+  stream?: boolean;
+  onStream?: (delta: string) => void;
 }): Promise<EditorTsAiChatResult> => {
-  const { client, prompt, pageJson, css, componentScripts, sessionId: existingSessionId, sessionTitle } = args;
+  const {
+    client,
+    prompt,
+    pageJson,
+    css,
+    componentScripts,
+    sessionId: existingSessionId,
+    sessionTitle,
+    stream,
+    onStream,
+  } = args;
 
   let sessionId = existingSessionId;
 
@@ -216,6 +228,136 @@ export const requestAiReplacements = async (args: {
   const snapshot = buildAiChatSnapshot(pageJson, css, componentScripts);
 
   const model = await chooseChatModel(client);
+
+  if (stream && typeof onStream === 'function') {
+    // Fire-and-forget the prompt (async), then listen to SSE for message part deltas.
+    const sendResult = await client.session.promptAsync({
+      path: { id: sessionId },
+      body: {
+        ...(model ? { model } : {}),
+        system,
+        parts: [
+          { type: 'text', text: snapshot },
+          { type: 'text', text: `\nREQUEST:\n${prompt}` },
+        ],
+      },
+    });
+
+    if (sendResult.error) {
+      throw new Error(`Prompt failed: ${String(sendResult.error)}`);
+    }
+
+    const events = await client.event.subscribe();
+
+    let assembled = '';
+    let targetSessionId: string | null = null;
+    let doneMessageId: string | null = null;
+
+    const isMessage = (value: unknown): value is Message => {
+      if (!value || typeof value !== 'object') return false;
+      return typeof (value as { id?: unknown }).id === 'string' && typeof (value as { role?: unknown }).role === 'string';
+    };
+
+    const isTextPart = (value: unknown): value is TextPart => {
+      if (!value || typeof value !== 'object') return false;
+      return (value as { type?: unknown }).type === 'text' && typeof (value as { text?: unknown }).text === 'string';
+    };
+
+    const isEventMessageUpdated = (value: unknown): value is Extract<Event, { type: 'message.updated' }> => {
+      if (!value || typeof value !== 'object') return false;
+      return (value as { type?: unknown }).type === 'message.updated';
+    };
+
+    const isEventMessagePartUpdated = (value: unknown): value is Extract<Event, { type: 'message.part.updated' }> => {
+      if (!value || typeof value !== 'object') return false;
+      return (value as { type?: unknown }).type === 'message.part.updated';
+    };
+
+    const waitForResult = async (): Promise<string> => {
+      // Bound the streaming loop so we don't hang forever if the connection dies.
+      const timeoutMs = 90_000;
+      const timeoutAt = Date.now() + timeoutMs;
+
+      for await (const payload of events.stream) {
+        if (Date.now() > timeoutAt) {
+          throw new Error('Streaming timed out waiting for assistant response.');
+        }
+
+        const globalEvent = payload as unknown;
+        const eventPayload = (globalEvent as { payload?: unknown }).payload;
+        if (!eventPayload || typeof eventPayload !== 'object') continue;
+
+        if (isEventMessageUpdated(eventPayload)) {
+          const info = (eventPayload as { properties?: unknown }).properties as { info?: unknown } | undefined;
+          if (!info || !isMessage(info.info)) continue;
+
+          const msg = info.info;
+
+          // Track the first assistant message for this session that has a completion.
+          if (msg.role === 'assistant' && typeof msg.sessionID === 'string') {
+            targetSessionId = msg.sessionID;
+
+            // We only know we're done once the assistant message has completed.
+            const completed = (msg as { time?: { completed?: number } }).time?.completed;
+            if (typeof completed === 'number') {
+              doneMessageId = msg.id;
+              break;
+            }
+          }
+        }
+
+        if (isEventMessagePartUpdated(eventPayload)) {
+          const properties = (eventPayload as { properties?: unknown }).properties as { part?: unknown; delta?: unknown } | undefined;
+          if (!properties) continue;
+
+          const part = properties.part;
+          if (!isTextPart(part)) continue;
+
+          // Only stream the text for the current session once we know it.
+          if (targetSessionId && part.sessionID !== targetSessionId) continue;
+
+          const delta = typeof properties.delta === 'string' ? properties.delta : null;
+          if (delta && delta.length > 0) {
+            assembled += delta;
+            onStream(delta);
+            continue;
+          }
+
+          // Some servers may send the full text instead of delta.
+          if (typeof part.text === 'string' && part.text.length > assembled.length) {
+            const next = part.text.slice(assembled.length);
+            assembled = part.text;
+            if (next.length > 0) {
+              onStream(next);
+            }
+          }
+        }
+      }
+
+      // If we didn't gather anything via deltas, fetch full message parts as fallback.
+      if (!assembled.trim() && doneMessageId) {
+        const message = await client.session.message({ path: { id: sessionId, messageID: doneMessageId } });
+        if (!message.data) {
+          throw new Error(`Failed to fetch message: ${String(message.error)}`);
+        }
+        const parts = Array.isArray(message.data.parts) ? (message.data.parts as Part[]) : [];
+        assembled = parts
+          .filter((p) => p.type === 'text')
+          .map((p) => (p.type === 'text' ? p.text ?? '' : ''))
+          .join('');
+      }
+
+      return assembled;
+    };
+
+    const assistantText = await waitForResult();
+
+    if (!assistantText.trim()) {
+      throw new Error('No assistant text returned.');
+    }
+
+    return parseAiChatResponse(assistantText, sessionId);
+  }
 
   const result = await client.session.prompt({
     path: { id: sessionId },

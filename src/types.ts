@@ -30,6 +30,15 @@ export interface OpencodeAiProviderConfig {
   provider: 'opencode';
 
   /**
+   * Optional: stream assistant output via server-sent events.
+   *
+   * When enabled, `editor.ai.chat()` can stream partial output via `options.onStream`.
+   */
+  stream?: {
+    enabled?: boolean;
+  };
+
+  /**
    * Optional HTTP Basic Auth for password-protected opencode servers.
    * Username defaults to "opencode" on the server if not provided.
    */
@@ -108,8 +117,17 @@ export interface EditorTsAiModule {
   /**
    * Request full-file replacements from AI.
    * If a session is selected, prompts reuse that session.
+   *
+   * If streaming is enabled, `onStream` receives incremental text deltas.
    */
-  chat(prompt: string, options?: { sessionId?: string }): Promise<EditorTsAiChatResult>;
+  chat(
+    prompt: string,
+    options?: {
+      sessionId?: string;
+      stream?: boolean;
+      onStream?: (delta: string) => void;
+    }
+  ): Promise<EditorTsAiChatResult>;
 
   /** Apply replacements to the current page */
   apply(replacements: EditorTsAiChatReplacement[]): Promise<void>;

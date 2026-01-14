@@ -642,7 +642,14 @@ export function init(config: InitConfig): EditorTsEditor {
            return created;
          },
        },
-       chat: async (prompt: string, options?: { sessionId?: string }) => {
+        chat: async (
+          prompt: string,
+          options?: {
+            sessionId?: string;
+            stream?: boolean;
+            onStream?: (delta: string) => void;
+          }
+        ) => {
          const client = await ai!.getClient();
 
          const componentScripts: Record<string, string> = {};
@@ -664,16 +671,20 @@ export function init(config: InitConfig): EditorTsEditor {
            currentSessionId = index.current;
          }
 
-         const sessionId = options?.sessionId ?? currentSessionId;
+          const sessionId = options?.sessionId ?? currentSessionId;
 
-         const result = await requestAiReplacements({
-           client,
-           prompt,
-           pageJson: save(),
-           css: page.getCSS() ?? '',
-           componentScripts,
-           sessionId: sessionId ?? undefined,
-         });
+          const shouldStream = options?.stream ?? aiConfig.stream?.enabled === true;
+
+          const result = await requestAiReplacements({
+            client,
+            prompt,
+            pageJson: save(),
+            css: page.getCSS() ?? '',
+            componentScripts,
+            sessionId: sessionId ?? undefined,
+            stream: shouldStream,
+            onStream: options?.onStream,
+          });
 
          // Persist session for reuse.
          if (result.sessionId) {
