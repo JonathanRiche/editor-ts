@@ -82,9 +82,17 @@ export type EditorTsAiChatReplacement = {
   content: string;
 };
 
+export type EditorTsAiChatSession = {
+  id: string;
+  title?: string;
+};
+
 export type EditorTsAiChatResult = {
   replacements: EditorTsAiChatReplacement[];
   rawText: string;
+
+  /** Session that produced this response (for reuse/persistence). */
+  sessionId: string;
 };
 
 export interface EditorTsAiModule {
@@ -97,11 +105,22 @@ export interface EditorTsAiModule {
   /** Returns current server URL/baseUrl if known */
   getUrl(): string | null;
 
-  /** Request full-file replacements from AI */
-  chat(prompt: string): Promise<EditorTsAiChatResult>;
+  /**
+   * Request full-file replacements from AI.
+   * If a session is selected, prompts reuse that session.
+   */
+  chat(prompt: string, options?: { sessionId?: string }): Promise<EditorTsAiChatResult>;
 
   /** Apply replacements to the current page */
   apply(replacements: EditorTsAiChatReplacement[]): Promise<void>;
+
+  /** AI session management (persisted via StorageManager) */
+  sessions: {
+    current(): string | null;
+    setCurrent(sessionId: string | null): Promise<void>;
+    list(): Promise<EditorTsAiChatSession[]>;
+    create(title?: string): Promise<EditorTsAiChatSession>;
+  };
 
   /** Closes embedded server if started */
   close(): Promise<void>;

@@ -310,7 +310,35 @@ const aiChatSend = document.getElementById('ai-chat-send') as HTMLButtonElement 
 const aiChatApply = document.getElementById('ai-chat-apply') as HTMLButtonElement | null;
 const aiChatLog = document.getElementById('ai-chat-log') as HTMLElement | null;
 
+const aiSessionSelect = document.getElementById('ai-session-select') as HTMLSelectElement | null;
+const aiSessionNew = document.getElementById('ai-session-new') as HTMLButtonElement | null;
+
 let lastAiReplacements: Array<{ path: string; content: string }> | null = null;
+
+const refreshAiSessions = async () => {
+  if (!aiSessionSelect || !editor.ai) return;
+
+  const sessions = await editor.ai.sessions.list();
+  const current = editor.ai.sessions.current();
+
+  aiSessionSelect.innerHTML = '';
+
+  const addOption = (id: string, label: string) => {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label;
+    if (id === current) {
+      opt.selected = true;
+    }
+    aiSessionSelect.appendChild(opt);
+  };
+
+  addOption('', '(auto)');
+
+  sessions.forEach((s) => {
+    addOption(s.id, s.title ? `${s.title} (${s.id})` : s.id);
+  });
+};
 
 const appendChatLog = (label: string, text: string) => {
   if (!aiChatLog) return;
@@ -350,7 +378,8 @@ if (aiChatSend && aiChatInput) {
     appendChatLog('user', prompt);
 
     try {
-      const result = await editor.ai.chat(prompt);
+      const selectedSessionId = aiSessionSelect?.value?.trim() || undefined;
+      const result = await editor.ai.chat(prompt, { sessionId: selectedSessionId });
 
       appendChatLog('assistant', result.rawText);
 
@@ -359,6 +388,24 @@ if (aiChatSend && aiChatInput) {
     } catch (err: unknown) {
       appendChatLog('error', err instanceof Error ? err.message : String(err));
     }
+  });
+}
+
+if (aiSessionSelect && editor.ai) {
+  void refreshAiSessions();
+
+  aiSessionSelect.addEventListener('change', async () => {
+    const next = aiSessionSelect.value.trim();
+    await editor.ai!.sessions.setCurrent(next.length ? next : null);
+    await refreshAiSessions();
+  });
+}
+
+if (aiSessionNew && editor.ai) {
+  aiSessionNew.addEventListener('click', async () => {
+    const created = await editor.ai!.sessions.create('EditorTs Chat');
+    await editor.ai!.sessions.setCurrent(created.id);
+    await refreshAiSessions();
   });
 }
 

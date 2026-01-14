@@ -503,10 +503,51 @@ export function init(config: InitConfig): EditorTsEditor {
       return import('@opencode-ai/sdk');
     };
 
-    ai = {
-      provider: 'opencode',
-      mode,
-      getClient: async () => {
+     const aiSessionStorageKey = 'ai_sessions';
+     const aiSessionCurrentKey = 'ai_session_current';
+
+     let currentSessionId: string | null = null;
+
+      const loadSessionIndex = async (): Promise<{ current: string | null; sessions: Array<{ id: string; title?: string }> }> => {
+       const rawSessions = await storage.loadPage(aiSessionStorageKey);
+       const rawCurrent = await storage.loadPage(aiSessionCurrentKey);
+
+       let sessions: Array<{ id: string; title?: string }> = [];
+       if (rawSessions) {
+         try {
+           const parsed = JSON.parse(rawSessions) as unknown;
+           if (Array.isArray(parsed)) {
+             sessions = parsed
+               .filter((s): s is { id: string; title?: string } => typeof (s as { id?: unknown }).id === 'string')
+               .map((s) => ({ id: s.id, title: typeof s.title === 'string' ? s.title : undefined }));
+           }
+         } catch {
+           // ignore
+         }
+       }
+
+       let current: string | null = null;
+       if (rawCurrent) {
+         try {
+           const parsed = JSON.parse(rawCurrent) as unknown;
+           current = typeof parsed === 'string' && parsed.length > 0 ? parsed : null;
+         } catch {
+           // ignore
+         }
+       }
+
+       return { current, sessions };
+     };
+
+     const saveSessionIndex = async (next: { current: string | null; sessions: Array<{ id: string; title?: string }> }) => {
+       await storage.savePage(aiSessionStorageKey, JSON.stringify(next.sessions, null, 2));
+       await storage.savePage(aiSessionCurrentKey, JSON.stringify(next.current));
+     };
+
+     ai = {
+       provider: 'opencode',
+       mode,
+       getClient: async () => {
         if (!clientPromise) {
           if (externalClient) {
             clientPromise = Promise.resolve(externalClient);
@@ -565,35 +606,82 @@ export function init(config: InitConfig): EditorTsEditor {
 
         return clientPromise;
       },
-      getUrl: () => {
-        if (mode === 'client') return aiConfig.baseUrl ?? externalServer?.url ?? null;
-        return server?.url ?? externalServer?.url ?? null;
-      },
-      chat: async (prompt: string) => {
-        const client = await ai!.getClient();
+       getUrl: () => {
+         if (mode === 'client') return aiConfig.baseUrl ?? externalServer?.url ?? null;
+         return server?.url ?? externalServer?.url ?? null;
+       },
+         sessions: {
+         current: () => {
+           return currentSessionId;
+         },
+         setCurrent: async (sessionId: string | null) => {
+           currentSessionId = sessionId;
+           const index = await loadSessionIndex();
+           await saveSessionIndex({ ...index, current: sessionId });
+         },
+         list: async () => {
+           const index = await loadSessionIndex();
+           return index.sessions;
+         },
+         create: async (title?: string) => {
+           const client = await ai!.getClient();
+           const result = await client.session.create({ body: { title: title ?? 'EditorTs Chat' } });
+           if (!result.data) {
+             throw new Error(`Failed to create session: ${String(result.error)}`);
+           }
 
-        const componentScripts: Record<string, string> = {};
-        const collectScripts = (components: Component[]) => {
-          components.forEach((component) => {
-            const id = typeof component.attributes?.id === 'string' ? component.attributes.id : null;
-            if (id) {
-              componentScripts[`components/${id}.js`] = typeof component.script === 'string' ? component.script : '';
-            }
-            if (component.components && component.components.length > 0) {
-              collectScripts(component.components);
-            }
-          });
-        };
-        collectScripts(page.components.getAll());
+           const created = { id: result.data.id, title: result.data.title };
 
-        return requestAiReplacements({
-          client,
-          prompt,
-          pageJson: save(),
-          css: page.getCSS() ?? '',
-          componentScripts,
-        });
-      },
+           const index = await loadSessionIndex();
+           const nextSessions = [created, ...index.sessions.filter((s) => s.id !== created.id)].slice(0, 50);
+           await saveSessionIndex({ current: created.id, sessions: nextSessions });
+
+           return created;
+         },
+       },
+       chat: async (prompt: string, options?: { sessionId?: string }) => {
+         const client = await ai!.getClient();
+
+         const componentScripts: Record<string, string> = {};
+         const collectScripts = (components: Component[]) => {
+           components.forEach((component) => {
+             const id = typeof component.attributes?.id === 'string' ? component.attributes.id : null;
+             if (id) {
+               componentScripts[`components/${id}.js`] = typeof component.script === 'string' ? component.script : '';
+             }
+             if (component.components && component.components.length > 0) {
+               collectScripts(component.components);
+             }
+           });
+         };
+         collectScripts(page.components.getAll());
+
+         if (currentSessionId === null) {
+           const index = await loadSessionIndex();
+           currentSessionId = index.current;
+         }
+
+         const sessionId = options?.sessionId ?? currentSessionId;
+
+         const result = await requestAiReplacements({
+           client,
+           prompt,
+           pageJson: save(),
+           css: page.getCSS() ?? '',
+           componentScripts,
+           sessionId: sessionId ?? undefined,
+         });
+
+         // Persist session for reuse.
+         if (result.sessionId) {
+           currentSessionId = result.sessionId;
+           const index = await loadSessionIndex();
+           const nextSessions = [{ id: result.sessionId }, ...index.sessions.filter((s) => s.id !== result.sessionId)].slice(0, 50);
+           await saveSessionIndex({ current: result.sessionId, sessions: nextSessions });
+         }
+
+         return result;
+       },
       apply: async (replacements) => {
         // Apply potentially many files, then refresh once.
         await applyAiReplacementsToPage({

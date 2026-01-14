@@ -23,7 +23,7 @@ const decodeBase64ToString = (b64: string): string => {
   return new TextDecoder('utf-8').decode(bytes);
 };
 
-export const parseAiChatResponse = (assistantText: string): EditorTsAiChatResult => {
+export const parseAiChatResponse = (assistantText: string, sessionId: string): EditorTsAiChatResult => {
   const rawText = assistantText;
   const jsonText = stripCodeFences(assistantText);
 
@@ -46,7 +46,7 @@ export const parseAiChatResponse = (assistantText: string): EditorTsAiChatResult
     }
   }
 
-  return { replacements, rawText };
+  return { replacements, rawText, sessionId };
 };
 
 export const buildAiChatSystemPrompt = (): string => {
@@ -117,12 +117,19 @@ export const requestAiReplacements = async (args: {
   pageJson: string;
   css: string;
   componentScripts: Record<string, string>;
+  sessionId?: string;
+  sessionTitle?: string;
 }): Promise<EditorTsAiChatResult> => {
-  const { client, prompt, pageJson, css, componentScripts } = args;
+  const { client, prompt, pageJson, css, componentScripts, sessionId: existingSessionId, sessionTitle } = args;
 
-  const sessionResult = await client.session.create({ body: { title: 'EditorTs Chat' } });
-  if (!sessionResult.data) {
-    throw new Error(`Failed to create session: ${String(sessionResult.error)}`);
+  let sessionId = existingSessionId;
+
+  if (!sessionId) {
+    const sessionResult = await client.session.create({ body: { title: sessionTitle ?? 'EditorTs Chat' } });
+    if (!sessionResult.data) {
+      throw new Error(`Failed to create session: ${String(sessionResult.error)}`);
+    }
+    sessionId = sessionResult.data.id;
   }
 
   const system = buildAiChatSystemPrompt();
@@ -131,7 +138,7 @@ export const requestAiReplacements = async (args: {
   const model = await chooseChatModel(client);
 
   const result = await client.session.prompt({
-    path: { id: sessionResult.data.id },
+    path: { id: sessionId },
     body: {
       ...(model ? { model } : {}),
       system,
@@ -156,7 +163,7 @@ export const requestAiReplacements = async (args: {
     throw new Error('No assistant text returned.');
   }
 
-  return parseAiChatResponse(assistantText);
+  return parseAiChatResponse(assistantText, sessionId);
 };
 
 export const applyAiReplacementsToPage = async (args: {
