@@ -314,9 +314,14 @@
 				<div id="ai-chat-root" data-editorts-ai-chat-root style="margin-top: 1rem; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
 					<div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
 						<div style="font-weight:600;">Chat</div>
-						<button id="ai-chat-expand" type="button" aria-expanded="false" title="Expand chat" style="padding:0.25rem 0.5rem;">
-							⤢
-						</button>
+						<div style="display:flex; align-items:center; gap:0.25rem;">
+							<a id="ai-chat-link" href="#" target="_blank" rel="noopener noreferrer" title="Open chats" style="text-decoration:none; padding:0.25rem 0.5rem;">
+								↗
+							</a>
+							<button id="ai-chat-expand" type="button" aria-expanded="false" title="Expand chat" style="padding:0.25rem 0.5rem;">
+								⤢
+							</button>
+						</div>
 					</div>
 					<label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
 						Session

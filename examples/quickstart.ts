@@ -246,6 +246,11 @@ const editor = init({
       applyButtonId: 'ai-chat-apply',
       logId: 'ai-chat-log',
 
+      link: {
+        anchorId: 'ai-chat-link',
+        enabled: true,
+      },
+
       autoApply: true,
       stream: { enabled: true },
       enabled: true,

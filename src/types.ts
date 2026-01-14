@@ -368,6 +368,17 @@ export interface InitConfig {
         enabled?: boolean;
       };
 
+      /** Optional: external link to OpenCode web chat UI. */
+      link?: {
+        /** Anchor element id for the external-link button. */
+        anchorId?: string;
+
+        /** Optional: override the URL path appended to the base URL. */
+        path?: string;
+
+        enabled?: boolean;
+      };
+
       enabled?: boolean;
     };
     editors?: {

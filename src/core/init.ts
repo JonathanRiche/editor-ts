@@ -192,6 +192,10 @@ export function init(config: InitConfig): EditorTsEditor {
     ? (document.getElementById(aiChatConfig.logId) as HTMLElement | null)
     : null;
 
+  const aiChatLinkAnchor = shouldEnableAiChatUi && aiChatConfig?.link?.enabled !== false && aiChatConfig?.link?.anchorId
+    ? (document.getElementById(aiChatConfig.link.anchorId) as HTMLAnchorElement | null)
+    : null;
+
   const aiSessionSelect = shouldEnableAiChatUi && aiChatConfig?.sessionSelectId
     ? (document.getElementById(aiChatConfig.sessionSelectId) as HTMLSelectElement | null)
     : null;
@@ -838,6 +842,20 @@ export function init(config: InitConfig): EditorTsEditor {
       if (shouldEnableAiChatUi) {
         const autoApply = aiChatConfig?.autoApply !== false;
         const streamEnabled = aiChatConfig?.stream?.enabled ?? aiConfig.stream?.enabled === true;
+
+        if (aiChatLinkAnchor) {
+          const path = aiChatConfig?.link?.path ?? '/chats';
+
+          const baseUrl = aiBaseUrlInput?.value || aiConfig.baseUrl || aiProxiedBaseUrl;
+          const resolvedBase = baseUrl.startsWith('http')
+            ? baseUrl
+            : `${window.location.origin}${baseUrl.startsWith('/') ? '' : '/'}${baseUrl}`;
+
+          const nextUrl = new URL(path.startsWith('/') ? path : `/${path}`, resolvedBase);
+          aiChatLinkAnchor.href = nextUrl.toString();
+          aiChatLinkAnchor.target = '_blank';
+          aiChatLinkAnchor.rel = 'noopener noreferrer';
+        }
 
         if (aiHealthButton && aiHealthStatus) {
           aiHealthButton.addEventListener('click', async () => {
