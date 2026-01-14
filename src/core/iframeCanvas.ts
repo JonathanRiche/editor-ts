@@ -18,11 +18,9 @@ function buildWysiwygCss(): string {
     }
     .editorts-highlight:hover {
       outline: 2px solid var(--color-editor-light-text, #212C3E) !important;
-      background-color: rgba(33, 44, 62, 0.05) !important;
     }
     .editorts-selected {
       outline: 3px solid #10b981 !important;
-      background-color: rgba(16, 185, 129, 0.1) !important;
     }
 
     .editorts-flash {

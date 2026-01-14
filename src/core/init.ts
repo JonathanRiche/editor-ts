@@ -1572,6 +1572,51 @@ export function init(config: InitConfig): EditorTsEditor {
               Height
               <input data-editorts-style="height" type="text" placeholder="e.g. 300px" />
             </label>
+
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Color
+              <input data-editorts-style="color" type="text" placeholder="e.g. #111" />
+            </label>
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Background
+              <input data-editorts-style="background-color" type="text" placeholder="e.g. #f5f5f5" />
+            </label>
+
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Border
+              <input data-editorts-style="border" type="text" placeholder="e.g. 1px solid #ddd" />
+            </label>
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Border radius
+              <input data-editorts-style="border-radius" type="text" placeholder="e.g. 12px" />
+            </label>
+
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Display
+              <input data-editorts-style="display" type="text" placeholder="e.g. block" />
+            </label>
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Gap
+              <input data-editorts-style="gap" type="text" placeholder="e.g. 12px" />
+            </label>
+
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Font size
+              <input data-editorts-style="font-size" type="text" placeholder="e.g. 18px" />
+            </label>
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Font weight
+              <input data-editorts-style="font-weight" type="text" placeholder="e.g. 600" />
+            </label>
+
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Text align
+              <input data-editorts-style="text-align" type="text" placeholder="e.g. center" />
+            </label>
+            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+              Transition
+              <input data-editorts-style="transition" type="text" placeholder="e.g. all 150ms ease" />
+            </label>
           </div>
 
           <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
@@ -1602,6 +1647,25 @@ export function init(config: InitConfig): EditorTsEditor {
     // StyleManager.compileToCSS prefixes '#' for selector objects automatically.
     const selector = elementId;
 
+    const styleProps = [
+      'margin-top',
+      'margin-bottom',
+      'padding-top',
+      'padding-bottom',
+      'width',
+      'height',
+      'color',
+      'background-color',
+      'border',
+      'border-radius',
+      'display',
+      'gap',
+      'font-size',
+      'font-weight',
+      'text-align',
+      'transition',
+    ];
+
     const populateStyleField = (prop: string) => {
       const input = selectedInfoContainer.querySelector(`[data-editorts-style="${prop}"]`) as HTMLInputElement | null;
       if (!input) return;
@@ -1610,7 +1674,7 @@ export function init(config: InitConfig): EditorTsEditor {
       input.value = typeof props?.[prop] === 'string' ? String(props[prop]) : '';
     };
 
-    ['margin-top', 'margin-bottom', 'padding-top', 'padding-bottom', 'width', 'height'].forEach(populateStyleField);
+    styleProps.forEach(populateStyleField);
 
     const applyStyleButton = selectedInfoContainer.querySelector('[data-editorts-action="apply-style"]') as HTMLButtonElement | null;
     if (applyStyleButton) {
@@ -1622,7 +1686,7 @@ export function init(config: InitConfig): EditorTsEditor {
           if (value) properties[prop] = value;
         };
 
-        ['margin-top', 'margin-bottom', 'padding-top', 'padding-bottom', 'width', 'height'].forEach(readProp);
+        styleProps.forEach(readProp);
 
         if (Object.keys(properties).length === 0) return;
 
@@ -1634,7 +1698,6 @@ export function init(config: InitConfig): EditorTsEditor {
           });
         }
 
-        // Sync structured styles -> compiled css
         page.styles.sync();
         const nextCss = page.getCSS() ?? '';
 
@@ -1643,12 +1706,10 @@ export function init(config: InitConfig): EditorTsEditor {
           await workspace.fs.writeFile('page.json', save(), { isModelContentChange: true });
         }
 
-        // Update live iframe style tag if possible.
         const styleEl = iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null;
         if (styleEl) styleEl.textContent = nextCss;
 
-        // Keep form fields in sync.
-        ['margin-top', 'margin-bottom', 'padding-top', 'padding-bottom', 'width', 'height'].forEach(populateStyleField);
+        styleProps.forEach(populateStyleField);
 
         void ensureCssEditorReady();
         void ensureJsonEditorReady();
@@ -1671,7 +1732,7 @@ export function init(config: InitConfig): EditorTsEditor {
         const styleEl = iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null;
         if (styleEl) styleEl.textContent = nextCss;
 
-        ['margin-top', 'margin-bottom', 'padding-top', 'padding-bottom', 'width', 'height'].forEach((p) => {
+        styleProps.forEach((p) => {
           const input = selectedInfoContainer.querySelector(`[data-editorts-style="${p}"]`) as HTMLInputElement | null;
           if (input) input.value = '';
         });
