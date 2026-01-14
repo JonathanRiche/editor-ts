@@ -161,8 +161,6 @@ export function init(config: InitConfig): EditorTsEditor {
     : null;
 
   // Optional AI UI (user-provided elements)
-  const aiBaseUrlInput = document.getElementById('ai-base-url') as HTMLInputElement | null;
-
   const aiChatConfig = config.ui?.aiChat;
   const shouldEnableAiChatUi = !!aiChatConfig && aiChatConfig.enabled !== false;
 
@@ -172,6 +170,42 @@ export function init(config: InitConfig): EditorTsEditor {
 
   const aiChatExpandButton = shouldEnableAiChatUi && aiChatConfig?.expandButtonId
     ? document.getElementById(aiChatConfig.expandButtonId)
+    : null;
+
+  const aiBaseUrlInput = shouldEnableAiChatUi && aiChatConfig?.baseUrlInputId
+    ? (document.getElementById(aiChatConfig.baseUrlInputId) as HTMLInputElement | null)
+    : null;
+
+  const aiChatInput = shouldEnableAiChatUi && aiChatConfig?.inputId
+    ? (document.getElementById(aiChatConfig.inputId) as HTMLTextAreaElement | null)
+    : null;
+
+  const aiChatSendButton = shouldEnableAiChatUi && aiChatConfig?.sendButtonId
+    ? (document.getElementById(aiChatConfig.sendButtonId) as HTMLButtonElement | null)
+    : null;
+
+  const aiChatApplyButton = shouldEnableAiChatUi && aiChatConfig?.applyButtonId
+    ? (document.getElementById(aiChatConfig.applyButtonId) as HTMLButtonElement | null)
+    : null;
+
+  const aiChatLog = shouldEnableAiChatUi && aiChatConfig?.logId
+    ? (document.getElementById(aiChatConfig.logId) as HTMLElement | null)
+    : null;
+
+  const aiSessionSelect = shouldEnableAiChatUi && aiChatConfig?.sessionSelectId
+    ? (document.getElementById(aiChatConfig.sessionSelectId) as HTMLSelectElement | null)
+    : null;
+
+  const aiSessionNewButton = shouldEnableAiChatUi && aiChatConfig?.sessionNewButtonId
+    ? (document.getElementById(aiChatConfig.sessionNewButtonId) as HTMLButtonElement | null)
+    : null;
+
+  const aiHealthButton = shouldEnableAiChatUi && aiChatConfig?.healthButtonId
+    ? (document.getElementById(aiChatConfig.healthButtonId) as HTMLButtonElement | null)
+    : null;
+
+  const aiHealthStatus = shouldEnableAiChatUi && aiChatConfig?.healthStatusId
+    ? (document.getElementById(aiChatConfig.healthStatusId) as HTMLElement | null)
     : null;
 
   // If the host app serves the editor and can proxy requests, prefer that to avoid
@@ -547,32 +581,67 @@ export function init(config: InitConfig): EditorTsEditor {
        await storage.savePage(aiSessionCurrentKey, JSON.stringify(next.current));
      };
 
-     ai = {
-       provider: 'opencode',
-       mode,
-       getClient: async () => {
+      const appendAiChatLog = (label: string, text: string) => {
+        if (!aiChatLog) return;
+        aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${label}: ${text}\n\n`;
+      };
+
+      const appendAiChatStreamDelta = (delta: string) => {
+        if (!aiChatLog) return;
+        aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${delta}`;
+      };
+
+      const refreshAiSessionSelect = async () => {
+        if (!aiSessionSelect || !ai) return;
+
+        if (currentSessionId === null) {
+          const index = await loadSessionIndex();
+          currentSessionId = index.current;
+        }
+
+        const sessions = await ai.sessions.list();
+        const current = ai.sessions.current();
+
+        aiSessionSelect.innerHTML = '';
+
+        const addOption = (id: string, label: string) => {
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = label;
+          if (id === current) {
+            opt.selected = true;
+          }
+          aiSessionSelect.appendChild(opt);
+        };
+
+        addOption('', '(auto)');
+
+        sessions.forEach((s) => {
+          addOption(s.id, s.title ? `${s.title} (${s.id})` : s.id);
+        });
+      };
+
+      let lastAiReplacements: Array<{ path: string; content: string }> | null = null;
+
+      ai = {
+        provider: 'opencode',
+        mode,
+        getClient: async () => {
         if (!clientPromise) {
           if (externalClient) {
             clientPromise = Promise.resolve(externalClient);
           } else {
             clientPromise = loadSdk().then(async (sdk) => {
               if (mode === 'client') {
-                 const baseUrl = aiBaseUrlInput?.value || aiConfig.baseUrl || aiProxiedBaseUrl;
-                 if (!baseUrl) {
-                   throw new Error("EditorTs: aiProvider.baseUrl is required when mode is 'client'");
-                 }
-                 if (typeof sdk.createOpencodeClient !== 'function') {
-                   throw new Error('EditorTs: @opencode-ai/sdk missing createOpencodeClient');
-                 }
+                  const baseUrl = aiBaseUrlInput?.value || aiConfig.baseUrl || aiProxiedBaseUrl;
+                  if (!baseUrl) {
+                    throw new Error("EditorTs: aiProvider.baseUrl is required when mode is 'client'");
+                  }
+                  if (typeof sdk.createOpencodeClient !== 'function') {
+                    throw new Error('EditorTs: @opencode-ai/sdk missing createOpencodeClient');
+                  }
 
-                 // If the app is using a same-origin proxy (like /opencode/*), do NOT send basic auth
-                 // from the browser; let the proxy attach it.
-                 const auth = baseUrl.startsWith(window.location.origin)
-                   ? undefined
-                   : aiConfig.auth;
-
-
-                const createAuthedFetch = (username: string, password: string): ((request: Request) => Promise<Response>) => {
+                 const createAuthedFetch = (username: string, password: string): ((request: Request) => Promise<Response>) => {
                   const basic = btoa(`${username}:${password}`);
 
                   return async (request: Request): Promise<Response> => {
@@ -583,10 +652,16 @@ export function init(config: InitConfig): EditorTsEditor {
                   };
                 };
 
-                return sdk.createOpencodeClient({
-                  baseUrl,
-                  fetch: auth ? createAuthedFetch(auth.username ?? 'opencode', auth.password) : undefined,
-                });
+                 // If the app is using a same-origin proxy (like /opencode/*), do NOT send basic auth
+                 // from the browser; let the proxy attach it.
+                 const auth = baseUrl.startsWith(window.location.origin)
+                   ? undefined
+                   : aiConfig.auth;
+
+                 return sdk.createOpencodeClient({
+                   baseUrl,
+                   fetch: auth ? createAuthedFetch(auth.username ?? 'opencode', auth.password) : undefined,
+                 });
               }
 
               if (typeof sdk.createOpencode !== 'function') {
@@ -748,17 +823,154 @@ export function init(config: InitConfig): EditorTsEditor {
 
         refresh();
       },
-      close: async () => {
-        // Only close server that EditorTs started itself.
-        if (server) {
-          server.close();
-        }
-        server = null;
-      },
-    };
-  }
+       close: async () => {
+         // Only close server that EditorTs started itself.
+         if (server) {
+           server.close();
+         }
+         server = null;
+       },
 
-  // Built-in code editor setup (optional)
+
+      };
+
+      // Wire AI Chat UI controls, if the app provided them.
+      if (shouldEnableAiChatUi) {
+        const autoApply = aiChatConfig?.autoApply !== false;
+        const streamEnabled = aiChatConfig?.stream?.enabled ?? aiConfig.stream?.enabled === true;
+
+        if (aiHealthButton && aiHealthStatus) {
+          aiHealthButton.addEventListener('click', async () => {
+            if (!ai) {
+              aiHealthStatus.textContent = 'AI provider is disabled.';
+              return;
+            }
+
+            aiHealthStatus.textContent = 'Checking...';
+
+            try {
+              const client = await ai.getClient();
+              const result = await client.config.get();
+              aiHealthStatus.textContent = JSON.stringify(result.data ?? result, null, 2);
+            } catch (err: unknown) {
+              aiHealthStatus.textContent = err instanceof Error ? err.message : String(err);
+            }
+          });
+        }
+
+        if (aiSessionSelect) {
+          void refreshAiSessionSelect();
+
+          aiSessionSelect.addEventListener('change', async () => {
+            if (!ai) return;
+            const next = aiSessionSelect.value.trim();
+            await ai.sessions.setCurrent(next.length ? next : null);
+            await refreshAiSessionSelect();
+          });
+        }
+
+        if (aiSessionNewButton) {
+          aiSessionNewButton.addEventListener('click', async () => {
+            if (!ai) return;
+            const created = await ai.sessions.create('EditorTs Chat');
+            await ai.sessions.setCurrent(created.id);
+            await refreshAiSessionSelect();
+          });
+        }
+
+        if (aiChatApplyButton) {
+          aiChatApplyButton.addEventListener('click', async () => {
+            if (!lastAiReplacements || lastAiReplacements.length === 0) return;
+            if (!ai) {
+              appendAiChatLog('error', 'AI provider is disabled.');
+              return;
+            }
+
+            try {
+              await ai.apply(lastAiReplacements);
+              appendAiChatLog('apply', `Applied ${lastAiReplacements.length} replacement(s).`);
+              lastAiReplacements = null;
+              aiChatApplyButton.toggleAttribute('disabled', true);
+            } catch (err: unknown) {
+              appendAiChatLog('error', err instanceof Error ? err.message : String(err));
+            }
+          });
+        }
+
+        if (aiChatSendButton && aiChatInput) {
+          aiChatSendButton.addEventListener('click', async () => {
+            if (!ai) {
+              appendAiChatLog('error', 'AI provider is disabled.');
+              return;
+            }
+
+            const prompt = aiChatInput.value.trim();
+            if (!prompt) return;
+
+            appendAiChatLog('user', prompt);
+            aiChatSendButton.toggleAttribute('disabled', true);
+
+            try {
+              const selectedSessionId = aiSessionSelect?.value?.trim() || undefined;
+
+              let streamedText = '';
+              if (streamEnabled && aiChatLog) {
+                aiChatLog.textContent = `${aiChatLog.textContent ?? ''}assistant: `;
+              }
+
+              const result = await ai.chat(prompt, {
+                sessionId: selectedSessionId,
+                stream: streamEnabled,
+                onStream: streamEnabled
+                  ? (delta) => {
+                      streamedText += delta;
+                      appendAiChatStreamDelta(delta);
+                    }
+                  : undefined,
+              });
+
+              if (streamEnabled && aiChatLog) {
+                aiChatLog.textContent = `${aiChatLog.textContent ?? ''}\n\n`;
+                if (!streamedText.trim()) {
+                  appendAiChatLog('assistant', result.rawText);
+                }
+              } else {
+                appendAiChatLog('assistant', result.rawText);
+              }
+
+              if (result.replacements.length === 0) {
+                lastAiReplacements = null;
+                aiChatApplyButton?.toggleAttribute('disabled', true);
+                return;
+              }
+
+              if (!autoApply) {
+                lastAiReplacements = result.replacements;
+                aiChatApplyButton?.toggleAttribute('disabled', false);
+                return;
+              }
+
+              try {
+                await ai.apply(result.replacements);
+                appendAiChatLog('apply', `Applied ${result.replacements.length} replacement(s).`);
+                lastAiReplacements = null;
+                aiChatApplyButton?.toggleAttribute('disabled', true);
+              } catch (err: unknown) {
+                lastAiReplacements = result.replacements;
+                aiChatApplyButton?.toggleAttribute('disabled', false);
+                appendAiChatLog('error', err instanceof Error ? err.message : String(err));
+              }
+            } catch (err: unknown) {
+              appendAiChatLog('error', err instanceof Error ? err.message : String(err));
+            } finally {
+              aiChatSendButton.toggleAttribute('disabled', false);
+            }
+          });
+        }
+      }
+
+
+   // Built-in code editor setup (optional)
   const codeEditorProvider = config.codeEditor?.provider ?? 'textarea';
 
   type RuntimeCodeEditor = {
@@ -1009,7 +1221,10 @@ export function init(config: InitConfig): EditorTsEditor {
          monacoHost.remove();
        },
      };
+
   }
+
+  // Built-in code editor setup (optional)
 
   async function createCodeEditor(
     host: HTMLElement,
@@ -2397,4 +2612,5 @@ export function init(config: InitConfig): EditorTsEditor {
       selectedInfo: selectedInfoContainer || undefined,
     }
   };
+}
 }

@@ -233,6 +233,21 @@ const editor = init({
       expandedClassName: 'editorts-ai-chat-expanded',
       collapsedClassName: 'editorts-ai-chat-collapsed',
       defaultExpanded: false,
+
+      baseUrlInputId: 'ai-base-url',
+      healthButtonId: 'ai-health-btn',
+      healthStatusId: 'ai-health-status',
+
+      sessionSelectId: 'ai-session-select',
+      sessionNewButtonId: 'ai-session-new',
+
+      inputId: 'ai-chat-input',
+      sendButtonId: 'ai-chat-send',
+      applyButtonId: 'ai-chat-apply',
+      logId: 'ai-chat-log',
+
+      autoApply: true,
+      stream: { enabled: true },
       enabled: true,
     },
   },
@@ -364,173 +379,6 @@ console.log('📜 Custom code components:', customCode.length);
 
 // Set up save button
 
-
-const aiHealthButton = document.getElementById('ai-health-btn') as HTMLButtonElement | null;
-const aiHealthStatus = document.getElementById('ai-health-status') as HTMLElement | null;
-
-
-const aiChatInput = document.getElementById('ai-chat-input') as HTMLTextAreaElement | null;
-const aiChatSend = document.getElementById('ai-chat-send') as HTMLButtonElement | null;
-const aiChatApply = document.getElementById('ai-chat-apply') as HTMLButtonElement | null;
-const aiChatLog = document.getElementById('ai-chat-log') as HTMLElement | null;
-
-const aiSessionSelect = document.getElementById('ai-session-select') as HTMLSelectElement | null;
-const aiSessionNew = document.getElementById('ai-session-new') as HTMLButtonElement | null;
-
-let lastAiReplacements: Array<{ path: string; content: string }> | null = null;
-
-const refreshAiSessions = async () => {
-  if (!aiSessionSelect || !editor.ai) return;
-
-  const sessions = await editor.ai.sessions.list();
-  const current = editor.ai.sessions.current();
-
-  aiSessionSelect.innerHTML = '';
-
-  const addOption = (id: string, label: string) => {
-    const opt = document.createElement('option');
-    opt.value = id;
-    opt.textContent = label;
-    if (id === current) {
-      opt.selected = true;
-    }
-    aiSessionSelect.appendChild(opt);
-  };
-
-  addOption('', '(auto)');
-
-  sessions.forEach((s) => {
-    addOption(s.id, s.title ? `${s.title} (${s.id})` : s.id);
-  });
-};
-
-const appendChatLog = (label: string, text: string) => {
-  if (!aiChatLog) return;
-  aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${label}: ${text}\n\n`;
-};
-
-const appendChatStreamDelta = (delta: string) => {
-  if (!aiChatLog) return;
-  aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${delta}`;
-};
-
-
-if (aiHealthButton && aiHealthStatus) {
-  aiHealthButton.addEventListener('click', async () => {
-    if (!editor.ai) {
-      aiHealthStatus.textContent = 'AI provider is disabled.';
-      return;
-    }
-
-    aiHealthStatus.textContent = 'Checking...';
-
-    try {
-      const client = await editor.ai.getClient();
-      const result = await client.config.get();
-      aiHealthStatus.textContent = JSON.stringify(result.data ?? result, null, 2);
-    } catch (err: unknown) {
-      aiHealthStatus.textContent = err instanceof Error ? err.message : String(err);
-    }
-  });
-}
-
-if (aiChatSend && aiChatInput) {
-  aiChatSend.addEventListener('click', async () => {
-    if (!editor.ai) {
-      appendChatLog('error', 'AI provider is disabled.');
-      return;
-    }
-
-    const prompt = aiChatInput.value.trim();
-    if (!prompt) return;
-
-    appendChatLog('user', prompt);
-
-    aiChatSend.toggleAttribute('disabled', true);
-
-    try {
-      const selectedSessionId = aiSessionSelect?.value?.trim() || undefined;
-
-      let streamed = '';
-      const streamEnabled = true;
-
-      const result = await editor.ai.chat(prompt, {
-        sessionId: selectedSessionId,
-        stream: streamEnabled,
-        onStream: (delta) => {
-          streamed += delta;
-          appendChatStreamDelta(delta);
-        },
-      });
-
-      if (streamEnabled) {
-        // After streaming, ensure the log ends cleanly.
-        appendChatLog('assistant', result.rawText);
-      } else {
-        appendChatLog('assistant', result.rawText);
-      }
-
-      if (result.replacements.length === 0) {
-        lastAiReplacements = null;
-        aiChatApply?.toggleAttribute('disabled', true);
-        return;
-      }
-
-      // Auto-apply by default (manual apply is a fallback).
-      try {
-        await editor.ai.apply(result.replacements);
-        appendChatLog('apply', `Applied ${result.replacements.length} replacement(s).`);
-
-        lastAiReplacements = null;
-        aiChatApply?.toggleAttribute('disabled', true);
-      } catch (err: unknown) {
-        lastAiReplacements = result.replacements;
-        aiChatApply?.toggleAttribute('disabled', false);
-        appendChatLog('error', err instanceof Error ? err.message : String(err));
-      }
-    } catch (err: unknown) {
-      appendChatLog('error', err instanceof Error ? err.message : String(err));
-    } finally {
-      aiChatSend.toggleAttribute('disabled', false);
-    }
-  });
-}
-
-if (aiSessionSelect && editor.ai) {
-  void refreshAiSessions();
-
-  aiSessionSelect.addEventListener('change', async () => {
-    const next = aiSessionSelect.value.trim();
-    await editor.ai!.sessions.setCurrent(next.length ? next : null);
-    await refreshAiSessions();
-  });
-}
-
-if (aiSessionNew && editor.ai) {
-  aiSessionNew.addEventListener('click', async () => {
-    const created = await editor.ai!.sessions.create('EditorTs Chat');
-    await editor.ai!.sessions.setCurrent(created.id);
-    await refreshAiSessions();
-  });
-}
-
-if (aiChatApply) {
-  aiChatApply.addEventListener('click', async () => {
-    if (!lastAiReplacements || lastAiReplacements.length === 0) return;
-
-    if (!editor.ai) {
-      appendChatLog('error', 'AI provider is disabled.');
-      return;
-    }
-
-    try {
-      await editor.ai.apply(lastAiReplacements);
-      appendChatLog('apply', `Applied ${lastAiReplacements.length} replacement(s).`);
-    } catch (err: unknown) {
-      appendChatLog('error', err instanceof Error ? err.message : String(err));
-    }
-  });
-}
 
 
 console.log('✅ EditorTs Editor initialized!');

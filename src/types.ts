@@ -316,7 +316,7 @@ export interface InitConfig {
       enabled?: boolean;
     };
 
-    /** Optional: AI chat view controls (expand/collapse). */
+    /** Optional: AI chat UI bindings (expand/collapse + controls). */
     aiChat?: {
       /** Root element to receive dataset/class toggles. Defaults to containerId if omitted. */
       rootId?: string;
@@ -332,6 +332,41 @@ export interface InitConfig {
 
       /** Optional: set a class on the root when collapsed. */
       collapsedClassName?: string;
+
+      /** AI chat input textarea id. */
+      inputId?: string;
+
+      /** Send button id. */
+      sendButtonId?: string;
+
+      /** Optional manual apply button id (fallback when auto-apply fails/disabled). */
+      applyButtonId?: string;
+
+      /** Chat log container id. */
+      logId?: string;
+
+      /** Optional sessions dropdown id. */
+      sessionSelectId?: string;
+
+      /** Optional create-session button id. */
+      sessionNewButtonId?: string;
+
+      /** Optional health-check button id. */
+      healthButtonId?: string;
+
+      /** Optional health-check status container id. */
+      healthStatusId?: string;
+
+      /** Optional: baseUrl input id (used only when aiProvider is opencode client mode). */
+      baseUrlInputId?: string;
+
+      /** Optional: enable auto-apply for chat results. Default: true. */
+      autoApply?: boolean;
+
+      /** Optional: override streaming for this chat UI. */
+      stream?: {
+        enabled?: boolean;
+      };
 
       enabled?: boolean;
     };
