@@ -9,6 +9,7 @@ import { ComponentPalette } from './ComponentPalette';
 import { StorageManager } from './StorageManager';
 import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
 import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
+import { applyAiReplacementsToPage, requestAiReplacements } from './aiChat';
 import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName } from '../types';
 
 /**
@@ -517,6 +518,81 @@ export function init(config: InitConfig): EditorTsEditor {
       getUrl: () => {
         if (mode === 'client') return aiConfig.baseUrl ?? externalServer?.url ?? null;
         return server?.url ?? externalServer?.url ?? null;
+      },
+      chat: async (prompt: string) => {
+        const client = await ai!.getClient();
+
+        const componentScripts: Record<string, string> = {};
+        const collectScripts = (components: Component[]) => {
+          components.forEach((component) => {
+            const id = typeof component.attributes?.id === 'string' ? component.attributes.id : null;
+            if (id) {
+              componentScripts[`components/${id}.js`] = typeof component.script === 'string' ? component.script : '';
+            }
+            if (component.components && component.components.length > 0) {
+              collectScripts(component.components);
+            }
+          });
+        };
+        collectScripts(page.components.getAll());
+
+        return requestAiReplacements({
+          client,
+          prompt,
+          pageJson: save(),
+          css: page.getCSS() ?? '',
+          componentScripts,
+        });
+      },
+      apply: async (replacements) => {
+        // Apply potentially many files, then refresh once.
+        await applyAiReplacementsToPage({
+          page,
+          replacements,
+          saveJson: async (jsonText: string) => {
+            const toolbarRuntimeConfig = page.toolbars.exportConfig();
+            const parsed = JSON.parse(jsonText) as PageData | MultiPageData;
+
+            if (isMultiPageData(parsed)) {
+              if (!parsed.pages || parsed.pages.length === 0) {
+                throw new Error('MultiPageData.pages cannot be empty');
+              }
+
+              multiPageData = parsed;
+              activePageIndex = parsed.activePageIndex ?? 0;
+
+              const loadedPageData = resolvePageData(parsed.pages[activePageIndex] ?? parsed.pages[0]!);
+              const newPage = new Page(loadedPageData);
+              Object.assign(page, newPage);
+            } else {
+              multiPageData = null;
+              activePageIndex = 0;
+
+              const newPage = new Page(resolvePageData(parsed as PageData));
+              Object.assign(page, newPage);
+            }
+
+            page.toolbars.importConfig(toolbarRuntimeConfig);
+
+            if (workspace) {
+              await workspace.fs.writeFile('page.json', jsonText, { isModelContentChange: true });
+            }
+          },
+          saveCss: async (cssText: string) => {
+            page.styles.setCompiledCSS(cssText);
+            if (workspace) {
+              await workspace.fs.writeFile('styles.css', cssText, { isModelContentChange: true });
+            }
+          },
+          saveComponentScript: async (id: string, script: string) => {
+            page.components.updateComponent(id, { script });
+            if (workspace) {
+              await workspace.fs.writeFile(`components/${id}.js`, script, { isModelContentChange: true });
+            }
+          },
+        });
+
+        refresh();
       },
       close: async () => {
         // Only close server that EditorTs started itself.

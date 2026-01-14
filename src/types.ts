@@ -77,6 +77,16 @@ export type AiProviderConfig =
   | { provider?: 'disabled' }
   | OpencodeAiProviderConfig;
 
+export type EditorTsAiChatReplacement = {
+  path: string;
+  content: string;
+};
+
+export type EditorTsAiChatResult = {
+  replacements: EditorTsAiChatReplacement[];
+  rawText: string;
+};
+
 export interface EditorTsAiModule {
   provider: 'opencode';
   mode: AiProviderMode;
@@ -86,6 +96,12 @@ export interface EditorTsAiModule {
 
   /** Returns current server URL/baseUrl if known */
   getUrl(): string | null;
+
+  /** Request full-file replacements from AI */
+  chat(prompt: string): Promise<EditorTsAiChatResult>;
+
+  /** Apply replacements to the current page */
+  apply(replacements: EditorTsAiChatReplacement[]): Promise<void>;
 
   /** Closes embedded server if started */
   close(): Promise<void>;

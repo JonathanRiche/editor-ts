@@ -270,15 +270,6 @@ const appendChatLog = (label: string, text: string) => {
   aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${label}: ${text}\n\n`;
 };
 
-const parseAssistantJson = (raw: string): unknown => {
-  const trimmed = raw.trim();
-  // Some models still wrap JSON in ```; strip if present.
-  if (trimmed.startsWith('```')) {
-    const withoutTicks = trimmed.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '');
-    return JSON.parse(withoutTicks);
-  }
-  return JSON.parse(trimmed);
-};
 
 if (aiHealthButton && aiHealthStatus) {
   aiHealthButton.addEventListener('click', async () => {
@@ -312,124 +303,12 @@ if (aiChatSend && aiChatInput) {
     appendChatLog('user', prompt);
 
     try {
-      const client = await editor.ai.getClient();
+      const result = await editor.ai.chat(prompt);
 
-      // Create a fresh session per message for now.
-      const sessionResult = await client.session.create({ body: { title: 'EditorTs Chat' } });
-      if (!sessionResult.data) {
-        appendChatLog('error', `Failed to create session: ${String(sessionResult.error)}`);
-        return;
-      }
-      const sessionId = sessionResult.data.id;
+      appendChatLog('assistant', result.rawText);
 
-      // Ask for strict JSON edits (full file replacements).
-      const systemText = [
-        'You are an automated coding assistant integrated with EditorTs.',
-        'You MUST respond with a single valid JSON object.',
-        'Output JSON only: no markdown, no code fences, no explanations.',
-        'Return full file contents for each replacement.',
-        'Only allowed paths: page.json, styles.css, components/<id>.js',
-      ].join('\n');
-
-            const snapshotNote = [
-        'WORKSPACE TREE:',
-        '- page.json',
-        '- styles.css',
-        '- index.html (derived; do not edit)',
-        '- components/<id>.js (only if you edit component scripts)',
-        '',
-        'FILES:',
-        `page.json:\n${editor.save()}`,
-        `\nstyles.css:\n${editor.page.getCSS() ?? ''}`,
-        '',
-        'REQUEST:',
-        prompt,
-      ].join('\n');
-
-      // Choose a model explicitly so we don't rely on server defaults.
-      const providersResult = await client.config.providers();
-      if (!providersResult.data) {
-        appendChatLog('error', `Failed to list providers: ${String(providersResult.error)}`);
-        return;
-      }
-
-      // Prefer the server-configured model, but normalize it into a valid
-      // providerID/modelID pair.
-      const configResult = await client.config.get();
-      const configuredModel = configResult.data?.model;
-
-      const parseConfiguredModel = (value: string): { providerID: string; modelID: string } | null => {
-        const [providerID, ...rest] = value.split('/');
-        if (!providerID || rest.length === 0) return null;
-        return { providerID, modelID: rest.join('/') };
-      };
-
-      // OpenCode ships some providers with model IDs that differ from other
-      // providers (e.g. opencode/claude-sonnet-4-5-20250929 vs opencode/claude-sonnet-4-5).
-      const normalizeOpencodeModelId = (modelID: string): string => {
-        if (modelID === 'claude-sonnet-4-5-20250929') return 'claude-sonnet-4-5';
-        return modelID;
-      };
-
-      const preferred = configuredModel ? parseConfiguredModel(configuredModel) : null;
-
-      const model = preferred
-        ? {
-            providerID: preferred.providerID,
-            modelID: preferred.providerID === 'opencode'
-              ? normalizeOpencodeModelId(preferred.modelID)
-              : preferred.modelID,
-          }
-        : providersResult.data.default?.opencode
-          ? { providerID: 'opencode', modelID: providersResult.data.default.opencode }
-          : providersResult.data.default?.anthropic
-            ? { providerID: 'anthropic', modelID: providersResult.data.default.anthropic }
-            : undefined;
-
-      const result = await client.session.prompt({
-        path: { id: sessionId },
-        body: {
-          ...(model ? { model } : {}),
-          system: systemText,
-          parts: [{ type: 'text', text: snapshotNote }],
-        },
-      });
-
-      if (!result.data) {
-        appendChatLog('error', `Prompt failed: ${String(result.error)}`);
-        return;
-      }
-
-      const parts = Array.isArray(result.data.parts) ? result.data.parts : [];
-      const assistantText = parts
-        .filter((p) => p.type === 'text')
-        .map((p) => p.text ?? '')
-        .join('');
-
-      if (!assistantText.trim()) {
-        appendChatLog('error', 'No assistant text returned (missing provider credentials?).');
-        return;
-      }
-
-      appendChatLog('assistant', assistantText);
-
-      const parsed = parseAssistantJson(assistantText);
-      if (!parsed || typeof parsed !== 'object') {
-        appendChatLog('error', 'Assistant did not return JSON object.');
-        return;
-      }
-
-      const replacements = (parsed as { replacements?: Array<{ path?: unknown; content?: unknown }> }).replacements;
-      if (!Array.isArray(replacements)) {
-        appendChatLog('error', 'Missing replacements[] array in response.');
-        return;
-      }
-
-      lastAiReplacements = replacements
-        .filter((r): r is { path: string; content: string } => typeof r?.path === 'string' && typeof r?.content === 'string')
-        .map((r) => ({ path: r.path, content: r.content }));
-
-      aiChatApply?.toggleAttribute('disabled', !lastAiReplacements.length);
+      lastAiReplacements = result.replacements;
+      aiChatApply?.toggleAttribute('disabled', false);
     } catch (err: unknown) {
       appendChatLog('error', err instanceof Error ? err.message : String(err));
     }
@@ -440,32 +319,17 @@ if (aiChatApply) {
   aiChatApply.addEventListener('click', async () => {
     if (!lastAiReplacements || lastAiReplacements.length === 0) return;
 
-    // Minimal apply in demo:
-    // - styles.css: write into CSS editor + click Save
-    // - page.json: write into JSON editor + click Apply
-    // - components/<id>.js: write into JS editor + click Save (for selected component)
-    const styles = lastAiReplacements.find((r) => r.path === 'styles.css');
-    const pageJson = lastAiReplacements.find((r) => r.path === 'page.json');
-
-    if (styles) {
-      const cssTab = document.getElementById('code-tab-css') as HTMLButtonElement | null;
-      cssTab?.click();
-      const cssEditor = document.querySelector('#css-editor-container textarea') as HTMLTextAreaElement | null;
-      if (cssEditor) cssEditor.value = styles.content;
-      const saveCss = document.querySelector('#css-editor-container [data-editorts-action="save-css"]') as HTMLButtonElement | null;
-      saveCss?.click();
+    if (!editor.ai) {
+      appendChatLog('error', 'AI provider is disabled.');
+      return;
     }
 
-    if (pageJson) {
-      const jsonTab = document.getElementById('code-tab-json') as HTMLButtonElement | null;
-      jsonTab?.click();
-      const jsonEditor = document.querySelector('#json-editor-container textarea') as HTMLTextAreaElement | null;
-      if (jsonEditor) jsonEditor.value = pageJson.content;
-      const applyJson = document.querySelector('#json-editor-container [data-editorts-action="save-json"]') as HTMLButtonElement | null;
-      applyJson?.click();
+    try {
+      await editor.ai.apply(lastAiReplacements);
+      appendChatLog('apply', `Applied ${lastAiReplacements.length} replacement(s).`);
+    } catch (err: unknown) {
+      appendChatLog('error', err instanceof Error ? err.message : String(err));
     }
-
-    appendChatLog('apply', `Applied ${lastAiReplacements.length} replacement(s).`);
   });
 }
 

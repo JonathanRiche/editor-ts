@@ -30,6 +30,14 @@ export { LayerManager } from './src/core/LayerManager';
 export { StorageManager, LocalStorageAdapter, RemoteStorageAdapter } from './src/core/StorageManager';
 export { init } from './src/core/init';
 export { defaultComponentRegistry, mergeCustomComponentRegistry, createCustomComponentDefinition, defaultComponentFactories } from './src/core/CustomComponentRegistry';
+export {
+  requestAiReplacements,
+  parseAiChatResponse,
+  applyAiReplacementsToPage,
+  buildAiChatSystemPrompt,
+  buildAiChatSnapshot,
+  chooseChatModel,
+} from './src/core/aiChat';
 
 // Type exports
 export type {

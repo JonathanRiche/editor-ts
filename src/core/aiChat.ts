@@ -1,0 +1,183 @@
+import type { OpencodeClient, Part } from '@opencode-ai/sdk';
+import type { Page } from './Page';
+import type { EditorTsAiChatReplacement, EditorTsAiChatResult } from '../types';
+
+type ParsedChatResponse = {
+  replacements?: Array<{
+    path?: unknown;
+    content?: unknown;
+    content_b64?: unknown;
+  }>;
+};
+
+const stripCodeFences = (text: string): string => {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('```')) return trimmed;
+  return trimmed.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
+};
+
+const decodeBase64ToString = (b64: string): string => {
+  // Browser-safe base64 decode
+  const binary = atob(b64);
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  return new TextDecoder('utf-8').decode(bytes);
+};
+
+export const parseAiChatResponse = (assistantText: string): EditorTsAiChatResult => {
+  const rawText = assistantText;
+  const jsonText = stripCodeFences(assistantText);
+
+  const parsed = JSON.parse(jsonText) as ParsedChatResponse;
+  const rawReplacements = Array.isArray(parsed.replacements) ? parsed.replacements : [];
+
+  const replacements: EditorTsAiChatReplacement[] = [];
+  for (const item of rawReplacements) {
+    const path = typeof item?.path === 'string' ? item.path : null;
+    if (!path) continue;
+
+    if (typeof item?.content_b64 === 'string') {
+      replacements.push({ path, content: decodeBase64ToString(item.content_b64) });
+      continue;
+    }
+
+    if (typeof item?.content === 'string') {
+      replacements.push({ path, content: item.content });
+      continue;
+    }
+  }
+
+  return { replacements, rawText };
+};
+
+export const buildAiChatSystemPrompt = (): string => {
+  return [
+    'You are an automated assistant integrated with EditorTs.',
+    'Return JSON only. No markdown. No backticks. No commentary.',
+    'Schema: { "replacements": [{ "path": string, "content_b64": string }] }',
+    'Always use content_b64 (base64 of full UTF-8 file contents).',
+    'Allowed paths: page.json, styles.css, components/<id>.js',
+  ].join('\n');
+};
+
+export const buildAiChatSnapshot = (pageJson: string, css: string, componentScripts: Record<string, string>): string => {
+  const scriptsList = Object.keys(componentScripts).sort();
+  const scriptLines = scriptsList.length
+    ? scriptsList.map((p) => `- ${p}`).join('\n')
+    : '- (none)';
+
+  return [
+    'WORKSPACE TREE:',
+    '- page.json',
+    '- styles.css',
+    '- index.html (derived; do not edit)',
+    '- components/<id>.js',
+    '',
+    'COMPONENT SCRIPTS:',
+    scriptLines,
+    '',
+    'FILES:',
+    `page.json:\n${pageJson}`,
+    `\nstyles.css:\n${css}`,
+  ].join('\n');
+};
+
+const normalizeOpencodeModelId = (providerID: string, modelID: string): string => {
+  if (providerID !== 'opencode') return modelID;
+  if (modelID === 'claude-sonnet-4-5-20250929') return 'claude-sonnet-4-5';
+  return modelID;
+};
+
+export const chooseChatModel = async (client: OpencodeClient): Promise<{ providerID: string; modelID: string } | undefined> => {
+  const configResult = await client.config.get();
+  const configured = configResult.data?.model;
+  if (configured) {
+    const [providerID, ...rest] = configured.split('/');
+    if (providerID && rest.length > 0) {
+      const modelID = rest.join('/');
+      return { providerID, modelID: normalizeOpencodeModelId(providerID, modelID) };
+    }
+  }
+
+  const providersResult = await client.config.providers();
+  if (!providersResult.data) return undefined;
+
+  const modelID = providersResult.data.default?.opencode;
+  if (modelID) return { providerID: 'opencode', modelID };
+
+  return undefined;
+};
+
+export const requestAiReplacements = async (args: {
+  client: OpencodeClient;
+  prompt: string;
+  pageJson: string;
+  css: string;
+  componentScripts: Record<string, string>;
+}): Promise<EditorTsAiChatResult> => {
+  const { client, prompt, pageJson, css, componentScripts } = args;
+
+  const sessionResult = await client.session.create({ body: { title: 'EditorTs Chat' } });
+  if (!sessionResult.data) {
+    throw new Error(`Failed to create session: ${String(sessionResult.error)}`);
+  }
+
+  const system = buildAiChatSystemPrompt();
+  const snapshot = buildAiChatSnapshot(pageJson, css, componentScripts);
+
+  const model = await chooseChatModel(client);
+
+  const result = await client.session.prompt({
+    path: { id: sessionResult.data.id },
+    body: {
+      ...(model ? { model } : {}),
+      system,
+      parts: [
+        { type: 'text', text: snapshot },
+        { type: 'text', text: `\nREQUEST:\n${prompt}` },
+      ],
+    },
+  });
+
+  if (!result.data) {
+    throw new Error(`Prompt failed: ${String(result.error)}`);
+  }
+
+  const parts = Array.isArray(result.data.parts) ? (result.data.parts as Part[]) : [];
+  const assistantText = parts
+    .filter((p) => p.type === 'text')
+    .map((p) => (p.type === 'text' ? p.text ?? '' : ''))
+    .join('');
+
+  if (!assistantText.trim()) {
+    throw new Error('No assistant text returned.');
+  }
+
+  return parseAiChatResponse(assistantText);
+};
+
+export const applyAiReplacementsToPage = async (args: {
+  page: Page;
+  replacements: EditorTsAiChatReplacement[];
+  saveJson: (json: string) => Promise<void>;
+  saveCss: (css: string) => Promise<void>;
+  saveComponentScript: (id: string, script: string) => Promise<void>;
+}): Promise<void> => {
+  const { replacements, saveJson, saveCss, saveComponentScript } = args;
+
+  for (const r of replacements) {
+    if (r.path === 'page.json') {
+      await saveJson(r.content);
+      continue;
+    }
+
+    if (r.path === 'styles.css') {
+      await saveCss(r.content);
+      continue;
+    }
+
+    if (r.path.startsWith('components/') && r.path.endsWith('.js')) {
+      const id = r.path.slice('components/'.length, -3);
+      await saveComponentScript(id, r.content);
+    }
+  }
+};
