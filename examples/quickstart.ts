@@ -353,11 +353,38 @@ if (aiChatSend && aiChatInput) {
         return;
       }
 
-      const model = providersResult.data.default?.anthropic
-        ? { providerID: 'anthropic', modelID: providersResult.data.default.anthropic }
+      // Prefer the server-configured model, but normalize it into a valid
+      // providerID/modelID pair.
+      const configResult = await client.config.get();
+      const configuredModel = configResult.data?.model;
+
+      const parseConfiguredModel = (value: string): { providerID: string; modelID: string } | null => {
+        const [providerID, ...rest] = value.split('/');
+        if (!providerID || rest.length === 0) return null;
+        return { providerID, modelID: rest.join('/') };
+      };
+
+      // OpenCode ships some providers with model IDs that differ from other
+      // providers (e.g. opencode/claude-sonnet-4-5-20250929 vs opencode/claude-sonnet-4-5).
+      const normalizeOpencodeModelId = (modelID: string): string => {
+        if (modelID === 'claude-sonnet-4-5-20250929') return 'claude-sonnet-4-5';
+        return modelID;
+      };
+
+      const preferred = configuredModel ? parseConfiguredModel(configuredModel) : null;
+
+      const model = preferred
+        ? {
+            providerID: preferred.providerID,
+            modelID: preferred.providerID === 'opencode'
+              ? normalizeOpencodeModelId(preferred.modelID)
+              : preferred.modelID,
+          }
         : providersResult.data.default?.opencode
           ? { providerID: 'opencode', modelID: providersResult.data.default.opencode }
-          : undefined;
+          : providersResult.data.default?.anthropic
+            ? { providerID: 'anthropic', modelID: providersResult.data.default.anthropic }
+            : undefined;
 
       const result = await client.session.prompt({
         path: { id: sessionId },
