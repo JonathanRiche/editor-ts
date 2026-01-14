@@ -24,6 +24,25 @@ function buildWysiwygCss(): string {
       outline: 3px solid #10b981 !important;
       background-color: rgba(16, 185, 129, 0.1) !important;
     }
+
+    .editorts-flash {
+      animation: editortsFlash 300ms cubic-bezier(0.2, 0.8, 0.2, 1) 1;
+    }
+
+    @keyframes editortsFlash {
+      0% {
+        outline: 4px solid rgba(245, 158, 11, 0.95);
+        outline-offset: 4px;
+      }
+      60% {
+        outline: 4px solid rgba(245, 158, 11, 0.65);
+        outline-offset: 3px;
+      }
+      100% {
+        outline: 3px solid rgba(16, 185, 129, 0.85);
+        outline-offset: 2px;
+      }
+    }
     .editorts-drag-over {
       outline: 3px dashed #3b82f6 !important;
       outline-offset: 2px;
@@ -408,6 +427,18 @@ function iframeWysiwygScript() {
     } else if (event.data.type === 'editorts:placementMode') {
       placementMode = !!event.data.enabled;
       document.body.style.cursor = placementMode ? 'crosshair' : '';
+    } else if (event.data.type === 'editorts:flashSelect') {
+      const el = document.getElementById(event.data.id);
+      if (el) {
+        // Flash by retriggering CSS animation
+        el.classList.remove('editorts-flash');
+        // Force reflow
+        void el.offsetHeight;
+        el.classList.add('editorts-flash');
+
+        selectElement(el);
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     }
   });
 

@@ -954,6 +954,9 @@ export function init(config: InitConfig): EditorTsEditor {
       emit('componentInsert', componentToInsert, targetId);
 
       refresh();
+
+      // Flash/select the target so placement is obvious.
+      iframe.contentWindow?.postMessage({ type: 'editorts:flashSelect', id: targetId }, '*');
     } else if (event.data.type === 'editorts:textEditStart') {
       const component = page.components.findById(event.data.id);
       if (component) {

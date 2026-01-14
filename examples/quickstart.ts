@@ -72,6 +72,8 @@ const editor = init({
     hero: createCustomComponentDefinition({
       type: 'hero',
       label: 'Hero',
+      iconSvg:
+        '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16"/><path d="M4 10h10"/><path d="M4 14h16"/><path d="M4 18h10"/></svg>',
       factory: () => ({
         type: 'hero',
         tagName: 'section',
