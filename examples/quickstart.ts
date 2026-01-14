@@ -437,16 +437,36 @@ if (aiChatSend && aiChatInput) {
 
     appendChatLog('user', prompt);
 
+    aiChatSend.toggleAttribute('disabled', true);
+
     try {
       const selectedSessionId = aiSessionSelect?.value?.trim() || undefined;
       const result = await editor.ai.chat(prompt, { sessionId: selectedSessionId });
 
       appendChatLog('assistant', result.rawText);
 
-      lastAiReplacements = result.replacements;
-      aiChatApply?.toggleAttribute('disabled', lastAiReplacements.length === 0);
+      if (result.replacements.length === 0) {
+        lastAiReplacements = null;
+        aiChatApply?.toggleAttribute('disabled', true);
+        return;
+      }
+
+      // Auto-apply by default (manual apply is a fallback).
+      try {
+        await editor.ai.apply(result.replacements);
+        appendChatLog('apply', `Applied ${result.replacements.length} replacement(s).`);
+
+        lastAiReplacements = null;
+        aiChatApply?.toggleAttribute('disabled', true);
+      } catch (err: unknown) {
+        lastAiReplacements = result.replacements;
+        aiChatApply?.toggleAttribute('disabled', false);
+        appendChatLog('error', err instanceof Error ? err.message : String(err));
+      }
     } catch (err: unknown) {
       appendChatLog('error', err instanceof Error ? err.message : String(err));
+    } finally {
+      aiChatSend.toggleAttribute('disabled', false);
     }
   });
 }
