@@ -178,6 +178,12 @@ export function init(config: InitConfig): EditorTsEditor {
     ? document.getElementById(config.ui.layers.containerId)
     : null;
 
+  const pagesContainer = config.ui?.pages?.containerId
+    ? document.getElementById(config.ui.pages.containerId)
+    : null;
+
+  const shouldEnablePages = !!pagesContainer && config.ui?.pages?.enabled !== false;
+
   const componentPaletteContainer = config.ui?.componentPalette?.containerId
     ? document.getElementById(config.ui.componentPalette.containerId)
     : null;
@@ -435,6 +441,9 @@ export function init(config: InitConfig): EditorTsEditor {
 
   // Populate stats if container provided
   renderStats();
+
+  // Populate multipage dropdown (if enabled)
+  // Actual render function is defined later; we call it from refresh().
 
   // Optional AI provider module (lazy)
   let ai: EditorTsAiModule | undefined;
@@ -840,6 +849,8 @@ export function init(config: InitConfig): EditorTsEditor {
 
   // Load content into iframe
   iframe.srcdoc = buildIframeContent();
+
+  // multipage dropdown is rendered after helpers are defined
 
   // --- Optional code editors (JS/CSS/JSON) ---
   const shouldEnableFilesViewer = !!filesViewerContainer && config.ui?.editors?.files?.enabled !== false;
@@ -1856,6 +1867,61 @@ export function init(config: InitConfig): EditorTsEditor {
     }
   }
 
+  const setActivePageIndex = (nextIndex: number) => {
+    if (!multiPageData) return;
+
+    const boundedIndex = Math.max(0, Math.min(nextIndex, multiPageData.pages.length - 1));
+    if (boundedIndex === activePageIndex) return;
+
+    // Persist current page changes before switching
+    multiPageData.pages[activePageIndex] = page.toObject();
+
+    activePageIndex = boundedIndex;
+    multiPageData.activePageIndex = boundedIndex;
+
+    const loadedPageData = resolvePageData(multiPageData.pages[activePageIndex] ?? multiPageData.pages[0]!);
+    const newPage = new Page(loadedPageData);
+    Object.assign(page, newPage);
+
+    refresh();
+  };
+
+  const renderPagesDropdown = () => {
+    if (!shouldEnablePages || !pagesContainer) return;
+
+    // If not multipage, show empty.
+    if (!multiPageData || multiPageData.pages.length <= 1) {
+      pagesContainer.innerHTML = '';
+      return;
+    }
+
+    const options = multiPageData.pages
+      .map((p, idx) => {
+        const label = typeof p.title === 'string' && p.title.trim() ? p.title.trim() : `Page ${idx + 1}`;
+        return `<option value="${idx}" ${idx === activePageIndex ? 'selected' : ''}>${label}</option>`;
+      })
+      .join('');
+
+    pagesContainer.innerHTML = `
+      <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
+        Page
+        <select data-editorts-field="pages-select" style="width:100%;">
+          ${options}
+        </select>
+      </label>
+    `;
+
+    const select = pagesContainer.querySelector('[data-editorts-field="pages-select"]') as HTMLSelectElement | null;
+    select?.addEventListener('change', () => {
+      const idx = Number(select.value);
+      if (!Number.isFinite(idx)) return;
+      setActivePageIndex(idx);
+    });
+  };
+
+  // Initial render for multipage dropdown (refresh() may not be called yet)
+  renderPagesDropdown();
+
   // Refresh iframe and layer panel
   function refresh() {
     iframe.srcdoc = buildIframeContent();
@@ -1866,6 +1932,7 @@ export function init(config: InitConfig): EditorTsEditor {
     }
 
     renderStats();
+    renderPagesDropdown();
     void ensureCssEditorReady();
     void ensureJsonEditorReady();
     void ensureJsxEditorReady();

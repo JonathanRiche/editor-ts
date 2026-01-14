@@ -47,6 +47,40 @@ const componentsData: PageData = {
   }
 }
 
+const multiPageData = {
+  pages: [
+    componentsData,
+    {
+      title: 'Second page',
+      item_id: 1,
+      body: {
+        assets: [],
+        components: [
+          {
+            type: 'box',
+            attributes: { id: 'page2-root' },
+            components: [
+              { type: 'text', tagName: 'h2', attributes: { id: 'page2-title' }, content: 'Second page title' },
+              { type: 'text', attributes: { id: 'page2-body' }, content: 'This is another page.' },
+            ],
+          },
+        ],
+        styles: [
+          {
+            selectors: [{ name: 'page2-root' }],
+            style: {
+              'min-height': '200px',
+              'padding': '2rem',
+              'background-color': '#f5f5f5',
+            },
+          },
+        ],
+      },
+    },
+  ],
+  activePageIndex: 0,
+};
+
 // const htmlOnlyData: PageData = {
 //   title: 'HTML-only example',
 //   item_id: 0,
@@ -66,7 +100,7 @@ const editor = init({
 
   // Required: Page data (clean JSON)
   // To test HTML->components conversion, use `htmlOnlyData`.
-  data: componentsData,
+  data: multiPageData,
 
   // Optional: Custom components
   customComponents: {
@@ -134,6 +168,10 @@ const editor = init({
     layers: {
       containerId: 'layers-container',
       enabled: true
+    },
+    pages: {
+      containerId: 'pages-container',
+      enabled: true,
     },
     componentPalette: {
       containerId: 'component-palette',

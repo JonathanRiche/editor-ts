@@ -261,6 +261,12 @@ export interface InitConfig {
       enabled?: boolean;
     };
 
+    /** Optional: multipage switcher UI */
+    pages?: {
+      containerId?: string; // Where to render page dropdown
+      enabled?: boolean;
+    };
+
     // Optional: component palette (click-to-place)
     componentPalette?: {
       containerId?: string;
