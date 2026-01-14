@@ -509,12 +509,23 @@ export function init(config: InitConfig): EditorTsEditor {
     dispose(): void;
   };
 
-  function createTextareaCodeEditor(host: HTMLElement, initialValue: string): RuntimeCodeEditor {
+  type RuntimeCodeEditorOptions = {
+    readOnly?: boolean;
+  };
+
+  function createTextareaCodeEditor(
+    host: HTMLElement,
+    initialValue: string,
+    options?: RuntimeCodeEditorOptions
+  ): RuntimeCodeEditor {
     host.innerHTML = '';
 
     const textarea = document.createElement('textarea');
     textarea.value = initialValue;
     textarea.spellcheck = false;
+    if (options?.readOnly) {
+      textarea.readOnly = true;
+    }
     textarea.style.width = '100%';
     textarea.style.height = '100%';
     textarea.style.minHeight = '0';
@@ -617,7 +628,8 @@ export function init(config: InitConfig): EditorTsEditor {
   async function createModernMonacoCodeEditor(
     host: HTMLElement,
     initialValue: string,
-    language: 'javascript' | 'typescript' | 'css' | 'json'
+    language: 'javascript' | 'typescript' | 'css' | 'json',
+    options?: RuntimeCodeEditorOptions
   ): Promise<RuntimeCodeEditor> {
     host.innerHTML = '';
 
@@ -635,6 +647,7 @@ export function init(config: InitConfig): EditorTsEditor {
      const editor = monaco.editor.create(monacoHost, {
        automaticLayout: true,
        minimap: { enabled: false },
+       readOnly: options?.readOnly === true,
      });
 
      const openFile = async (path: string, fallback: string): Promise<ReturnType<typeof monaco.editor.createModel>> => {
@@ -690,20 +703,21 @@ export function init(config: InitConfig): EditorTsEditor {
   async function createCodeEditor(
     host: HTMLElement,
     initialValue: string,
-    language: 'javascript' | 'typescript' | 'css' | 'json'
+    language: 'javascript' | 'typescript' | 'css' | 'json',
+    options?: RuntimeCodeEditorOptions
   ): Promise<RuntimeCodeEditor> {
     if (codeEditorProvider === 'modern-monaco') {
       try {
-        return await createModernMonacoCodeEditor(host, initialValue, language);
+        return await createModernMonacoCodeEditor(host, initialValue, language, options);
       } catch (err: unknown) {
         modernMonacoInitPromise = null;
         const message = err instanceof Error ? err.message : String(err);
         console.warn('Failed to load modern-monaco; falling back to textarea:', message);
-        return createTextareaCodeEditor(host, initialValue);
+        return createTextareaCodeEditor(host, initialValue, options);
       }
     }
 
-    return createTextareaCodeEditor(host, initialValue);
+    return createTextareaCodeEditor(host, initialValue, options);
   }
 
   // Code editor instances
@@ -738,6 +752,12 @@ export function init(config: InitConfig): EditorTsEditor {
           <strong>Workspace Files</strong>
           <button data-editorts-action="refresh-files" type="button">Refresh</button>
         </div>
+        <input
+          data-editorts-field="files-filter"
+          type="text"
+          placeholder="Filter files…"
+          style="width:100%; padding:0.4rem 0.5rem; border:1px solid rgba(0,0,0,0.12); border-radius:6px;"
+        />
         <div data-editorts-field="files-list" style="flex:1 1 auto; min-height:0; overflow:auto; border:1px solid rgba(0,0,0,0.08); border-radius:6px; padding:0.5rem;"></div>
       </div>
     `;
@@ -747,7 +767,10 @@ export function init(config: InitConfig): EditorTsEditor {
     viewerEditorContainer.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:0.5rem; height:100%;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex:0 0 auto;">
-          <strong>Preview</strong>
+          <div style="display:flex; flex-direction:column; gap:0.125rem;">
+            <strong>Preview</strong>
+            <div data-editorts-field="viewer-path" style="font-size:0.85rem; opacity:0.8;"></div>
+          </div>
         </div>
         <div data-editorts-field="viewer-editor" style="flex:1 1 auto; min-height:0;"></div>
       </div>
@@ -837,6 +860,14 @@ export function init(config: InitConfig): EditorTsEditor {
   let viewerEditor: RuntimeCodeEditor | null = null;
   let viewerPath: string | null = null;
 
+  const setViewerHeader = (path: string | null) => {
+    if (!viewerEditorContainer) return;
+    const header = viewerEditorContainer.querySelector('[data-editorts-field="viewer-path"]') as HTMLElement | null;
+    if (!header) return;
+
+    header.textContent = path ? `Viewing: ${path}` : '';
+  };
+
   const ensureViewerReady = async (path: string, content: string) => {
     if (!shouldEnableViewer || !viewerEditorContainer) return;
 
@@ -851,40 +882,49 @@ export function init(config: InitConfig): EditorTsEditor {
       'typescript';
 
     if (!viewerEditor) {
-      viewerEditor = await createCodeEditor(host, content, language);
-
-      // Make it read-only.
-      const textarea = host.querySelector('textarea');
-      if (textarea) {
-        textarea.setAttribute('readonly', 'true');
-      }
+      viewerEditor = await createCodeEditor(host, content, language, { readOnly: true });
     } else {
       viewerEditor.setValue(content);
     }
 
     viewerPath = path;
+    setViewerHeader(path);
   };
+
+  let filesListRenderNonce = 0;
 
   const renderFilesList = async () => {
     if (!shouldEnableFilesViewer || !filesViewerContainer) return;
-    const host = filesViewerContainer.querySelector('[data-editorts-field="files-list"]') as HTMLElement | null;
-    if (!host) return;
 
-    host.innerHTML = '';
+    const renderNonce = ++filesListRenderNonce;
+
+    const listHost = filesViewerContainer.querySelector('[data-editorts-field="files-list"]') as HTMLElement | null;
+    if (!listHost) return;
+
+    const filterInput = filesViewerContainer.querySelector('[data-editorts-field="files-filter"]') as HTMLInputElement | null;
+    const rawFilter = filterInput?.value ?? '';
+    const filter = rawFilter.trim().toLowerCase();
+
+    listHost.innerHTML = '';
 
     if (!workspace) {
-      host.textContent = 'Workspace not enabled';
+      listHost.textContent = 'Workspace not enabled';
       return;
     }
 
     const files = await listWorkspaceFiles();
+    if (renderNonce !== filesListRenderNonce) return;
 
-    if (files.length === 0) {
-      host.textContent = 'No files';
+    const visibleFiles = filter
+      ? files.filter((p) => p.toLowerCase().includes(filter))
+      : files;
+
+    if (visibleFiles.length === 0) {
+      listHost.textContent = filter ? 'No matches' : 'No files';
       return;
     }
 
-    files.forEach((path) => {
+    visibleFiles.forEach((path) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = path;
@@ -914,6 +954,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
         // For the viewer tab, show a quick placeholder while loading.
         if (targetTab === 'viewer' && viewerEditorContainer) {
+          setViewerHeader(path);
           const host = viewerEditorContainer.querySelector('[data-editorts-field="viewer-editor"]') as HTMLElement | null;
           if (host && !viewerEditor) {
             host.innerHTML = '<pre style="margin:0; opacity:0.8;">Loading…</pre>';
@@ -965,7 +1006,7 @@ export function init(config: InitConfig): EditorTsEditor {
         })();
       });
 
-      host.appendChild(btn);
+      listHost.appendChild(btn);
     });
   };
 
@@ -1123,6 +1164,11 @@ export function init(config: InitConfig): EditorTsEditor {
 
       await syncWorkspaceFiles();
       await renderFilesList();
+    });
+
+    const filterInput = filesViewerContainer.querySelector('[data-editorts-field="files-filter"]') as HTMLInputElement | null;
+    filterInput?.addEventListener('input', () => {
+      void renderFilesList();
     });
   }
   if (shouldEnableJsxEditor && jsxEditorContainer) {
