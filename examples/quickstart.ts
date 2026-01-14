@@ -4,10 +4,13 @@
  */
 
 import { init, createCustomComponentDefinition, type PageData, type Component } from '../index';
-import { createOpencodeClient } from '@opencode-ai/sdk';
 // import sampleData from '../samples/page_template.json';
 
 console.log('QuickStart script loaded');
+
+const aiBaseUrlInput = document.getElementById('ai-base-url') as HTMLInputElement | null;
+const aiPasswordInput = document.getElementById('ai-password') as HTMLInputElement | null;
+
 
 const componentsData: PageData = {
   title: "Components example",
@@ -55,8 +58,6 @@ const componentsData: PageData = {
 //   },
 // };
 
-
-const aiBaseUrlInput = document.getElementById('ai-base-url') as HTMLInputElement | null;
 
 // Initialize the editor - user controls layout in index.html
 const editor = init({
@@ -195,8 +196,11 @@ const editor = init({
   aiProvider: {
     provider: 'opencode',
     mode: 'client',
-    baseUrl: aiBaseUrlInput?.value ?? 'http://localhost:4096',
-    client: createOpencodeClient({ baseUrl: aiBaseUrlInput?.value ?? 'http://localhost:4096' }),
+    // Point at the local server proxy by default (avoids CORS+BasicAuth preflight).
+    baseUrl: `${window.location.origin}/opencode`,
+
+    // If you want direct-to-opencode (no proxy), set baseUrl to the server URL and
+    // supply credentials via the dev server env vars.
   },
 
   // Optional: Event callbacks
@@ -254,6 +258,28 @@ const aiHealthButton = document.getElementById('ai-health-btn') as HTMLButtonEle
 const aiHealthStatus = document.getElementById('ai-health-status') as HTMLElement | null;
 
 
+const aiChatInput = document.getElementById('ai-chat-input') as HTMLTextAreaElement | null;
+const aiChatSend = document.getElementById('ai-chat-send') as HTMLButtonElement | null;
+const aiChatApply = document.getElementById('ai-chat-apply') as HTMLButtonElement | null;
+const aiChatLog = document.getElementById('ai-chat-log') as HTMLElement | null;
+
+let lastAiReplacements: Array<{ path: string; content: string }> | null = null;
+
+const appendChatLog = (label: string, text: string) => {
+  if (!aiChatLog) return;
+  aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${label}: ${text}\n\n`;
+};
+
+const parseAssistantJson = (raw: string): unknown => {
+  const trimmed = raw.trim();
+  // Some models still wrap JSON in ```; strip if present.
+  if (trimmed.startsWith('```')) {
+    const withoutTicks = trimmed.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '');
+    return JSON.parse(withoutTicks);
+  }
+  return JSON.parse(trimmed);
+};
+
 if (aiHealthButton && aiHealthStatus) {
   aiHealthButton.addEventListener('click', async () => {
     if (!editor.ai) {
@@ -270,6 +296,135 @@ if (aiHealthButton && aiHealthStatus) {
     } catch (err: unknown) {
       aiHealthStatus.textContent = err instanceof Error ? err.message : String(err);
     }
+  });
+}
+
+if (aiChatSend && aiChatInput) {
+  aiChatSend.addEventListener('click', async () => {
+    if (!editor.ai) {
+      appendChatLog('error', 'AI provider is disabled.');
+      return;
+    }
+
+    const prompt = aiChatInput.value.trim();
+    if (!prompt) return;
+
+    appendChatLog('user', prompt);
+
+    try {
+      const client = await editor.ai.getClient();
+
+      // Create a fresh session per message for now.
+      const sessionResult = await client.session.create({ body: { title: 'EditorTs Chat' } });
+      if (!sessionResult.data) {
+        appendChatLog('error', `Failed to create session: ${String(sessionResult.error)}`);
+        return;
+      }
+      const sessionId = sessionResult.data.id;
+
+      // Ask for strict JSON edits (full file replacements).
+      const systemText = [
+        'You are an automated coding assistant integrated with EditorTs.',
+        'You MUST respond with a single valid JSON object.',
+        'Output JSON only: no markdown, no code fences, no explanations.',
+        'Return full file contents for each replacement.',
+        'Only allowed paths: page.json, styles.css, components/<id>.js',
+      ].join('\n');
+
+            const snapshotNote = [
+        'WORKSPACE TREE:',
+        '- page.json',
+        '- styles.css',
+        '- index.html (derived; do not edit)',
+        '- components/<id>.js (only if you edit component scripts)',
+        '',
+        'FILES:',
+        `page.json:\n${editor.save()}`,
+        `\nstyles.css:\n${editor.page.getCSS() ?? ''}`,
+        '',
+        'REQUEST:',
+        prompt,
+      ].join('\n');
+
+      const result = await client.session.prompt({
+        path: { id: sessionId },
+        body: {
+          system: systemText,
+          parts: [{ type: 'text', text: snapshotNote }],
+        },
+      });
+
+      if (!result.data) {
+        appendChatLog('error', `Prompt failed: ${String(result.error)}`);
+        return;
+      }
+
+      const parts = Array.isArray(result.data.parts) ? result.data.parts : [];
+      const assistantText = parts
+        .filter((p) => p.type === 'text')
+        .map((p) => p.text ?? '')
+        .join('');
+
+      if (!assistantText.trim()) {
+        appendChatLog('error', 'No assistant text returned (missing provider credentials?).');
+        return;
+      }
+
+      appendChatLog('assistant', assistantText);
+
+      const parsed = parseAssistantJson(assistantText);
+      if (!parsed || typeof parsed !== 'object') {
+        appendChatLog('error', 'Assistant did not return JSON object.');
+        return;
+      }
+
+      const replacements = (parsed as { replacements?: Array<{ path?: unknown; content?: unknown }> }).replacements;
+      if (!Array.isArray(replacements)) {
+        appendChatLog('error', 'Missing replacements[] array in response.');
+        return;
+      }
+
+      lastAiReplacements = replacements
+        .filter((r): r is { path: string; content: string } => typeof r?.path === 'string' && typeof r?.content === 'string')
+        .map((r) => ({ path: r.path, content: r.content }));
+
+      aiChatApply?.toggleAttribute('disabled', !lastAiReplacements.length);
+    } catch (err: unknown) {
+      appendChatLog('error', err instanceof Error ? err.message : String(err));
+    }
+  });
+}
+
+if (aiChatApply) {
+  aiChatApply.addEventListener('click', async () => {
+    if (!lastAiReplacements || lastAiReplacements.length === 0) return;
+
+    // Minimal apply in demo:
+    // - styles.css: write into CSS editor + click Save
+    // - page.json: write into JSON editor + click Apply
+    // - components/<id>.js: write into JS editor + click Save (for selected component)
+    const styles = lastAiReplacements.find((r) => r.path === 'styles.css');
+    const pageJson = lastAiReplacements.find((r) => r.path === 'page.json');
+
+    if (styles) {
+      const cssTab = document.getElementById('code-tab-css') as HTMLButtonElement | null;
+      cssTab?.click();
+      const cssEditor = document.querySelector('#css-editor-container textarea') as HTMLTextAreaElement | null;
+      if (cssEditor) cssEditor.value = styles.content;
+      const saveCss = document.querySelector('#css-editor-container [data-editorts-action="save-css"]') as HTMLButtonElement | null;
+      saveCss?.click();
+    }
+
+    if (pageJson) {
+      const jsonTab = document.getElementById('code-tab-json') as HTMLButtonElement | null;
+      jsonTab?.click();
+      const jsonEditor = document.querySelector('#json-editor-container textarea') as HTMLTextAreaElement | null;
+      if (jsonEditor) jsonEditor.value = pageJson.content;
+      const applyJson = document.querySelector('#json-editor-container [data-editorts-action="save-json"]') as HTMLButtonElement | null;
+      applyJson?.click();
+    }
+
+    appendChatLog('apply', `Applied ${lastAiReplacements.length} replacement(s).`);
   });
 }
 

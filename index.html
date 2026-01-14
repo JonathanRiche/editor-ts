@@ -269,9 +269,22 @@
 			<div class="layers-section">
 				<h3>AI</h3>
 				<label style="display:block; font-size: 0.85rem; margin-bottom: 0.25rem;">OpenCode baseUrl</label>
-				<input id="ai-base-url" type="text" value="http://localhost:4096" style="width:100%;" />
+				<input id="ai-base-url" type="text" value="/opencode" style="width:100%;" />
+				<div style="font-size: 0.8rem; opacity:0.8; margin-top:0.25rem;">
+					Uses the dev server proxy to avoid CORS+auth issues.
+				</div>
 				<button id="ai-health-btn" type="button" style="margin-top:0.5rem;">Check health</button>
 				<pre id="ai-health-status" style="margin-top:0.5rem; white-space: pre-wrap;"></pre>
+
+				<div style="margin-top: 1rem; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 0.75rem;">
+					<div style="font-weight:600; margin-bottom:0.25rem;">Chat</div>
+					<textarea id="ai-chat-input" placeholder="Ask OpenCode to change your page…" style="width:100%; height: 6rem;"></textarea>
+					<div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+						<button id="ai-chat-send" type="button">Send</button>
+						<button id="ai-chat-apply" type="button" disabled>Apply last reply</button>
+					</div>
+					<pre id="ai-chat-log" style="margin-top:0.5rem; white-space: pre-wrap; max-height: 220px; overflow:auto;"></pre>
+				</div>
 			</div>
 
 

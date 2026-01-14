@@ -158,6 +158,13 @@ export function init(config: InitConfig): EditorTsEditor {
     ? document.getElementById(config.ui.sidebar.containerId)
     : null;
 
+  // Optional AI UI (user-provided elements)
+  const aiBaseUrlInput = document.getElementById('ai-base-url') as HTMLInputElement | null;
+
+  // If the host app serves the editor and can proxy requests, prefer that to avoid
+  // CORS preflight issues with password-protected opencode servers.
+  const aiProxiedBaseUrl = `${window.location.origin}/opencode`;
+
   const statsContainer = config.ui?.stats?.containerId
     ? document.getElementById(config.ui.stats.containerId)
     : null;
@@ -455,14 +462,36 @@ export function init(config: InitConfig): EditorTsEditor {
           } else {
             clientPromise = loadSdk().then(async (sdk) => {
               if (mode === 'client') {
-                const baseUrl = aiConfig.baseUrl;
-                if (!baseUrl) {
-                  throw new Error("EditorTs: aiProvider.baseUrl is required when mode is 'client'");
-                }
-                if (typeof sdk.createOpencodeClient !== 'function') {
-                  throw new Error('EditorTs: @opencode-ai/sdk missing createOpencodeClient');
-                }
-                return sdk.createOpencodeClient({ baseUrl });
+                 const baseUrl = aiBaseUrlInput?.value || aiConfig.baseUrl || aiProxiedBaseUrl;
+                 if (!baseUrl) {
+                   throw new Error("EditorTs: aiProvider.baseUrl is required when mode is 'client'");
+                 }
+                 if (typeof sdk.createOpencodeClient !== 'function') {
+                   throw new Error('EditorTs: @opencode-ai/sdk missing createOpencodeClient');
+                 }
+
+                 // If the app is using a same-origin proxy (like /opencode/*), do NOT send basic auth
+                 // from the browser; let the proxy attach it.
+                 const auth = baseUrl.startsWith(window.location.origin)
+                   ? undefined
+                   : aiConfig.auth;
+
+
+                const createAuthedFetch = (username: string, password: string): ((request: Request) => Promise<Response>) => {
+                  const basic = btoa(`${username}:${password}`);
+
+                  return async (request: Request): Promise<Response> => {
+                    const headers = new Headers(request.headers);
+                    headers.set('Authorization', `Basic ${basic}`);
+                    const nextRequest = new Request(request, { headers });
+                    return fetch(nextRequest);
+                  };
+                };
+
+                return sdk.createOpencodeClient({
+                  baseUrl,
+                  fetch: auth ? createAuthedFetch(auth.username ?? 'opencode', auth.password) : undefined,
+                });
               }
 
               if (typeof sdk.createOpencode !== 'function') {

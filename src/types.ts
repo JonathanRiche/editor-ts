@@ -30,6 +30,15 @@ export interface OpencodeAiProviderConfig {
   provider: 'opencode';
 
   /**
+   * Optional HTTP Basic Auth for password-protected opencode servers.
+   * Username defaults to "opencode" on the server if not provided.
+   */
+  auth?: {
+    username?: string;
+    password: string;
+  };
+
+  /**
    * Use your own SDK client instance.
    *
    * This is useful when your app already created a client via:
