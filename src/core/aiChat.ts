@@ -56,6 +56,10 @@ export const buildAiChatSystemPrompt = (): string => {
     'Schema: { "replacements": [{ "path": string, "content_b64": string }] }',
     'Always use content_b64 (base64 of full UTF-8 file contents).',
     'Allowed paths: page.json, styles.css, components/<id>.js',
+    '',
+    'IMPORTANT CSS RULES:',
+    '- When writing styles.css, use valid CSS selectors.',
+    '- IDs must be prefixed with # (e.g. #hero-1, #hero-title).',
   ].join('\n');
 };
 

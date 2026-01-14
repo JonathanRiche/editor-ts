@@ -205,7 +205,21 @@ export class StyleManager {
       if (typeof sel === 'string') {
         return sel;
       }
-      return sel.name;
+
+      // EditorTs stores selector objects as component IDs by default.
+      // Compile them as ID selectors unless the user provided a full selector.
+      const name = sel.name.trim();
+      const looksLikeSelector =
+        name.startsWith('#') ||
+        name.startsWith('.') ||
+        name.startsWith('[') ||
+        name.includes(' ') ||
+        name.includes('>') ||
+        name.includes('+') ||
+        name.includes('~') ||
+        name.includes(':');
+
+      return looksLikeSelector ? name : `#${name}`;
     });
 
     let selector = selectors.join(', ');

@@ -308,7 +308,7 @@ if (aiChatSend && aiChatInput) {
       appendChatLog('assistant', result.rawText);
 
       lastAiReplacements = result.replacements;
-      aiChatApply?.toggleAttribute('disabled', false);
+      aiChatApply?.toggleAttribute('disabled', lastAiReplacements.length === 0);
     } catch (err: unknown) {
       appendChatLog('error', err instanceof Error ? err.message : String(err));
     }
