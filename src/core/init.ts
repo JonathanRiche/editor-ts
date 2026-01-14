@@ -871,14 +871,47 @@ export function init(config: InitConfig): EditorTsEditor {
     );
   }
 
-  async function loadModernMonaco(): Promise<ModernMonaco> {
+  async function loadModernMonaco(mod: ModernMonacoModule, ws: MonacoWorkspace | null): Promise<ModernMonaco> {
     if (!modernMonacoInitPromise) {
-      modernMonacoInitPromise = import('modern-monaco').then((mod) => {
+      modernMonacoInitPromise = (async () => {
         if (typeof mod.init !== 'function') {
           throw new Error('modern-monaco missing init() export');
         }
-        return mod.init();
-      });
+
+        // Ensure builtin LSP is enabled even if MonacoEnvironment was overwritten.
+        const globalWithEnv = globalThis as unknown as { MonacoEnvironment?: Record<string, unknown> };
+        globalWithEnv.MonacoEnvironment = {
+          ...(globalWithEnv.MonacoEnvironment ?? {}),
+          useBuiltinLSP: true,
+        };
+
+        return mod.init({
+          workspace: ws ?? undefined,
+          // Enable built-in language services (JS/TS/CSS/JSON/HTML).
+          lsp: {
+            typescript: {},
+            css: {},
+            json: {
+              // Provide a minimal schema so page.json completions are obvious.
+              schemas: [
+                {
+                  uri: 'https://editorts.dev/schemas/page.json',
+                  fileMatch: ['page.json'],
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      title: { type: 'string' },
+                      item_id: { type: 'number' },
+                      body: { type: 'object' },
+                    },
+                  },
+                },
+              ],
+            },
+            html: {},
+          },
+        });
+      })();
     }
 
     return modernMonacoInitPromise;
@@ -901,7 +934,7 @@ export function init(config: InitConfig): EditorTsEditor {
      const mod = await import('modern-monaco');
      const ws = await ensureWorkspace(mod);
 
-     const monaco = await loadModernMonaco();
+     const monaco = await loadModernMonaco(mod, ws);
 
      const editor = monaco.editor.create(monacoHost, {
        automaticLayout: true,
@@ -912,7 +945,26 @@ export function init(config: InitConfig): EditorTsEditor {
      const openFile = async (path: string, fallback: string): Promise<ReturnType<typeof monaco.editor.createModel>> => {
        if (ws) {
          await ws.fs.writeFile(path, fallback, { isModelContentChange: false });
-         return ws.openTextDocument(path);
+
+         // modern-monaco's public `openTextDocument()` opens in the first editor.
+         // We need to open into *this* editor instance.
+         const internal = ws as unknown as {
+           _openTextDocument?: (
+             uri: string,
+             editor: ReturnType<typeof monaco.editor.create>,
+             selectionOrPosition?: unknown,
+             readonlyContent?: string
+           ) => Promise<ReturnType<typeof monaco.editor.createModel>>;
+         };
+
+         const opened = typeof internal._openTextDocument === 'function'
+           ? await internal._openTextDocument(path, editor)
+           : await ws.openTextDocument(path);
+
+         const languageId = language === 'typescript' ? 'typescript' : language;
+         monaco.editor.setModelLanguage(opened, languageId);
+
+         return opened;
        }
 
        const extByLanguage: Record<string, string> = {

@@ -95,7 +95,10 @@ const multiPageData = {
 
 // Initialize the editor - user controls layout in index.html
 const editor = init({
+  storage: {
+    type: 'local',
 
+  },
   // Required: The iframe element ID (user creates this in HTML)
   iframeId: 'preview-iframe',
 
