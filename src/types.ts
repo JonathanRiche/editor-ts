@@ -252,6 +252,12 @@ export interface InitConfig {
   // Required: iframe element ID (user creates this in their HTML)
   iframeId: string;
 
+  /** Optional: Version control / undo-redo history (runtime config, persisted separately). */
+  versionControl?: {
+    enabled?: boolean;
+    maxSnapshots?: number;
+  };
+
   // Required: page data
   data: PageData | MultiPageData | string;
 
@@ -483,6 +489,14 @@ export interface EditorTsEditor {
   page: Page;
   storage: StorageManager;
   ai?: EditorTsAiModule;
+  versionControl?: {
+    enabled: boolean;
+    canUndo(): boolean;
+    canRedo(): boolean;
+    undo(): Promise<boolean>;
+    redo(): Promise<boolean>;
+    commit(meta?: { source?: 'user' | 'ai' | 'system'; message?: string }): Promise<void>;
+  };
   components: CustomComponentRegistry;
   workspace?: {
     name: string;

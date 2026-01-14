@@ -38,6 +38,7 @@ export {
   buildAiChatSnapshot,
   chooseChatModel,
 } from './src/core/aiChat';
+export { VersionControl } from './src/core/VersionControl';
 
 // Type exports
 export type {

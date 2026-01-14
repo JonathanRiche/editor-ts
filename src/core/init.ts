@@ -10,6 +10,7 @@ import { StorageManager } from './StorageManager';
 import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
 import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
 import { applyAiReplacementsToPage, requestAiReplacements } from './aiChat';
+import { VersionControl } from './VersionControl';
 import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName } from '../types';
 
 /**
@@ -419,19 +420,21 @@ export function init(config: InitConfig): EditorTsEditor {
           config.onComponentSelect(component);
         }
       },
-      onReorder: (componentId, newParentId, newIndex) => {
-        // Reorder in component manager
-        page.components.moveComponent(componentId, newParentId, newIndex);
+       onReorder: (componentId, newParentId, newIndex) => {
+         // Reorder in component manager
+         page.components.moveComponent(componentId, newParentId, newIndex);
 
-        // Emit event
-        const component = page.components.findById(componentId);
-        if (component) {
-          emit('componentReorder', component, newParentId, newIndex);
-        }
+         // Emit event
+         const component = page.components.findById(componentId);
+         if (component) {
+           emit('componentReorder', component, newParentId, newIndex);
+         }
 
-        // Refresh iframe
-        refresh();
-      }
+         void commitSnapshot({ source: 'user', message: 'reorder component' });
+
+         // Refresh iframe
+         refresh();
+       }
     });
 
     // Initial render
@@ -729,6 +732,8 @@ export function init(config: InitConfig): EditorTsEditor {
             }
           },
         });
+
+        await commitSnapshot({ source: 'ai', message: 'apply ai changes' });
 
         refresh();
       },
@@ -1430,12 +1435,13 @@ export function init(config: InitConfig): EditorTsEditor {
       await ensureCssEditorReady();
       if (!cssEditor) return;
 
-      const nextValue = cssEditor.getValue();
-      page.styles.setCompiledCSS(nextValue);
+      page.setCSS(cssEditor.getValue());
 
       if (workspace) {
-        await workspace.fs.writeFile('styles.css', nextValue, { isModelContentChange: true });
+        await workspace.fs.writeFile('styles.css', cssEditor.getValue(), { isModelContentChange: true });
       }
+
+      await commitSnapshot({ source: 'user', message: 'edit css' });
 
       refresh();
     });
@@ -1457,6 +1463,8 @@ export function init(config: InitConfig): EditorTsEditor {
        if (workspace) {
          await workspace.fs.writeFile(`components/${selectedComponentId}.js`, nextValue, { isModelContentChange: true });
        }
+
+       await commitSnapshot({ source: 'user', message: 'edit component script' });
 
        refresh();
     });
@@ -1500,6 +1508,8 @@ export function init(config: InitConfig): EditorTsEditor {
         if (workspace) {
           await workspace.fs.writeFile('page.json', jsonEditor.getValue(), { isModelContentChange: true });
         }
+
+        await commitSnapshot({ source: 'user', message: 'edit json' });
 
         refresh();
       } catch (err: unknown) {
@@ -1578,6 +1588,8 @@ export function init(config: InitConfig): EditorTsEditor {
         emit('componentReorder', component, targetInfo.parentId, targetInfo.index);
       }
 
+      void commitSnapshot({ source: 'user', message: 'reorder component' });
+
       refresh();
     } else if (event.data.type === 'editorts:placeComponent') {
       const targetId = event.data.targetId as string;
@@ -1595,6 +1607,8 @@ export function init(config: InitConfig): EditorTsEditor {
       iframe.contentWindow?.postMessage({ type: 'editorts:placementMode', enabled: false }, '*');
 
       emit('componentInsert', componentToInsert, targetId);
+
+      void commitSnapshot({ source: 'user', message: 'insert component' });
 
       refresh();
 
@@ -1625,6 +1639,10 @@ export function init(config: InitConfig): EditorTsEditor {
         emit('textEditEnd', component, event.data.saved);
         if (config.onTextEditEnd) {
           config.onTextEditEnd(component, event.data.saved);
+        }
+
+        if (event.data.saved) {
+          void commitSnapshot({ source: 'user', message: 'edit text' });
         }
       }
     } else if (event.data.type === 'editorts:imageEditStart') {
@@ -1658,6 +1676,10 @@ export function init(config: InitConfig): EditorTsEditor {
         emit('imageEditEnd', component, event.data.saved);
         if (config.onImageEditEnd) {
           config.onImageEditEnd(component, event.data.saved);
+        }
+
+        if (event.data.saved) {
+          void commitSnapshot({ source: 'user', message: 'edit image' });
         }
       }
     }
@@ -1849,6 +1871,8 @@ export function init(config: InitConfig): EditorTsEditor {
         const styleEl = iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null;
         if (styleEl) styleEl.textContent = nextCss;
 
+        await commitSnapshot({ source: 'user', message: 'edit style' });
+
         styleProps.forEach(populateStyleField);
 
         void ensureCssEditorReady();
@@ -1871,6 +1895,8 @@ export function init(config: InitConfig): EditorTsEditor {
 
         const styleEl = iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null;
         if (styleEl) styleEl.textContent = nextCss;
+
+        await commitSnapshot({ source: 'user', message: 'clear style' });
 
         styleProps.forEach((p) => {
           const input = selectedInfoContainer.querySelector(`[data-editorts-style="${p}"]`) as HTMLInputElement | null;
@@ -1975,6 +2001,8 @@ export function init(config: InitConfig): EditorTsEditor {
           config.onComponentDuplicate(component, clone);
         }
 
+        void commitSnapshot({ source: 'user', message: 'duplicate component' });
+
         refresh();
         break;
 
@@ -1985,6 +2013,8 @@ export function init(config: InitConfig): EditorTsEditor {
         if (config.onComponentDelete) {
           config.onComponentDelete(component);
         }
+
+        void commitSnapshot({ source: 'user', message: 'delete component' });
 
         // Notify iframe to remove element
         iframe.contentWindow?.postMessage({
@@ -2011,6 +2041,11 @@ export function init(config: InitConfig): EditorTsEditor {
     const loadedPageData = resolvePageData(multiPageData.pages[activePageIndex] ?? multiPageData.pages[0]!);
     const newPage = new Page(loadedPageData);
     Object.assign(page, newPage);
+
+    // Switch to the corresponding per-page history tree when page key is known.
+    if (versionControlEnabled && activeStorageKey) {
+      void loadVersionState(activeStorageKey, activePageIndex);
+    }
 
     refresh();
   };
@@ -2075,6 +2110,89 @@ export function init(config: InitConfig): EditorTsEditor {
   // Initialize storage manager
   const storage = new StorageManager(config.storage);
 
+  // Version control (snapshot tree) persisted separately via StorageManager.
+  const versionControlEnabled = config.versionControl?.enabled !== false;
+  const versionControlMaxSnapshots = config.versionControl?.maxSnapshots;
+
+  let versionStorageKey: string | null = null;
+  let versionControl: VersionControl | null = null;
+  let activeStorageKey: string | null = null;
+
+  const captureSnapshot = (): PageData => {
+    // Page.toObject() returns a live reference; clone to keep history stable.
+    return JSON.parse(JSON.stringify(page.toObject())) as PageData;
+  };
+
+  if (versionControlEnabled) {
+    versionControl = new VersionControl({ maxSnapshots: versionControlMaxSnapshots });
+    versionControl.init(captureSnapshot(), { source: 'system', message: 'init' });
+  }
+
+  const getHistoryKey = (pageKey: string, pageIndex: number) => {
+    return `history:${pageKey}:${pageIndex}`;
+  };
+
+  // Note: version history is persisted separately via StorageManager at
+  // `history:<pageKey>:<pageIndex>`, never inside the PageData JSON.
+  const serializeVersionState = (): string | null => {
+    if (!versionControl) return null;
+    return JSON.stringify(versionControl.getState());
+  };
+
+  const loadVersionState = async (pageKey: string, pageIndex: number) => {
+    if (!versionControlEnabled) return;
+
+    versionStorageKey = getHistoryKey(pageKey, pageIndex);
+    const raw = await storage.loadPage(versionStorageKey);
+
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (parsed && typeof parsed === 'object') {
+          versionControl = VersionControl.fromState(parsed as unknown as import('./VersionControl').VersionControlState, {
+            maxSnapshots: versionControlMaxSnapshots,
+          });
+          return;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    versionControl = new VersionControl({ maxSnapshots: versionControlMaxSnapshots });
+    versionControl.init(captureSnapshot(), { source: 'system', message: 'init' });
+
+    await storage.savePage(versionStorageKey, JSON.stringify(versionControl.getState()));
+  };
+
+  const persistVersionState = async () => {
+    if (!versionControlEnabled) return;
+    if (!versionControl || !versionStorageKey) return;
+    await storage.savePage(versionStorageKey, JSON.stringify(versionControl.getState()));
+  };
+
+  const commitSnapshot = async (meta?: { source?: 'user' | 'ai' | 'system'; message?: string }) => {
+    if (!versionControlEnabled || !versionControl) return;
+
+    versionControl.commit(captureSnapshot(), meta);
+
+    // Persist only when a storage key is known.
+    await persistVersionState();
+  };
+
+  const checkoutSnapshot = async (snapshot: PageData) => {
+    const toolbarRuntimeConfig = page.toolbars.exportConfig();
+
+    // Never mutate the snapshot stored in version control.
+    const nextSnapshot = JSON.parse(JSON.stringify(snapshot)) as PageData;
+
+    const newPage = new Page(resolvePageData(nextSnapshot));
+    Object.assign(page, newPage);
+    page.toolbars.importConfig(toolbarRuntimeConfig);
+
+    refresh();
+  };
+
   function serializeData(): string {
     if (!multiPageData) {
       return page.toJSON();
@@ -2093,6 +2211,19 @@ export function init(config: InitConfig): EditorTsEditor {
   async function saveTo(key: string): Promise<void> {
     const data = serializeData();
     await storage.savePage(key, data);
+
+    // Persist history alongside the page data.
+    if (versionControlEnabled) {
+      activeStorageKey = key;
+
+      // Default to active page index for multipage.
+      const pageIndex = multiPageData ? activePageIndex : 0;
+      if (!versionStorageKey) {
+        await loadVersionState(key, pageIndex);
+      }
+      await persistVersionState();
+    }
+
     emit('pageSaved', key);
   }
 
@@ -2120,6 +2251,12 @@ export function init(config: InitConfig): EditorTsEditor {
 
       const newPage = new Page(resolvePageData(parsed as PageData));
       Object.assign(page, newPage);
+    }
+
+    if (versionControlEnabled) {
+      activeStorageKey = key;
+      const pageIndex = multiPageData ? activePageIndex : 0;
+      await loadVersionState(key, pageIndex);
     }
 
     refresh();
@@ -2158,6 +2295,30 @@ export function init(config: InitConfig): EditorTsEditor {
     page,
     storage,
     ai,
+    versionControl: versionControlEnabled ? {
+      enabled: true,
+      canUndo: () => !!versionControl && versionControl.canUndo(),
+      canRedo: () => !!versionControl && versionControl.canRedo(),
+      undo: async () => {
+        if (!versionControl) return false;
+        const snapshot = versionControl.undo();
+        if (!snapshot) return false;
+        await checkoutSnapshot(snapshot);
+        await persistVersionState();
+        return true;
+      },
+      redo: async () => {
+        if (!versionControl) return false;
+        const snapshot = versionControl.redo();
+        if (!snapshot) return false;
+        await checkoutSnapshot(snapshot);
+        await persistVersionState();
+        return true;
+      },
+      commit: async (meta) => {
+        await commitSnapshot(meta);
+      },
+    } : undefined,
     components: componentRegistry,
     on,
     off,

@@ -95,8 +95,14 @@ const multiPageData = {
 
 // Initialize the editor - user controls layout in index.html
 const editor = init({
+
   // Required: The iframe element ID (user creates this in HTML)
   iframeId: 'preview-iframe',
+
+  versionControl: {
+    enabled: true,
+    maxSnapshots: 100,
+  },
 
   // Required: Page data (clean JSON)
   // To test HTML->components conversion, use `htmlOnlyData`.
@@ -285,6 +291,9 @@ const editor = init({
 
 // ==================== USE THE EDITOR INSTANCE ====================
 
+// Expose for debugging
+(window as unknown as { editor?: typeof editor }).editor = editor;
+
 // Access the Page API
 console.log('📄 Page title:', editor.page.getTitle());
 console.log('📊 Total components:', editor.page.components.count());
@@ -293,6 +302,57 @@ console.log('📊 Total components:', editor.page.components.count());
 editor.on('componentSelect', (component) => {
   console.log('Custom handler:', component.attributes?.id);
 });
+
+// Undo/Redo controls
+const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement | null;
+const redoBtn = document.getElementById('redo-btn') as HTMLButtonElement | null;
+
+const syncHistoryButtons = () => {
+  if (!editor.versionControl) {
+    undoBtn?.toggleAttribute('disabled', true);
+    redoBtn?.toggleAttribute('disabled', true);
+    return;
+  }
+
+  undoBtn?.toggleAttribute('disabled', !editor.versionControl.canUndo());
+  redoBtn?.toggleAttribute('disabled', !editor.versionControl.canRedo());
+};
+
+// Keep buttons updated when edits happen.
+editor.on('textUpdate', () => syncHistoryButtons());
+editor.on('componentInsert', () => syncHistoryButtons());
+editor.on('componentDelete', () => syncHistoryButtons());
+editor.on('componentDuplicate', () => syncHistoryButtons());
+editor.on('componentReorder', () => syncHistoryButtons());
+
+// Style edits are applied via UI (not currently an event), so keep buttons fresh.
+const styleRoot = document.getElementById('selected-info');
+styleRoot?.addEventListener('click', (e) => {
+  const target = e.target as HTMLElement | null;
+  if (!target) return;
+  if (target.closest('[data-editorts-action="apply-style"], [data-editorts-action="clear-style"], [data-editorts-action="save-css"], [data-editorts-action="save-json"], [data-editorts-action="save-js"]')) {
+    // Allow async commit to finish.
+    setTimeout(syncHistoryButtons, 250);
+  }
+});
+
+if (undoBtn) {
+  undoBtn.addEventListener('click', async () => {
+    if (!editor.versionControl) return;
+    await editor.versionControl.undo();
+    syncHistoryButtons();
+  });
+}
+
+if (redoBtn) {
+  redoBtn.addEventListener('click', async () => {
+    if (!editor.versionControl) return;
+    await editor.versionControl.redo();
+    syncHistoryButtons();
+  });
+}
+
+syncHistoryButtons();
 
 // Find all custom-code components
 const customCode = editor.page.components.findByType('custom-code');
