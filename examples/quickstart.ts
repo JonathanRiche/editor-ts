@@ -346,9 +346,23 @@ if (aiChatSend && aiChatInput) {
         prompt,
       ].join('\n');
 
+      // Choose a model explicitly so we don't rely on server defaults.
+      const providersResult = await client.config.providers();
+      if (!providersResult.data) {
+        appendChatLog('error', `Failed to list providers: ${String(providersResult.error)}`);
+        return;
+      }
+
+      const model = providersResult.data.default?.anthropic
+        ? { providerID: 'anthropic', modelID: providersResult.data.default.anthropic }
+        : providersResult.data.default?.opencode
+          ? { providerID: 'opencode', modelID: providersResult.data.default.opencode }
+          : undefined;
+
       const result = await client.session.prompt({
         path: { id: sessionId },
         body: {
+          ...(model ? { model } : {}),
           system: systemText,
           parts: [{ type: 'text', text: snapshotNote }],
         },
