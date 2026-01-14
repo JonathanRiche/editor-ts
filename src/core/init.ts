@@ -897,50 +897,72 @@ export function init(config: InitConfig): EditorTsEditor {
       btn.style.background = viewerPath === path ? 'rgba(59, 130, 246, 0.10)' : 'transparent';
       btn.style.cursor = 'pointer';
 
-      btn.addEventListener('click', async () => {
-        if (!workspace) return;
-
-        // Ensure the latest file contents exist.
-        await syncWorkspaceFiles();
-
-        const model = await workspace.openTextDocument(path);
-        const value = model.getValue();
-
-        if (path === 'styles.css') {
-          await ensureCssEditorReady();
-          cssEditor?.setValue(value);
-          setCodeTab?.('css');
-          cssEditor?.focus();
-          return;
-        }
-
-        if (path === 'page.json') {
-          await ensureJsonEditorReady();
-          jsonEditor?.setValue(value);
-          setCodeTab?.('json');
-          jsonEditor?.focus();
-          return;
-        }
-
-        if (path.startsWith('components/') && path.endsWith('.js')) {
-          const id = path.slice('components/'.length, -3);
-          const component = page.components.findById(id);
-          if (component) {
-            iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
-            layerManager?.setSelected(id);
-          }
-          await ensureJsEditorReadyFor(component);
-          jsEditor?.setValue(value);
-          setCodeTab?.('js');
-          jsEditor?.focus();
-          return;
-        }
-
-        // Switch first so Monaco has layout/size.
-        setCodeTab?.('viewer');
-        await ensureViewerReady(path, value);
-        viewerEditor?.focus();
+      btn.addEventListener('click', () => {
+        // Provide immediate visual feedback.
+        viewerPath = path;
         void renderFilesList();
+
+        const targetTab: CodeTab =
+          path === 'styles.css' ? 'css'
+          : path === 'page.json' ? 'json'
+          : path.startsWith('components/') && path.endsWith('.js') ? 'js'
+          : 'viewer';
+
+        // Switch tabs immediately so the user sees something happen.
+        // Also ensures Monaco hosts are visible before editor creation.
+        setCodeTab?.(targetTab);
+
+        // For the viewer tab, show a quick placeholder while loading.
+        if (targetTab === 'viewer' && viewerEditorContainer) {
+          const host = viewerEditorContainer.querySelector('[data-editorts-field="viewer-editor"]') as HTMLElement | null;
+          if (host && !viewerEditor) {
+            host.innerHTML = '<pre style="margin:0; opacity:0.8;">Loading…</pre>';
+          }
+        }
+
+        void (async () => {
+          if (!workspace) return;
+
+          try {
+            const model = await workspace.openTextDocument(path);
+            const value = model.getValue();
+
+            if (path === 'styles.css') {
+              await ensureCssEditorReady();
+              cssEditor?.setValue(value);
+              cssEditor?.focus();
+              return;
+            }
+
+            if (path === 'page.json') {
+              await ensureJsonEditorReady();
+              jsonEditor?.setValue(value);
+              jsonEditor?.focus();
+              return;
+            }
+
+            if (path.startsWith('components/') && path.endsWith('.js')) {
+              const id = path.slice('components/'.length, -3);
+              const component = page.components.findById(id);
+              if (component) {
+                iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
+                layerManager?.setSelected(id);
+              }
+
+              await ensureJsEditorReadyFor(component);
+              jsEditor?.setValue(value);
+              jsEditor?.focus();
+              return;
+            }
+
+            await ensureViewerReady(path, value);
+            viewerEditor?.focus();
+            void renderFilesList();
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn(`Failed to open workspace file ${path}:`, message);
+          }
+        })();
       });
 
       host.appendChild(btn);
