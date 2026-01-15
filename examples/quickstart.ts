@@ -297,6 +297,11 @@ const editor = init({
     key: 'quickstart-page',
   },
 
+  // macOS users can override mod key to meta.
+  shortcutConfig: {
+    modKey: navigator.platform.includes('Mac') ? 'meta' : 'ctrl',
+  },
+
   // Optional: AI provider
   // Demonstrates passing a user-created OpenCode client instance.
   aiProvider: {
