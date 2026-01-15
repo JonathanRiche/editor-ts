@@ -527,6 +527,9 @@ export function init(config: InitConfig): EditorTsEditor {
     });
   }
 
+  // Initialize storage manager early so AI UI helpers can access it.
+  const storage = new StorageManager(config.storage);
+
   // Optional AI provider module (lazy)
   let ai: EditorTsAiModule | undefined;
 
@@ -2402,9 +2405,6 @@ export function init(config: InitConfig): EditorTsEditor {
     void ensureJsEditorReadyFor(selected);
     renderJsFileList();
   }
-
-  // Initialize storage manager
-  const storage = new StorageManager(config.storage);
 
   // Version control (snapshot tree) persisted separately via StorageManager.
   const versionControlEnabled = config.versionControl?.enabled !== false;
