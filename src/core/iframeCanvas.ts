@@ -50,8 +50,10 @@ function buildWysiwygCss(): string {
     }
     .editorts-context-toolbar {
       position: absolute;
-      top: -42px;
+      top: 0;
       left: 0;
+      transform: translateY(calc(-100% - 8px));
+      z-index: 10000;
       background: white;
       border: 2px solid var(--color-editor-light-text, #212C3E);
       border-radius: 6px;
