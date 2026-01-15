@@ -85,7 +85,7 @@ export const createDefaultShortcuts = (handlers: {
   if (!handlers.openCommandPalette) return [];
   return [
     {
-      key: 'mod+k',
+      key: 'mod+p',
       action: handlers.openCommandPalette,
     },
   ];
