@@ -2516,7 +2516,7 @@ export function init(config: InitConfig): EditorTsEditor {
         || (entry.type ? entry.type.includes(query) : false));
 
       commandPaletteResults.innerHTML = '';
-
+      commandPaletteResults.setAttribute('role', 'listbox');
       if (entries.length === 0) {
         const empty = document.createElement('div');
         empty.textContent = 'No matching components';
@@ -2537,7 +2537,9 @@ export function init(config: InitConfig): EditorTsEditor {
         if (entry.type) {
           button.dataset.editortsPaletteType = entry.type;
         }
+        button.dataset.editortsPaletteActive = index === commandPaletteActiveIndex ? 'true' : 'false';
         button.tabIndex = 0;
+        button.setAttribute('role', 'option');
         button.setAttribute('aria-selected', index === commandPaletteActiveIndex ? 'true' : 'false');
         button.style.display = 'flex';
         button.style.width = '100%';
@@ -2579,6 +2581,10 @@ export function init(config: InitConfig): EditorTsEditor {
           renderCommandPaletteResults();
         });
 
+        if (index === commandPaletteActiveIndex) {
+          button.focus({ preventScroll: true });
+        }
+
         button.addEventListener('keydown', (event) => {
           if (event.key === 'ArrowDown') {
             event.preventDefault();
@@ -2618,6 +2624,7 @@ export function init(config: InitConfig): EditorTsEditor {
       isCommandPaletteOpen = true;
       commandPaletteActiveIndex = 0;
       commandPaletteContainer.style.display = 'flex';
+      commandPaletteContainer.setAttribute('aria-hidden', 'false');
       commandPaletteInput?.focus();
       renderCommandPaletteResults();
     };
@@ -2626,10 +2633,12 @@ export function init(config: InitConfig): EditorTsEditor {
       if (!commandPaletteContainer) return;
       isCommandPaletteOpen = false;
       commandPaletteContainer.style.display = 'none';
+      commandPaletteContainer.setAttribute('aria-hidden', 'true');
     };
 
     if (commandPaletteContainer) {
       commandPaletteContainer.style.display = 'none';
+      commandPaletteContainer.setAttribute('aria-hidden', 'true');
     }
 
     commandPaletteInput?.addEventListener('input', () => {
