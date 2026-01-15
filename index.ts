@@ -39,6 +39,7 @@ export {
   chooseChatModel,
 } from './src/core/aiChat';
 export { VersionControl } from './src/core/VersionControl';
+export { KeyboardShortcuts, createDefaultShortcuts } from './src/core/KeyboardShortcuts';
 
 // Type exports
 export type {

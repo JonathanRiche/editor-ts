@@ -7,10 +7,9 @@ import { Page } from './Page';
 import { LayerManager } from './LayerManager';
 import { ComponentPalette } from './ComponentPalette';
 import { StorageManager } from './StorageManager';
-import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
-import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
-import { applyAiReplacementsToPage, requestAiReplacements } from './aiChat';
 import { VersionControl } from './VersionControl';
+import { KeyboardShortcuts, createDefaultShortcuts } from './KeyboardShortcuts';
+import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
 import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName } from '../types';
 
 /**
@@ -566,6 +565,32 @@ export function init(config: InitConfig): EditorTsEditor {
   let renderCommandPaletteResults = (): void => {};
   let openCommandPalette = (): void => {};
   let closeCommandPalette = (): void => {};
+  const keyboardShortcuts = new KeyboardShortcuts({
+    shortcuts: [
+      ...createDefaultShortcuts({
+        openCommandPalette: commandPaletteEnabled ? openCommandPalette : undefined,
+      }),
+      ...(config.shortcuts ?? []),
+    ],
+    shouldIgnore: (event) => {
+      if (!isCommandPaletteOpen) return false;
+      return [
+        'ArrowUp',
+        'ArrowDown',
+        'ArrowLeft',
+        'ArrowRight',
+        'Enter',
+        'Escape',
+        'Tab',
+        'Home',
+        'End',
+        'PageUp',
+        'PageDown',
+      ].includes(event.key);
+    },
+  });
+  keyboardShortcuts.bind(document);
+
   // Optional AI provider module (lazy)
   let ai: EditorTsAiModule | undefined;
 
@@ -2728,20 +2753,7 @@ export function init(config: InitConfig): EditorTsEditor {
     commandPaletteClose?.addEventListener('click', () => closeCommandPalette());
 
     document.addEventListener('keydown', (event) => {
-      const isOpen = isCommandPaletteOpen;
-      const isK = event.key.toLowerCase() === 'k';
-      const hasMod = event.metaKey || event.ctrlKey;
-
-      if (hasMod && isK) {
-        event.preventDefault();
-        if (isOpen) {
-          closeCommandPalette();
-        } else {
-          openCommandPalette();
-        }
-      }
-
-      if (isOpen && event.key === 'Escape') {
+      if (isCommandPaletteOpen && event.key === 'Escape') {
         event.preventDefault();
         closeCommandPalette();
       }

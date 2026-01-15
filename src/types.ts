@@ -504,6 +504,9 @@ export interface InitConfig {
   // - 'opencode': integrates with @opencode-ai/sdk
   aiProvider?: AiProviderConfig;
 
+  /** Optional: keyboard shortcut definitions. */
+  shortcuts?: ShortcutDefinition[];
+
   // Optional: event callbacks
   onComponentSelect?: (component: Component) => void;
   onComponentEdit?: (component: Component) => void;
@@ -523,6 +526,11 @@ export interface InitConfig {
   // Optional: storage configuration
   storage?: StorageConfig;
 }
+
+export type ShortcutDefinition = {
+  key: string;
+  action: () => void | Promise<void>;
+};
 
 export interface ImageFileInfo {
   fileName: string;
