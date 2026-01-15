@@ -297,6 +297,19 @@ function iframeWysiwygScript() {
     });
 
     el.appendChild(toolbar);
+
+    // If the toolbar would be clipped above the viewport, place it below.
+    const elRect = el.getBoundingClientRect();
+    const toolbarRect = toolbar.getBoundingClientRect();
+    const needsBelow = elRect.top - toolbarRect.height - 8 < 0;
+
+    if (needsBelow) {
+      toolbar.style.top = '100%';
+      toolbar.style.transform = 'translateY(8px)';
+    } else {
+      toolbar.style.top = '0';
+      toolbar.style.transform = 'translateY(calc(-100% - 8px))';
+    }
   }
 
   function handleToolbarAction(action: string) {
