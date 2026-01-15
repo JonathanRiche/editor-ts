@@ -2511,6 +2511,23 @@ export function init(config: InitConfig): EditorTsEditor {
       closeCommandPalette();
     };
 
+    const updateCommandPaletteActiveStyles = () => {
+      if (!commandPaletteResults) return;
+      const buttons = Array.from(
+        commandPaletteResults.querySelectorAll('button[data-editorts-palette-kind]')
+      ) as HTMLButtonElement[];
+
+      buttons.forEach((button, index) => {
+        const isActive = index === commandPaletteActiveIndex;
+        button.dataset.editortsPaletteActive = isActive ? 'true' : 'false';
+        button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        button.style.background = isActive ? 'rgba(79,70,229,0.12)' : 'white';
+        if (isActive) {
+          commandPaletteInput?.setAttribute('aria-activedescendant', button.id);
+        }
+      });
+    };
+
     renderCommandPaletteResults = () => {
       if (!commandPaletteResults || isRenderingCommandPalette) return;
       isRenderingCommandPalette = true;
@@ -2539,15 +2556,14 @@ export function init(config: InitConfig): EditorTsEditor {
       entries.forEach((entry, index) => {
         const button = document.createElement('button');
         button.type = 'button';
+        button.id = `editorts-palette-option-${index}`;
         button.dataset.editortsPaletteKind = entry.kind;
         button.dataset.editortsPaletteLabel = entry.label;
-        button.dataset.editortsPaletteActive = index === commandPaletteActiveIndex ? 'true' : 'false';
         if (entry.type) {
           button.dataset.editortsPaletteType = entry.type;
         }
         button.tabIndex = 0;
         button.setAttribute('role', 'option');
-        button.setAttribute('aria-selected', index === commandPaletteActiveIndex ? 'true' : 'false');
         button.style.display = 'flex';
         button.style.width = '100%';
         button.style.justifyContent = 'space-between';
@@ -2555,7 +2571,6 @@ export function init(config: InitConfig): EditorTsEditor {
         button.style.padding = '0.4rem 0.5rem';
         button.style.border = '1px solid rgba(0,0,0,0.08)';
         button.style.borderRadius = '6px';
-        button.style.background = index === commandPaletteActiveIndex ? 'rgba(79,70,229,0.12)' : 'white';
         button.style.cursor = 'pointer';
         button.style.marginBottom = '0.35rem';
 
@@ -2585,21 +2600,21 @@ export function init(config: InitConfig): EditorTsEditor {
 
         button.addEventListener('focus', () => {
           commandPaletteActiveIndex = index;
-          renderCommandPaletteResults();
+          updateCommandPaletteActiveStyles();
         });
 
         button.addEventListener('keydown', (event) => {
           if (event.key === 'ArrowDown') {
             event.preventDefault();
             commandPaletteActiveIndex = Math.min(commandPaletteActiveIndex + 1, entries.length - 1);
-            renderCommandPaletteResults();
+            updateCommandPaletteActiveStyles();
             return;
           }
 
           if (event.key === 'ArrowUp') {
             event.preventDefault();
             commandPaletteActiveIndex = Math.max(commandPaletteActiveIndex - 1, 0);
-            renderCommandPaletteResults();
+            updateCommandPaletteActiveStyles();
             return;
           }
 
@@ -2619,12 +2634,9 @@ export function init(config: InitConfig): EditorTsEditor {
         });
 
         commandPaletteResults.appendChild(button);
-
-        if (index === commandPaletteActiveIndex) {
-          button.focus({ preventScroll: true });
-        }
       });
 
+      updateCommandPaletteActiveStyles();
       isRenderingCommandPalette = false;
     };
 
