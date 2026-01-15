@@ -10,6 +10,7 @@ import { StorageManager } from './StorageManager';
 import { VersionControl } from './VersionControl';
 import { KeyboardShortcuts, createDefaultShortcuts } from './KeyboardShortcuts';
 import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
+import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
 import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName } from '../types';
 
 /**
