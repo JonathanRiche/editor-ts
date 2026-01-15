@@ -2760,6 +2760,24 @@ export function init(config: InitConfig): EditorTsEditor {
     shortcuts: [
       ...createDefaultShortcuts({
         openCommandPalette: commandPaletteEnabled ? openCommandPalette : undefined,
+        undo: async () => {
+          if (!versionControl || !versionControl.canUndo()) return;
+          const snapshot = versionControl.undo();
+          if (!snapshot) return;
+          await checkoutSnapshot(snapshot);
+          await persistVersionState();
+        },
+        redo: async () => {
+          if (!versionControl || !versionControl.canRedo()) return;
+          const snapshot = versionControl.redo();
+          if (!snapshot) return;
+          await checkoutSnapshot(snapshot);
+          await persistVersionState();
+        },
+        deleteSelected: async () => {
+          if (!selectedComponentId) return;
+          handleToolbarAction('delete', selectedComponentId);
+        },
       }),
       ...(config.shortcuts ?? []),
     ],

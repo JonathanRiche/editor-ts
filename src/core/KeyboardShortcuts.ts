@@ -83,14 +83,30 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
 
 export const createDefaultShortcuts = (handlers: {
   openCommandPalette?: () => void;
+  undo?: () => void | Promise<void>;
+  redo?: () => void | Promise<void>;
+  deleteSelected?: () => void | Promise<void>;
 }): ShortcutDefinition[] => {
-  if (!handlers.openCommandPalette) return [];
-  return [
-    {
-      key: 'mod+p',
-      action: handlers.openCommandPalette,
-    },
-  ];
+  const shortcuts: ShortcutDefinition[] = [];
+
+  if (handlers.openCommandPalette) {
+    shortcuts.push({ key: 'mod+p', action: handlers.openCommandPalette });
+  }
+
+  if (handlers.undo) {
+    shortcuts.push({ key: 'mod+z', action: handlers.undo });
+  }
+
+  if (handlers.redo) {
+    shortcuts.push({ key: 'mod+r', action: handlers.redo });
+  }
+
+  if (handlers.deleteSelected) {
+    shortcuts.push({ key: 'delete', action: handlers.deleteSelected });
+    shortcuts.push({ key: 'backspace', action: handlers.deleteSelected });
+  }
+
+  return shortcuts;
 };
 
 export class KeyboardShortcuts {
