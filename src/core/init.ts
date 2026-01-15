@@ -238,30 +238,30 @@ export function init(config: InitConfig): EditorTsEditor {
     ? document.getElementById(config.ui.componentPalette.containerId)
     : null;
 
+  const autoSaveProgressBar = config.ui?.autoSave?.progressBarId
+    ? (document.getElementById(config.ui.autoSave.progressBarId) as HTMLElement | null)
+    : null;
+
   // Optional code editor containers
   const jsEditorContainer = config.ui?.editors?.js?.containerId
     ? document.getElementById(config.ui.editors.js.containerId)
     : null;
-
   const cssEditorContainer = config.ui?.editors?.css?.containerId
     ? document.getElementById(config.ui.editors.css.containerId)
     : null;
-
   const jsonEditorContainer = config.ui?.editors?.json?.containerId
     ? document.getElementById(config.ui.editors.json.containerId)
     : null;
-
   const jsxEditorContainer = config.ui?.editors?.jsx?.containerId
     ? document.getElementById(config.ui.editors.jsx.containerId)
     : null;
-
   const filesViewerContainer = config.ui?.editors?.files?.containerId
     ? document.getElementById(config.ui.editors.files.containerId)
     : null;
-
   const viewerEditorContainer = config.ui?.editors?.viewer?.containerId
     ? document.getElementById(config.ui.editors.viewer.containerId)
     : null;
+
 
   // Optional: tabbed view toggle between canvas + code panels
   // This does not create UI; it only wires existing buttons.
@@ -2413,9 +2413,18 @@ export function init(config: InitConfig): EditorTsEditor {
   const autoSaveConfig = config.autoSave;
   const autoSaveEnabled = autoSaveConfig?.enabled === true;
   const autoSaveEveryEdits = Math.max(1, autoSaveConfig?.everyEdits ?? 1);
+  const autoSaveUiEnabled = autoSaveEnabled && config.ui?.autoSave?.enabled !== false;
 
   let autoSaveEditCount = 0;
   let autoSaveInFlight: Promise<void> | null = null;
+
+  const updateAutoSaveProgress = (count: number) => {
+    if (!autoSaveUiEnabled || !autoSaveProgressBar) return;
+
+    const progress = Math.min(1, Math.max(0, count / autoSaveEveryEdits));
+    autoSaveProgressBar.style.width = `${Math.round(progress * 100)}%`;
+    autoSaveProgressBar.style.opacity = progress > 0 ? '0.6' : '0';
+  };
 
   let versionStorageKey: string | null = null;
   let versionControl: VersionControl | null = null;
@@ -2478,23 +2487,30 @@ export function init(config: InitConfig): EditorTsEditor {
     if (!autoSaveEnabled) return;
 
     autoSaveEditCount += 1;
+    updateAutoSaveProgress(autoSaveEditCount);
+
     if (autoSaveEditCount < autoSaveEveryEdits) return;
 
     autoSaveEditCount = 0;
+    updateAutoSaveProgress(autoSaveEveryEdits);
 
     const key = autoSaveConfig?.key ?? activeStorageKey;
     if (!key) return;
 
     if (!autoSaveInFlight) {
-      autoSaveInFlight = saveTo(key).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        console.warn('EditorTs: auto-save failed:', message);
-      }).finally(() => {
-        autoSaveInFlight = null;
-      });
+      autoSaveInFlight = saveTo(key)
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn('EditorTs: auto-save failed:', message);
+        })
+        .finally(() => {
+          autoSaveInFlight = null;
+        });
     }
 
     await autoSaveInFlight;
+
+    setTimeout(() => updateAutoSaveProgress(0), 150);
   };
 
   const commitSnapshot = async (meta?: { source?: 'user' | 'ai' | 'system'; message?: string }) => {

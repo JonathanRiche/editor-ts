@@ -19,6 +19,18 @@
 			overflow: hidden;
 		}
 
+		#auto-save-bar {
+			position: fixed;
+			top: 0;
+			left: 0;
+			height: 2px;
+			width: 0;
+			background: var(--color-primary, #4f46e5);
+			opacity: 0;
+			transition: width 120ms ease, opacity 200ms ease;
+			z-index: 1000;
+		}
+
 		.editor-container {
 			display: flex;
 			height: 100vh;
@@ -254,7 +266,8 @@
 </head>
 
 <body>
-	<!-- Mobile sidebar toggle button -->
+		<div id="auto-save-bar" aria-hidden="true"></div>
+		<!-- Mobile sidebar toggle button -->
 	<button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">
 		<span id="toggle-icon">&#9776;</span>
 	</button>

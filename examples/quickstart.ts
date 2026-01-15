@@ -256,6 +256,11 @@ const editor = init({
       stream: { enabled: true },
       enabled: true,
     },
+
+    autoSave: {
+      progressBarId: 'auto-save-bar',
+      enabled: true,
+    },
   },
 
   // Optional: built-in editor provider.

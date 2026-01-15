@@ -396,6 +396,13 @@ export interface InitConfig {
 
       enabled?: boolean;
     };
+    /** Optional: auto-save progress UI. */
+    autoSave?: {
+      /** Progress bar element id. */
+      progressBarId?: string;
+      enabled?: boolean;
+    };
+
     editors?: {
       files?: {
         containerId?: string; // Where to render workspace file list
