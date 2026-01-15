@@ -279,6 +279,18 @@ export interface InitConfig {
   // Required: page data
   data: PageData | MultiPageData | string;
 
+  /** Optional: auto-save configuration (runtime only). */
+  autoSave?: {
+    /** Enable auto-save (default: false). */
+    enabled?: boolean;
+
+    /** Save after this many edits (default: 1). */
+    everyEdits?: number;
+
+    /** Optional storage key; otherwise uses last saveTo/loadFrom key. */
+    key?: string;
+  };
+
   // Optional: toolbar configuration (runtime only)
   toolbars?: ToolbarInitConfig;
 

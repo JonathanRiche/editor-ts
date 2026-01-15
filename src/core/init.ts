@@ -2410,6 +2410,13 @@ export function init(config: InitConfig): EditorTsEditor {
   const versionControlEnabled = config.versionControl?.enabled !== false;
   const versionControlMaxSnapshots = config.versionControl?.maxSnapshots;
 
+  const autoSaveConfig = config.autoSave;
+  const autoSaveEnabled = autoSaveConfig?.enabled === true;
+  const autoSaveEveryEdits = Math.max(1, autoSaveConfig?.everyEdits ?? 1);
+
+  let autoSaveEditCount = 0;
+  let autoSaveInFlight: Promise<void> | null = null;
+
   let versionStorageKey: string | null = null;
   let versionControl: VersionControl | null = null;
   let activeStorageKey: string | null = null;
@@ -2467,7 +2474,32 @@ export function init(config: InitConfig): EditorTsEditor {
     await storage.savePage(versionStorageKey, JSON.stringify(versionControl.getState()));
   };
 
+  const triggerAutoSave = async () => {
+    if (!autoSaveEnabled) return;
+
+    autoSaveEditCount += 1;
+    if (autoSaveEditCount < autoSaveEveryEdits) return;
+
+    autoSaveEditCount = 0;
+
+    const key = autoSaveConfig?.key ?? activeStorageKey;
+    if (!key) return;
+
+    if (!autoSaveInFlight) {
+      autoSaveInFlight = saveTo(key).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn('EditorTs: auto-save failed:', message);
+      }).finally(() => {
+        autoSaveInFlight = null;
+      });
+    }
+
+    await autoSaveInFlight;
+  };
+
   const commitSnapshot = async (meta?: { source?: 'user' | 'ai' | 'system'; message?: string }) => {
+    await triggerAutoSave();
+
     if (!versionControlEnabled || !versionControl) return;
 
     versionControl.commit(captureSnapshot(), meta);
@@ -2508,10 +2540,10 @@ export function init(config: InitConfig): EditorTsEditor {
     const data = serializeData();
     await storage.savePage(key, data);
 
+    activeStorageKey = key;
+
     // Persist history alongside the page data.
     if (versionControlEnabled) {
-      activeStorageKey = key;
-
       // Default to active page index for multipage.
       const pageIndex = multiPageData ? activePageIndex : 0;
       if (!versionStorageKey) {
@@ -2525,6 +2557,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
   // Load page from storage
   async function loadFrom(key: string): Promise<boolean> {
+    activeStorageKey = key;
     const data = await storage.loadPage(key);
     if (!data) return false;
 
@@ -2550,7 +2583,6 @@ export function init(config: InitConfig): EditorTsEditor {
     }
 
     if (versionControlEnabled) {
-      activeStorageKey = key;
       const pageIndex = multiPageData ? activePageIndex : 0;
       await loadVersionState(key, pageIndex);
     }

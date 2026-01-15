@@ -267,6 +267,13 @@ const editor = init({
     },
   },
 
+  // Optional: Auto-save demo (saves every 5 edits)
+  autoSave: {
+    enabled: true,
+    everyEdits: 5,
+    key: 'quickstart-page',
+  },
+
   // Optional: AI provider
   // Demonstrates passing a user-created OpenCode client instance.
   aiProvider: {
