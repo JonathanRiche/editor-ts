@@ -242,6 +242,22 @@ export function init(config: InitConfig): EditorTsEditor {
     ? (document.getElementById(config.ui.autoSave.progressBarId) as HTMLElement | null)
     : null;
 
+  const commandPaletteContainer = config.ui?.commandPalette?.containerId
+    ? (document.getElementById(config.ui.commandPalette.containerId) as HTMLElement | null)
+    : null;
+  const commandPaletteInput = config.ui?.commandPalette?.inputId
+    ? (document.getElementById(config.ui.commandPalette.inputId) as HTMLInputElement | null)
+    : null;
+  const commandPaletteResults = config.ui?.commandPalette?.resultsId
+    ? (document.getElementById(config.ui.commandPalette.resultsId) as HTMLElement | null)
+    : null;
+  const commandPaletteClose = config.ui?.commandPalette?.closeButtonId
+    ? (document.getElementById(config.ui.commandPalette.closeButtonId) as HTMLButtonElement | null)
+    : null;
+  const commandPaletteHint = config.ui?.commandPalette?.hintId
+    ? (document.getElementById(config.ui.commandPalette.hintId) as HTMLElement | null)
+    : null;
+
   // Optional code editor containers
   const jsEditorContainer = config.ui?.editors?.js?.containerId
     ? document.getElementById(config.ui.editors.js.containerId)
@@ -530,6 +546,18 @@ export function init(config: InitConfig): EditorTsEditor {
   // Initialize storage manager early so AI UI helpers can access it.
   const storage = new StorageManager(config.storage);
 
+  // Command palette state
+  const commandPaletteConfig = config.ui?.commandPalette;
+  const commandPaletteEnabled = commandPaletteConfig?.enabled !== false
+    && !!commandPaletteContainer
+    && !!commandPaletteInput
+    && !!commandPaletteResults;
+
+  let isCommandPaletteOpen = false;
+  let commandPaletteEntries: Array<{ type: string; label: string }> = [];
+  let renderCommandPaletteResults = (): void => {};
+  let openCommandPalette = (): void => {};
+  let closeCommandPalette = (): void => {};
   // Optional AI provider module (lazy)
   let ai: EditorTsAiModule | undefined;
 
@@ -2429,6 +2457,159 @@ export function init(config: InitConfig): EditorTsEditor {
   let versionStorageKey: string | null = null;
   let versionControl: VersionControl | null = null;
   let activeStorageKey: string | null = null;
+
+  if (commandPaletteEnabled) {
+    commandPaletteEntries = Object.values(componentRegistry).map((def) => ({
+      type: def.type,
+      label: def.label ?? def.type,
+    }));
+
+    const renderHint = (text: string) => {
+      if (commandPaletteHint) {
+        commandPaletteHint.textContent = text;
+      }
+    };
+
+    const addComponentFromPalette = async (type: string) => {
+      const def = componentRegistry[type];
+      if (!def) return;
+
+      const newComponent = def.factory();
+      const targetId = selectedComponentId ?? null;
+
+      if (targetId) {
+        page.components.addChildComponent(targetId, newComponent);
+      } else {
+        page.components.addComponent(newComponent);
+      }
+
+      emit('componentInsert', newComponent, targetId);
+
+      await commitSnapshot({ source: 'user', message: 'command palette add' });
+      refresh();
+      closeCommandPalette();
+    };
+
+    renderCommandPaletteResults = () => {
+      if (!commandPaletteResults) return;
+      const query = commandPaletteInput?.value.trim().toLowerCase() ?? '';
+
+      const entries = commandPaletteEntries.filter((entry) => entry.label.toLowerCase().includes(query) || entry.type.includes(query));
+
+      commandPaletteResults.innerHTML = '';
+
+      if (entries.length === 0) {
+        const empty = document.createElement('div');
+        empty.textContent = 'No matching components';
+        empty.style.opacity = '0.6';
+        commandPaletteResults.appendChild(empty);
+        renderHint('No matches');
+        return;
+      }
+
+      renderHint('Press Enter to add to selected or to the page root.');
+
+      entries.forEach((entry, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.editortsPaletteType = entry.type;
+        button.style.display = 'flex';
+        button.style.width = '100%';
+        button.style.justifyContent = 'space-between';
+        button.style.alignItems = 'center';
+        button.style.padding = '0.4rem 0.5rem';
+        button.style.border = '1px solid rgba(0,0,0,0.08)';
+        button.style.borderRadius = '6px';
+        button.style.background = index === 0 ? 'rgba(79,70,229,0.08)' : 'white';
+        button.style.cursor = 'pointer';
+        button.style.marginBottom = '0.35rem';
+
+        const label = document.createElement('span');
+        label.textContent = entry.label;
+
+        const tag = document.createElement('span');
+        tag.textContent = entry.type;
+        tag.style.fontSize = '0.75rem';
+        tag.style.opacity = '0.6';
+
+        button.appendChild(label);
+        button.appendChild(tag);
+
+        button.addEventListener('click', () => {
+          void addComponentFromPalette(entry.type);
+        });
+
+        commandPaletteResults.appendChild(button);
+      });
+    };
+
+    openCommandPalette = () => {
+      if (!commandPaletteContainer) return;
+      isCommandPaletteOpen = true;
+      commandPaletteContainer.style.display = 'flex';
+      commandPaletteInput?.focus();
+      renderCommandPaletteResults();
+    };
+
+    closeCommandPalette = () => {
+      if (!commandPaletteContainer) return;
+      isCommandPaletteOpen = false;
+      commandPaletteContainer.style.display = 'none';
+    };
+
+    if (commandPaletteContainer) {
+      commandPaletteContainer.style.display = 'none';
+    }
+
+    commandPaletteInput?.addEventListener('input', () => {
+      renderCommandPaletteResults();
+    });
+
+    commandPaletteInput?.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeCommandPalette();
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        const first = commandPaletteResults?.querySelector('[data-editorts-palette-type]') as HTMLElement | null;
+        const type = first?.dataset.editortsPaletteType;
+        if (type) {
+          event.preventDefault();
+          void addComponentFromPalette(type);
+        }
+      }
+    });
+
+    commandPaletteContainer?.addEventListener('click', (event) => {
+      if (event.target === commandPaletteContainer) {
+        closeCommandPalette();
+      }
+    });
+
+    commandPaletteClose?.addEventListener('click', () => closeCommandPalette());
+
+    document.addEventListener('keydown', (event) => {
+      const isOpen = isCommandPaletteOpen;
+      const isK = event.key.toLowerCase() === 'k';
+      const hasMod = event.metaKey || event.ctrlKey;
+
+      if (hasMod && isK) {
+        event.preventDefault();
+        if (isOpen) {
+          closeCommandPalette();
+        } else {
+          openCommandPalette();
+        }
+      }
+
+      if (isOpen && event.key === 'Escape') {
+        event.preventDefault();
+        closeCommandPalette();
+      }
+    });
+  }
 
   const captureSnapshot = (): PageData => {
     // Page.toObject() returns a live reference; clone to keep history stable.

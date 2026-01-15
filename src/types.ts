@@ -403,6 +403,22 @@ export interface InitConfig {
       enabled?: boolean;
     };
 
+    /** Optional: command palette UI (Ctrl/Cmd+K). */
+    commandPalette?: {
+      /** Root modal container id. */
+      containerId?: string;
+      /** Search input id. */
+      inputId?: string;
+      /** Results list container id. */
+      resultsId?: string;
+      /** Optional: close button id. */
+      closeButtonId?: string;
+      /** Optional: hint element id (for status text). */
+      hintId?: string;
+      /** Enable palette UI (default true when IDs provided). */
+      enabled?: boolean;
+    };
+
     editors?: {
       files?: {
         containerId?: string; // Where to render workspace file list

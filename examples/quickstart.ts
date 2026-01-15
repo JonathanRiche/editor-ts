@@ -261,6 +261,14 @@ const editor = init({
       progressBarId: 'auto-save-bar',
       enabled: true,
     },
+    commandPalette: {
+      containerId: 'command-palette',
+      inputId: 'command-palette-input',
+      resultsId: 'command-palette-results',
+      closeButtonId: 'command-palette-close',
+      hintId: 'command-palette-hint',
+      enabled: true,
+    },
   },
 
   // Optional: built-in editor provider.

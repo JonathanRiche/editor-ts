@@ -345,10 +345,24 @@
 					<div style="display:flex; gap:0.5rem;">
 						<button id="ai-chat-send" type="button">Send & Apply</button>
 						<button id="ai-chat-apply" type="button" disabled>Apply last reply</button>
+						</div>
+						<pre id="ai-chat-log" style="white-space: pre-wrap; max-height: 220px; overflow:auto;"></pre>
 					</div>
-					<pre id="ai-chat-log" style="white-space: pre-wrap; max-height: 220px; overflow:auto;"></pre>
 				</div>
-			</div>
+
+				<!-- Command palette (Ctrl/Cmd+K) -->
+				<div id="command-palette" style="display:none; position:fixed; inset:0; background: rgba(0,0,0,0.35); align-items:flex-start; justify-content:center; padding-top:12vh; z-index:1200;">
+					<div style="background:white; border-radius:12px; width:min(520px, 92vw); box-shadow: var(--shadow-lg); padding:1rem; display:flex; flex-direction:column; gap:0.5rem;">
+						<div style="display:flex; align-items:center; justify-content:space-between;">
+							<div style="font-weight:600;">Add Component</div>
+							<button id="command-palette-close" type="button">✕</button>
+						</div>
+						<input id="command-palette-input" type="text" placeholder="Search components…" style="width:100%; padding:0.5rem; border:1px solid var(--color-primary-border); border-radius:8px;" />
+						<div id="command-palette-results" style="display:flex; flex-direction:column; gap:0.35rem; max-height:320px; overflow:auto;"></div>
+						<div id="command-palette-hint" style="font-size:0.75rem; opacity:0.6;">Press Enter to add to selected or to the page root.</div>
+					</div>
+				</div>
+
 
 
 			<!-- Selected component info -->
