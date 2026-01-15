@@ -2751,6 +2751,7 @@ export function init(config: InitConfig): EditorTsEditor {
       }),
       ...(config.shortcuts ?? []),
     ],
+    modKey: config.shortcutConfig?.modKey ?? 'ctrl',
     shouldIgnore: (event) => {
       if (!isCommandPaletteOpen) return false;
       return [

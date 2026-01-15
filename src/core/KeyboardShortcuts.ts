@@ -10,6 +10,8 @@ type ParsedShortcut = {
   action: () => void | Promise<void>;
 };
 
+type ModKey = 'ctrl' | 'meta' | 'alt';
+
 const normalizeKey = (value: string): string => {
   const lowered = value.toLowerCase();
   if (lowered === ' ') return 'space';
@@ -96,15 +98,18 @@ export class KeyboardShortcuts {
   private shouldIgnore?: (event: KeyboardEvent) => boolean;
   private boundHandler?: (event: KeyboardEvent) => void;
   private target: Document | null = null;
+  private modKey: ModKey;
 
   constructor(options: {
     shortcuts: ShortcutDefinition[];
     shouldIgnore?: (event: KeyboardEvent) => boolean;
+    modKey?: ModKey;
   }) {
     this.shortcuts = options.shortcuts
       .map(parseShortcut)
       .filter((shortcut): shortcut is ParsedShortcut => !!shortcut);
     this.shouldIgnore = options.shouldIgnore;
+    this.modKey = options.modKey ?? 'ctrl';
   }
 
   bind(target: Document = document): void {
@@ -123,7 +128,11 @@ export class KeyboardShortcuts {
       for (const shortcut of this.shortcuts) {
         if (shortcut.key !== normalizedKey) continue;
 
-        const modPressed = event.metaKey || event.ctrlKey;
+        const modPressed = this.modKey === 'meta'
+          ? event.metaKey
+          : this.modKey === 'alt'
+            ? event.altKey
+            : event.ctrlKey;
         if (shortcut.mod && !modPressed) continue;
         if (shortcut.ctrl && !event.ctrlKey) continue;
         if (shortcut.meta && !event.metaKey) continue;

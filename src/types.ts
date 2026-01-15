@@ -507,6 +507,12 @@ export interface InitConfig {
   /** Optional: keyboard shortcut definitions. */
   shortcuts?: ShortcutDefinition[];
 
+  /** Optional: shortcut behavior configuration. */
+  shortcutConfig?: {
+    /** Which modifier key "mod" should map to (default: 'ctrl'). */
+    modKey?: 'ctrl' | 'meta' | 'alt';
+  };
+
   // Optional: event callbacks
   onComponentSelect?: (component: Component) => void;
   onComponentEdit?: (component: Component) => void;
