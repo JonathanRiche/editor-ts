@@ -338,10 +338,6 @@ const editor = init({
 
   onComponentDelete: (component: Component) => {
     console.log('🗑️ Deleted:', component.attributes?.id);
-    const shouldAlert = localStorage.getItem('editorts:alertOnDelete') === 'true';
-    if (shouldAlert) {
-      alert(`Deleted: ${component.attributes?.id}`);
-    }
 
     // Hide selected section
     const selectedContainer = document.getElementById('selected-container');
