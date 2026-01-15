@@ -415,6 +415,12 @@ export interface InitConfig {
       closeButtonId?: string;
       /** Optional: hint element id (for status text). */
       hintId?: string;
+      /** Optional: custom items to show in the palette. */
+      items?: Array<{
+        title: string;
+        action: () => void | Promise<void>;
+        type?: 'component' | 'command';
+      }>;
       /** Enable palette UI (default true when IDs provided). */
       enabled?: boolean;
     };

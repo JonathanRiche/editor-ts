@@ -554,7 +554,14 @@ export function init(config: InitConfig): EditorTsEditor {
     && !!commandPaletteResults;
 
   let isCommandPaletteOpen = false;
-  let commandPaletteEntries: Array<{ type: string; label: string }> = [];
+  type CommandPaletteEntry = {
+    kind: 'component' | 'command';
+    type?: string;
+    label: string;
+    action: () => void | Promise<void>;
+  };
+
+  let commandPaletteEntries: CommandPaletteEntry[] = [];
   let renderCommandPaletteResults = (): void => {};
   let openCommandPalette = (): void => {};
   let closeCommandPalette = (): void => {};
@@ -2459,10 +2466,20 @@ export function init(config: InitConfig): EditorTsEditor {
   let activeStorageKey: string | null = null;
 
   if (commandPaletteEnabled) {
-    commandPaletteEntries = Object.values(componentRegistry).map((def) => ({
+    const componentEntries: CommandPaletteEntry[] = Object.values(componentRegistry).map((def) => ({
+      kind: 'component',
       type: def.type,
       label: def.label ?? def.type,
+      action: () => undefined,
     }));
+
+    const customEntries: CommandPaletteEntry[] = (commandPaletteConfig?.items ?? []).map((item) => ({
+      kind: item.type ?? 'command',
+      label: item.title,
+      action: item.action,
+    }));
+
+    commandPaletteEntries = [...componentEntries, ...customEntries];
 
     const renderHint = (text: string) => {
       if (commandPaletteHint) {
@@ -2494,7 +2511,8 @@ export function init(config: InitConfig): EditorTsEditor {
       if (!commandPaletteResults) return;
       const query = commandPaletteInput?.value.trim().toLowerCase() ?? '';
 
-      const entries = commandPaletteEntries.filter((entry) => entry.label.toLowerCase().includes(query) || entry.type.includes(query));
+      const entries = commandPaletteEntries.filter((entry) => entry.label.toLowerCase().includes(query)
+        || (entry.type ? entry.type.includes(query) : false));
 
       commandPaletteResults.innerHTML = '';
 
@@ -2512,7 +2530,11 @@ export function init(config: InitConfig): EditorTsEditor {
       entries.forEach((entry, index) => {
         const button = document.createElement('button');
         button.type = 'button';
-        button.dataset.editortsPaletteType = entry.type;
+        button.dataset.editortsPaletteKind = entry.kind;
+        button.dataset.editortsPaletteLabel = entry.label;
+        if (entry.type) {
+          button.dataset.editortsPaletteType = entry.type;
+        }
         button.style.display = 'flex';
         button.style.width = '100%';
         button.style.justifyContent = 'space-between';
@@ -2528,7 +2550,7 @@ export function init(config: InitConfig): EditorTsEditor {
         label.textContent = entry.label;
 
         const tag = document.createElement('span');
-        tag.textContent = entry.type;
+        tag.textContent = entry.type ?? entry.kind;
         tag.style.fontSize = '0.75rem';
         tag.style.opacity = '0.6';
 
@@ -2536,7 +2558,16 @@ export function init(config: InitConfig): EditorTsEditor {
         button.appendChild(tag);
 
         button.addEventListener('click', () => {
-          void addComponentFromPalette(entry.type);
+          if (entry.kind === 'component' && entry.type) {
+            void addComponentFromPalette(entry.type);
+            return;
+          }
+
+          const result = entry.action();
+          if (result && typeof (result as Promise<void>).then === 'function') {
+            void (result as Promise<void>);
+          }
+          closeCommandPalette();
         });
 
         commandPaletteResults.appendChild(button);
@@ -2573,12 +2604,29 @@ export function init(config: InitConfig): EditorTsEditor {
       }
 
       if (event.key === 'Enter') {
-        const first = commandPaletteResults?.querySelector('[data-editorts-palette-type]') as HTMLElement | null;
-        const type = first?.dataset.editortsPaletteType;
-        if (type) {
-          event.preventDefault();
+        const first = commandPaletteResults?.querySelector('[data-editorts-palette-kind]') as HTMLElement | null;
+        const kind = first?.dataset.editortsPaletteKind ?? null;
+        const type = first?.dataset.editortsPaletteType ?? null;
+        const label = first?.dataset.editortsPaletteLabel ?? null;
+
+        if (!kind) return;
+        event.preventDefault();
+
+        if (kind === 'component' && type) {
           void addComponentFromPalette(type);
+          return;
         }
+
+        const entry = label
+          ? commandPaletteEntries.find((item) => item.label === label)
+          : null;
+        if (entry) {
+          const result = entry.action();
+          if (result && typeof (result as Promise<void>).then === 'function') {
+            void (result as Promise<void>);
+          }
+        }
+        closeCommandPalette();
       }
     });
 

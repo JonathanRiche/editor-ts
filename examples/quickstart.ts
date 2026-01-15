@@ -267,6 +267,15 @@ const editor = init({
       resultsId: 'command-palette-results',
       closeButtonId: 'command-palette-close',
       hintId: 'command-palette-hint',
+      items: [
+        {
+          title: 'Reset canvas zoom',
+          type: 'command',
+          action: () => {
+            document.documentElement.style.zoom = '1';
+          },
+        },
+      ],
       enabled: true,
     },
   },
@@ -281,7 +290,7 @@ const editor = init({
     },
   },
 
-  // Optional: Auto-save demo (saves every 5 edits)
+  // Optional: Auto-save demo (saves every 1 edits)
   autoSave: {
     enabled: true,
     everyEdits: 1,
