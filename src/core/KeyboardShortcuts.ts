@@ -113,7 +113,7 @@ export class KeyboardShortcuts {
   private shortcuts: ParsedShortcut[] = [];
   private shouldIgnore?: (event: KeyboardEvent) => boolean;
   private boundHandler?: (event: KeyboardEvent) => void;
-  private target: Document | null = null;
+  private targets = new Set<Document>();
   private modKey: ModKey;
 
   constructor(options: {
@@ -129,48 +129,64 @@ export class KeyboardShortcuts {
   }
 
   bind(target: Document = document): void {
-    if (this.boundHandler) return;
-    this.target = target;
+    if (this.targets.has(target)) return;
 
-    this.boundHandler = (event: KeyboardEvent) => {
-      if (this.shouldIgnore?.(event)) return;
+    if (!this.boundHandler) {
+      this.boundHandler = (event: KeyboardEvent) => {
+        if (this.shouldIgnore?.(event)) return;
 
-      if (isEditableTarget(event.target) && !event.metaKey && !event.ctrlKey) {
-        return;
-      }
-
-      const normalizedKey = normalizeKey(event.key);
-
-      for (const shortcut of this.shortcuts) {
-        if (shortcut.key !== normalizedKey) continue;
-
-        const modPressed = this.modKey === 'meta'
-          ? event.metaKey
-          : this.modKey === 'alt'
-            ? event.altKey
-            : event.ctrlKey;
-        if (shortcut.mod && !modPressed) continue;
-        if (shortcut.ctrl && !event.ctrlKey) continue;
-        if (shortcut.meta && !event.metaKey) continue;
-        if (shortcut.alt && !event.altKey) continue;
-        if (shortcut.shift && !event.shiftKey) continue;
-
-        event.preventDefault();
-        const result = shortcut.action();
-        if (result && typeof (result as Promise<void>).then === 'function') {
-          void (result as Promise<void>);
+        if (isEditableTarget(event.target) && !event.metaKey && !event.ctrlKey) {
+          return;
         }
-        return;
-      }
-    };
 
+        const normalizedKey = normalizeKey(event.key);
+
+        for (const shortcut of this.shortcuts) {
+          if (shortcut.key !== normalizedKey) continue;
+
+          const modPressed = this.modKey === 'meta'
+            ? event.metaKey
+            : this.modKey === 'alt'
+              ? event.altKey
+              : event.ctrlKey;
+          if (shortcut.mod && !modPressed) continue;
+          if (shortcut.ctrl && !event.ctrlKey) continue;
+          if (shortcut.meta && !event.metaKey) continue;
+          if (shortcut.alt && !event.altKey) continue;
+          if (shortcut.shift && !event.shiftKey) continue;
+
+          event.preventDefault();
+          const result = shortcut.action();
+          if (result && typeof (result as Promise<void>).then === 'function') {
+            void (result as Promise<void>);
+          }
+          return;
+        }
+      };
+    }
+
+    this.targets.add(target);
+    (target as Document & { __editortsShortcutsBound?: boolean }).__editortsShortcutsBound = true;
     target.addEventListener('keydown', this.boundHandler);
   }
 
-  unbind(): void {
-    if (!this.boundHandler || !this.target) return;
-    this.target.removeEventListener('keydown', this.boundHandler);
-    this.boundHandler = undefined;
-    this.target = null;
+  unbind(target?: Document): void {
+    if (!this.boundHandler) return;
+
+    if (target) {
+      if (this.targets.has(target)) {
+        target.removeEventListener('keydown', this.boundHandler);
+        this.targets.delete(target);
+      }
+    } else {
+      this.targets.forEach((doc) => {
+        doc.removeEventListener('keydown', this.boundHandler!);
+      });
+      this.targets.clear();
+    }
+
+    if (this.targets.size === 0) {
+      this.boundHandler = undefined;
+    }
   }
 }

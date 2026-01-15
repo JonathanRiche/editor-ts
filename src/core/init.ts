@@ -2761,22 +2761,31 @@ export function init(config: InitConfig): EditorTsEditor {
       ...createDefaultShortcuts({
         openCommandPalette: commandPaletteEnabled ? openCommandPalette : undefined,
         undo: async () => {
-          if (!versionControl || !versionControl.canUndo()) return;
-          const snapshot = versionControl.undo();
-          if (!snapshot) return;
-          await checkoutSnapshot(snapshot);
-          await persistVersionState();
+          if (versionControl && versionControl.canUndo()) {
+            const snapshot = versionControl.undo();
+            if (!snapshot) return;
+            await checkoutSnapshot(snapshot);
+            await persistVersionState();
+            return;
+          }
+
+          (document.getElementById('history-undo') as HTMLButtonElement | null)?.click();
         },
         redo: async () => {
-          if (!versionControl || !versionControl.canRedo()) return;
-          const snapshot = versionControl.redo();
-          if (!snapshot) return;
-          await checkoutSnapshot(snapshot);
-          await persistVersionState();
+          if (versionControl && versionControl.canRedo()) {
+            const snapshot = versionControl.redo();
+            if (!snapshot) return;
+            await checkoutSnapshot(snapshot);
+            await persistVersionState();
+            return;
+          }
+
+          (document.getElementById('history-redo') as HTMLButtonElement | null)?.click();
         },
         deleteSelected: async () => {
-          if (!selectedComponentId) return;
-          handleToolbarAction('delete', selectedComponentId);
+          const targetId = selectedComponentId ?? page.components.getAll()[0]?.attributes?.id ?? null;
+          if (!targetId) return;
+          handleToolbarAction('delete', targetId);
         },
       }),
       ...(config.shortcuts ?? []),
@@ -2800,6 +2809,14 @@ export function init(config: InitConfig): EditorTsEditor {
     },
   });
   keyboardShortcuts.bind(document);
+  if (iframe.contentDocument) {
+    keyboardShortcuts.bind(iframe.contentDocument);
+  }
+  iframe.addEventListener('load', () => {
+    if (iframe.contentDocument) {
+      keyboardShortcuts.bind(iframe.contentDocument);
+    }
+  });
 
   const captureSnapshot = (): PageData => {
     // Page.toObject() returns a live reference; clone to keep history stable.
