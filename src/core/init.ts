@@ -567,32 +567,6 @@ export function init(config: InitConfig): EditorTsEditor {
   let openCommandPalette = (): void => {};
   let closeCommandPalette = (): void => {};
 
-  const keyboardShortcuts = new KeyboardShortcuts({
-    shortcuts: [
-      ...createDefaultShortcuts({
-        openCommandPalette: commandPaletteEnabled ? openCommandPalette : undefined,
-      }),
-      ...(config.shortcuts ?? []),
-    ],
-    shouldIgnore: (event) => {
-      if (!isCommandPaletteOpen) return false;
-      return [
-        'ArrowUp',
-        'ArrowDown',
-        'ArrowLeft',
-        'ArrowRight',
-        'Enter',
-        'Escape',
-        'Tab',
-        'Home',
-        'End',
-        'PageUp',
-        'PageDown',
-      ].includes(event.key);
-    },
-  });
-  keyboardShortcuts.bind(document);
-
   // Optional AI provider module (lazy)
   let ai: EditorTsAiModule | undefined;
 
@@ -2763,6 +2737,32 @@ export function init(config: InitConfig): EditorTsEditor {
       }
     });
   }
+
+  const keyboardShortcuts = new KeyboardShortcuts({
+    shortcuts: [
+      ...createDefaultShortcuts({
+        openCommandPalette: commandPaletteEnabled ? openCommandPalette : undefined,
+      }),
+      ...(config.shortcuts ?? []),
+    ],
+    shouldIgnore: (event) => {
+      if (!isCommandPaletteOpen) return false;
+      return [
+        'ArrowUp',
+        'ArrowDown',
+        'ArrowLeft',
+        'ArrowRight',
+        'Enter',
+        'Escape',
+        'Tab',
+        'Home',
+        'End',
+        'PageUp',
+        'PageDown',
+      ].includes(event.key);
+    },
+  });
+  keyboardShortcuts.bind(document);
 
   const captureSnapshot = (): PageData => {
     // Page.toObject() returns a live reference; clone to keep history stable.
