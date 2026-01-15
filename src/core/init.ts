@@ -566,6 +566,7 @@ export function init(config: InitConfig): EditorTsEditor {
   let renderCommandPaletteResults = (): void => {};
   let openCommandPalette = (): void => {};
   let closeCommandPalette = (): void => {};
+
   const keyboardShortcuts = new KeyboardShortcuts({
     shortcuts: [
       ...createDefaultShortcuts({
@@ -1052,8 +1053,9 @@ export function init(config: InitConfig): EditorTsEditor {
         }
       }
 
+    }
 
-   // Built-in code editor setup (optional)
+  // Built-in code editor setup (optional)
   const codeEditorProvider = config.codeEditor?.provider ?? 'textarea';
 
   type RuntimeCodeEditor = {
@@ -2543,6 +2545,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
       commandPaletteResults.innerHTML = '';
       commandPaletteResults.setAttribute('role', 'listbox');
+
       if (entries.length === 0) {
         const empty = document.createElement('div');
         empty.textContent = 'No matching components';
@@ -2560,10 +2563,10 @@ export function init(config: InitConfig): EditorTsEditor {
         button.type = 'button';
         button.dataset.editortsPaletteKind = entry.kind;
         button.dataset.editortsPaletteLabel = entry.label;
+        button.dataset.editortsPaletteActive = index === commandPaletteActiveIndex ? 'true' : 'false';
         if (entry.type) {
           button.dataset.editortsPaletteType = entry.type;
         }
-        button.dataset.editortsPaletteActive = index === commandPaletteActiveIndex ? 'true' : 'false';
         button.tabIndex = 0;
         button.setAttribute('role', 'option');
         button.setAttribute('aria-selected', index === commandPaletteActiveIndex ? 'true' : 'false');
@@ -2607,10 +2610,6 @@ export function init(config: InitConfig): EditorTsEditor {
           renderCommandPaletteResults();
         });
 
-        if (index === commandPaletteActiveIndex) {
-          button.focus({ preventScroll: true });
-        }
-
         button.addEventListener('keydown', (event) => {
           if (event.key === 'ArrowDown') {
             event.preventDefault();
@@ -2642,6 +2641,10 @@ export function init(config: InitConfig): EditorTsEditor {
         });
 
         commandPaletteResults.appendChild(button);
+
+        if (index === commandPaletteActiveIndex) {
+          button.focus({ preventScroll: true });
+        }
       });
     };
 
@@ -3013,5 +3016,4 @@ export function init(config: InitConfig): EditorTsEditor {
       selectedInfo: selectedInfoContainer || undefined,
     }
   };
-}
 }
