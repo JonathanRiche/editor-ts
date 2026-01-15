@@ -563,6 +563,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
   let commandPaletteEntries: CommandPaletteEntry[] = [];
   let commandPaletteActiveIndex = 0;
+  let isRenderingCommandPalette = false;
   let renderCommandPaletteResults = (): void => {};
   let openCommandPalette = (): void => {};
   let closeCommandPalette = (): void => {};
@@ -2511,7 +2512,9 @@ export function init(config: InitConfig): EditorTsEditor {
     };
 
     renderCommandPaletteResults = () => {
-      if (!commandPaletteResults) return;
+      if (!commandPaletteResults || isRenderingCommandPalette) return;
+      isRenderingCommandPalette = true;
+
       const query = commandPaletteInput?.value.trim().toLowerCase() ?? '';
 
       const entries = commandPaletteEntries.filter((entry) => entry.label.toLowerCase().includes(query)
@@ -2526,6 +2529,7 @@ export function init(config: InitConfig): EditorTsEditor {
         empty.style.opacity = '0.6';
         commandPaletteResults.appendChild(empty);
         renderHint('No matches');
+        isRenderingCommandPalette = false;
         return;
       }
 
@@ -2620,6 +2624,8 @@ export function init(config: InitConfig): EditorTsEditor {
           button.focus({ preventScroll: true });
         }
       });
+
+      isRenderingCommandPalette = false;
     };
 
     openCommandPalette = () => {
