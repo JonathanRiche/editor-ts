@@ -2508,6 +2508,10 @@ export function init(config: InitConfig): EditorTsEditor {
     await persistVersionState();
   };
 
+  if (config.initialStorageKey) {
+    void loadFrom(config.initialStorageKey);
+  }
+
   const checkoutSnapshot = async (snapshot: PageData) => {
     const toolbarRuntimeConfig = page.toolbars.exportConfig();
 

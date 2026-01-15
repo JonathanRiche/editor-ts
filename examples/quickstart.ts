@@ -97,8 +97,9 @@ const multiPageData = {
 const editor = init({
   storage: {
     type: 'local',
-
   },
+
+  initialStorageKey: 'quickstart-page',
   // Required: The iframe element ID (user creates this in HTML)
   iframeId: 'preview-iframe',
 

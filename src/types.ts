@@ -279,6 +279,9 @@ export interface InitConfig {
   // Required: page data
   data: PageData | MultiPageData | string;
 
+  /** Optional: load initial data from storage. */
+  initialStorageKey?: string;
+
   /** Optional: auto-save configuration (runtime only). */
   autoSave?: {
     /** Enable auto-save (default: false). */
