@@ -562,6 +562,7 @@ export function init(config: InitConfig): EditorTsEditor {
   };
 
   let commandPaletteEntries: CommandPaletteEntry[] = [];
+  let commandPaletteActiveIndex = 0;
   let renderCommandPaletteResults = (): void => {};
   let openCommandPalette = (): void => {};
   let closeCommandPalette = (): void => {};
@@ -2525,6 +2526,7 @@ export function init(config: InitConfig): EditorTsEditor {
         return;
       }
 
+      commandPaletteActiveIndex = Math.max(0, Math.min(commandPaletteActiveIndex, entries.length - 1));
       renderHint('Press Enter to add to selected or to the page root.');
 
       entries.forEach((entry, index) => {
@@ -2535,6 +2537,8 @@ export function init(config: InitConfig): EditorTsEditor {
         if (entry.type) {
           button.dataset.editortsPaletteType = entry.type;
         }
+        button.tabIndex = 0;
+        button.setAttribute('aria-selected', index === commandPaletteActiveIndex ? 'true' : 'false');
         button.style.display = 'flex';
         button.style.width = '100%';
         button.style.justifyContent = 'space-between';
@@ -2542,7 +2546,7 @@ export function init(config: InitConfig): EditorTsEditor {
         button.style.padding = '0.4rem 0.5rem';
         button.style.border = '1px solid rgba(0,0,0,0.08)';
         button.style.borderRadius = '6px';
-        button.style.background = index === 0 ? 'rgba(79,70,229,0.08)' : 'white';
+        button.style.background = index === commandPaletteActiveIndex ? 'rgba(79,70,229,0.12)' : 'white';
         button.style.cursor = 'pointer';
         button.style.marginBottom = '0.35rem';
 
@@ -2570,6 +2574,41 @@ export function init(config: InitConfig): EditorTsEditor {
           closeCommandPalette();
         });
 
+        button.addEventListener('focus', () => {
+          commandPaletteActiveIndex = index;
+          renderCommandPaletteResults();
+        });
+
+        button.addEventListener('keydown', (event) => {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            commandPaletteActiveIndex = Math.min(commandPaletteActiveIndex + 1, entries.length - 1);
+            renderCommandPaletteResults();
+            return;
+          }
+
+          if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            commandPaletteActiveIndex = Math.max(commandPaletteActiveIndex - 1, 0);
+            renderCommandPaletteResults();
+            return;
+          }
+
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            if (entry.kind === 'component' && entry.type) {
+              void addComponentFromPalette(entry.type);
+              return;
+            }
+
+            const result = entry.action();
+            if (result && typeof (result as Promise<void>).then === 'function') {
+              void (result as Promise<void>);
+            }
+            closeCommandPalette();
+          }
+        });
+
         commandPaletteResults.appendChild(button);
       });
     };
@@ -2577,6 +2616,7 @@ export function init(config: InitConfig): EditorTsEditor {
     openCommandPalette = () => {
       if (!commandPaletteContainer) return;
       isCommandPaletteOpen = true;
+      commandPaletteActiveIndex = 0;
       commandPaletteContainer.style.display = 'flex';
       commandPaletteInput?.focus();
       renderCommandPaletteResults();
@@ -2593,8 +2633,24 @@ export function init(config: InitConfig): EditorTsEditor {
     }
 
     commandPaletteInput?.addEventListener('input', () => {
+      commandPaletteActiveIndex = 0;
       renderCommandPaletteResults();
     });
+
+    const selectEntry = (entry: CommandPaletteEntry | undefined) => {
+      if (!entry) return;
+
+      if (entry.kind === 'component' && entry.type) {
+        void addComponentFromPalette(entry.type);
+        return;
+      }
+
+      const result = entry.action();
+      if (result && typeof (result as Promise<void>).then === 'function') {
+        void (result as Promise<void>);
+      }
+      closeCommandPalette();
+    };
 
     commandPaletteInput?.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
@@ -2603,30 +2659,54 @@ export function init(config: InitConfig): EditorTsEditor {
         return;
       }
 
-      if (event.key === 'Enter') {
-        const first = commandPaletteResults?.querySelector('[data-editorts-palette-kind]') as HTMLElement | null;
-        const kind = first?.dataset.editortsPaletteKind ?? null;
-        const type = first?.dataset.editortsPaletteType ?? null;
-        const label = first?.dataset.editortsPaletteLabel ?? null;
-
-        if (!kind) return;
+      if (event.key === 'ArrowDown') {
         event.preventDefault();
+        commandPaletteActiveIndex = Math.min(commandPaletteActiveIndex + 1, commandPaletteEntries.length - 1);
+        renderCommandPaletteResults();
+        return;
+      }
 
-        if (kind === 'component' && type) {
-          void addComponentFromPalette(type);
-          return;
-        }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        commandPaletteActiveIndex = Math.max(commandPaletteActiveIndex - 1, 0);
+        renderCommandPaletteResults();
+        return;
+      }
 
-        const entry = label
-          ? commandPaletteEntries.find((item) => item.label === label)
-          : null;
-        if (entry) {
-          const result = entry.action();
-          if (result && typeof (result as Promise<void>).then === 'function') {
-            void (result as Promise<void>);
-          }
-        }
-        closeCommandPalette();
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        const options = commandPaletteResults?.querySelectorAll('[data-editorts-palette-kind]') ?? [];
+        const node = options.item(commandPaletteActiveIndex) as HTMLElement | null;
+        node?.focus();
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        const entry = commandPaletteEntries[commandPaletteActiveIndex];
+        selectEntry(entry);
+      }
+    });
+
+    commandPaletteResults?.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        commandPaletteActiveIndex = Math.min(commandPaletteActiveIndex + 1, commandPaletteEntries.length - 1);
+        renderCommandPaletteResults();
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        commandPaletteActiveIndex = Math.max(commandPaletteActiveIndex - 1, 0);
+        renderCommandPaletteResults();
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        const entry = commandPaletteEntries[commandPaletteActiveIndex];
+        selectEntry(entry);
       }
     });
 
