@@ -270,7 +270,7 @@ const editor = init({
   // Optional: Auto-save demo (saves every 5 edits)
   autoSave: {
     enabled: true,
-    everyEdits: 5,
+    everyEdits: 1,
     key: 'quickstart-page',
   },
 
