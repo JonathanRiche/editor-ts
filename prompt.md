@@ -7,6 +7,7 @@ You are an autonomous coding agent working on a **TypeScript library** using **o
 - **Base branch**: `main`
 - **Create feature branches from**: `main`
 - **Merge/rebase back to**: `main`
+- ** DO NOT USE WORKTRESS allways merge back to main**
 
 When starting work:
 ```bash
