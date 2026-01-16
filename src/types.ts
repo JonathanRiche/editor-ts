@@ -21,6 +21,8 @@ export interface MultiPageData {
   activePageIndex?: number;
 }
 
+export type PagePayload = PageData | MultiPageData | string;
+
 export type AiProviderType = 'disabled' | 'opencode';
 export type AiProviderMode = 'client' | 'client+server';
 
@@ -246,6 +248,21 @@ export type ComponentSelector =
   | { attributes: Record<string, JsonValue> }
   | { custom: (component: Component) => boolean };
 
+export interface EditorTsSyncMessage {
+  type: 'page';
+  key?: string;
+  payload: PagePayload;
+  sentAt: string;
+}
+
+export interface EditorTsSyncAck {
+  type: 'ack';
+  messageId: string;
+  receivedAt: string;
+}
+
+export type EditorTsSyncEnvelope = EditorTsSyncMessage | EditorTsSyncAck;
+
 export type CustomComponentDefinition = {
   /** Unique type identifier for this component (e.g. 'hero', 'button'). */
   type: string;
@@ -286,7 +303,7 @@ export interface InitConfig {
   };
 
   // Required: page data
-  data: PageData | MultiPageData | string;
+  data: PagePayload;
 
   /** Optional: load initial data from storage. */
   initialStorageKey?: string;
