@@ -3,7 +3,7 @@
  * User controls the layout in index.html, init() populates it
  */
 
-import { init, createCustomComponentDefinition, type PageData, type Component, type PagesRenderProps, type InitConfig } from '../index';
+import { init, createCustomComponentDefinition, syncFrontendWithServer, type PageData, type Component, type PagesRenderProps, type InitConfig, type ServerSyncAdapter, type ServerPageMeta, type ServerFile } from '../index';
 // import sampleData from '../samples/page_template.json';
 
 console.log('QuickStart script loaded');
@@ -97,6 +97,7 @@ const multiPageData = {
 const editorConfig: InitConfig = {
   storage: {
     type: 'local',
+    prefix: 'quickstart_',
   },
 
   initialStorageKey: 'quickstart-page',
@@ -375,6 +376,46 @@ const editorConfig: InitConfig = {
 };
 
 const editor = init(editorConfig);
+
+const quickstartServerAdapter: ServerSyncAdapter = {
+  listPages: async (): Promise<ServerPageMeta[]> => {
+    return [
+      {
+        key: 'quickstart-page',
+        updatedAt: Date.now(),
+      },
+    ];
+  },
+  listFiles: async (): Promise<ServerFile[]> => {
+    return [
+      {
+        path: 'page.json',
+        content: editor.save(),
+      },
+      {
+        path: 'styles.css',
+        content: editor.page.getCSS() ?? '',
+      },
+      {
+        path: 'index.html',
+        content: `<!DOCTYPE html><html><head><meta charset="utf-8" /><link rel="stylesheet" href="styles.css" /></head>${editor.page.getHTML()}</html>`,
+      },
+    ];
+  },
+  saveFiles: async (pageKey: string, files: ServerFile[]): Promise<void> => {
+    console.log('Sync upload (mock):', pageKey, files.length, 'files');
+  },
+};
+
+void syncFrontendWithServer({
+  pageKey: 'quickstart-page',
+  storage: editor.storage.getAdapter(),
+  adapter: quickstartServerAdapter,
+  includeFiles: (path) => path !== 'meta',
+  onStatus: (status) => {
+    console.log('Sync status:', status.state);
+  },
+});
 
 // ==================== USE THE EDITOR INSTANCE ====================
 
