@@ -1923,15 +1923,22 @@ export function init(config: InitConfig): EditorTsEditor {
       const targetInfo = page.components.getParentAndIndex(targetId);
       if (!targetInfo) return;
 
-      page.components.moveComponent(draggedId, targetInfo.parentId, targetInfo.index);
- 
+      const parentId = typeof event.data.targetParentId === 'string'
+        ? event.data.targetParentId
+        : targetInfo.parentId;
+      const nextIndex = Number.isFinite(event.data.targetIndex)
+        ? Number(event.data.targetIndex)
+        : targetInfo.index;
+
+      page.components.moveComponent(draggedId, parentId, nextIndex);
+
       const component = page.components.findById(draggedId);
       if (component) {
-        emit('componentReorder', component, targetInfo.parentId, targetInfo.index);
+        emit('componentReorder', component, parentId, nextIndex);
       }
- 
+
       void commitSnapshot({ source: 'user', message: 'reorder component' });
- 
+
       refresh();
       refreshLayers();
     } else if (event.data.type === 'editorts:placeComponent') {

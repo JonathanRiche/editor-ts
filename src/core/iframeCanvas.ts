@@ -119,6 +119,41 @@ function iframeWysiwygScript() {
   // Drag and drop state
   let draggedElement: HTMLElement | null = null;
   let draggedId: string | null = null;
+  const dropEdgeThreshold = 0.25;
+
+  const isComponentElement = (el: HTMLElement | null): el is HTMLElement => {
+    return !!el && !!el.id && !el.id.startsWith('editorts-');
+  };
+
+  const getParentComponent = (el: HTMLElement): HTMLElement | null => {
+    let parent = el.parentElement;
+    while (parent) {
+      const candidate = parent as HTMLElement;
+      if (isComponentElement(candidate)) return candidate;
+      parent = parent.parentElement;
+    }
+    return null;
+  };
+
+  const getChildComponents = (el: HTMLElement): HTMLElement[] => {
+    return Array.from(el.children)
+      .filter((child): child is HTMLElement => isComponentElement(child as HTMLElement));
+  };
+
+  const getRootComponents = (): HTMLElement[] => {
+    return Array.from(document.body.children)
+      .filter((child): child is HTMLElement => isComponentElement(child as HTMLElement));
+  };
+
+  const getDropPosition = (el: HTMLElement, clientY: number): 'before' | 'inside' | 'after' => {
+    const rect = el.getBoundingClientRect();
+    const offset = clientY - rect.top;
+    const edgeSize = rect.height * dropEdgeThreshold;
+
+    if (offset <= edgeSize) return 'before';
+    if (offset >= rect.height - edgeSize) return 'after';
+    return 'inside';
+  };
 
   // Double-tap detection for mobile
   const doubleTapDelay = 300; // ms
@@ -187,11 +222,30 @@ function iframeWysiwygScript() {
 
         if (!draggedId || draggedId === el.id) return;
 
+        const position = getDropPosition(el, e.clientY);
+        const parentComponent = getParentComponent(el);
+        const targetParentId = parentComponent ? parentComponent.id : null;
+
+        let newParentId = targetParentId;
+        let newIndex = 0;
+
+        if (position === 'inside') {
+          newParentId = el.id;
+          newIndex = getChildComponents(el).length;
+        } else {
+          const siblings = parentComponent ? getChildComponents(parentComponent) : getRootComponents();
+          const currentIndex = siblings.findIndex((node) => node.id === el.id);
+          const baseIndex = currentIndex === -1 ? siblings.length : currentIndex;
+          newIndex = position === 'before' ? baseIndex : baseIndex + 1;
+        }
+
         window.parent.postMessage(
           {
             type: 'editorts:canvasReorder',
             draggedId,
             targetId: el.id,
+            targetParentId: newParentId,
+            targetIndex: newIndex,
           },
           '*'
         );
