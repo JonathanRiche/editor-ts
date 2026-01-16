@@ -2,3 +2,16 @@
 Branch: main
 Started: Thu Jan 15 10:10:39 PM EST 2026
 ---
+
+## Codebase Patterns
+- `index.html` defines demo UI elements (like AI chat controls).
+- `examples/quickstart.ts` wires UI IDs to `init()` config.
+- AI chat behavior is centralized in `src/core/init.ts` and `src/core/aiChat.ts`.
+
+## 2026-01-15 23:53 - 2025-12-19-supertab-7gv
+- Added AI chat model selection dropdown + model routing to chat prompts.
+- Files changed: `src/types.ts`, `src/core/aiChat.ts`, `src/core/init.ts`, `examples/quickstart.ts`, `index.html`, `progress.txt`.
+- **Learnings for future iterations:**
+  - `bun run build` is the configured test script; lint/typecheck scripts are absent.
+  - `examples/quickstart.ts` requires a browser context (DOM) and fails under Bun CLI.
+---

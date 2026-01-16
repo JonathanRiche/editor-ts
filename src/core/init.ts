@@ -11,7 +11,7 @@ import { VersionControl } from './VersionControl';
 import { KeyboardShortcuts, createCommandPaletteShortcuts, createDefaultShortcuts, createEditorShortcuts, type ShortcutContext } from './KeyboardShortcuts';
 import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
 import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
-import { applyAiReplacementsToPage, requestAiReplacements } from './aiChat';
+import { applyAiReplacementsToPage, normalizeOpencodeModelId, requestAiReplacements } from './aiChat';
 import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName, PagesRenderProps } from '../types';
 
 /**
@@ -200,10 +200,13 @@ export function init(config: InitConfig): EditorTsEditor {
   const aiSessionSelect = shouldEnableAiChatUi && aiChatConfig?.sessionSelectId
     ? (document.getElementById(aiChatConfig.sessionSelectId) as HTMLSelectElement | null)
     : null;
-
+  const aiModelSelect = shouldEnableAiChatUi && aiChatConfig?.modelSelectId
+    ? (document.getElementById(aiChatConfig.modelSelectId) as HTMLSelectElement | null)
+    : null;
   const aiSessionNewButton = shouldEnableAiChatUi && aiChatConfig?.sessionNewButtonId
     ? (document.getElementById(aiChatConfig.sessionNewButtonId) as HTMLButtonElement | null)
     : null;
+
 
   const aiHealthButton = shouldEnableAiChatUi && aiChatConfig?.healthButtonId
     ? (document.getElementById(aiChatConfig.healthButtonId) as HTMLButtonElement | null)
@@ -667,6 +670,28 @@ export function init(config: InitConfig): EditorTsEditor {
         });
       };
 
+      const refreshAiModelSelect = async () => {
+        if (!aiModelSelect || !ai) return;
+
+        const models = await ai.models.list();
+        aiModelSelect.innerHTML = '';
+
+        const addModelOption = (modelID: string, label: string) => {
+          const opt = document.createElement('option');
+          opt.value = modelID;
+          opt.textContent = label;
+          aiModelSelect.appendChild(opt);
+        };
+
+        models.forEach((model) => {
+          addModelOption(model.modelID, model.modelID);
+        });
+
+        if (models.length === 0) {
+          addModelOption('', 'No models');
+        }
+      };
+
       let lastAiReplacements: Array<{ path: string; content: string }> | null = null;
 
       ai = {
@@ -734,39 +759,73 @@ export function init(config: InitConfig): EditorTsEditor {
          if (mode === 'client') return aiConfig.baseUrl ?? externalServer?.url ?? null;
          return server?.url ?? externalServer?.url ?? null;
        },
-         sessions: {
-         current: () => {
-           return currentSessionId;
-         },
-         setCurrent: async (sessionId: string | null) => {
-           currentSessionId = sessionId;
-           const index = await loadSessionIndex();
-           await saveSessionIndex({ ...index, current: sessionId });
-         },
-         list: async () => {
-           const index = await loadSessionIndex();
-           return index.sessions;
-         },
-         create: async (title?: string) => {
-           const client = await ai!.getClient();
-           const result = await client.session.create({ body: { title: title ?? 'EditorTs Chat' } });
-           if (!result.data) {
-             throw new Error(`Failed to create session: ${String(result.error)}`);
-           }
+    sessions: {
+          current: () => {
+            return currentSessionId;
+          },
+          setCurrent: async (sessionId: string | null) => {
+            currentSessionId = sessionId;
+            const index = await loadSessionIndex();
+            await saveSessionIndex({ ...index, current: sessionId });
+          },
+          list: async () => {
+            const index = await loadSessionIndex();
+            return index.sessions;
+          },
+          create: async (title?: string) => {
+            const client = await ai!.getClient();
+            const result = await client.session.create({ body: { title: title ?? 'EditorTs Chat' } });
+            if (!result.data) {
+              throw new Error(`Failed to create session: ${String(result.error)}`);
+            }
 
-           const created = { id: result.data.id, title: result.data.title };
+            const created = { id: result.data.id, title: result.data.title };
 
-           const index = await loadSessionIndex();
-           const nextSessions = [created, ...index.sessions.filter((s) => s.id !== created.id)].slice(0, 50);
-           await saveSessionIndex({ current: created.id, sessions: nextSessions });
+            const index = await loadSessionIndex();
+            const nextSessions = [created, ...index.sessions.filter((s) => s.id !== created.id)].slice(0, 50);
+            await saveSessionIndex({ current: created.id, sessions: nextSessions });
 
-           return created;
-         },
-       },
+            return created;
+          },
+        },
+        models: {
+          list: async () => {
+            const result: Array<{ providerID: string; modelID: string }> = [];
+
+            const addModel = (providerID: string, modelID: string) => {
+              const normalized = normalizeOpencodeModelId(providerID, modelID);
+              if (!result.some((entry) => entry.providerID === providerID && entry.modelID === normalized)) {
+                result.push({ providerID, modelID: normalized });
+              }
+            };
+
+            addModel('opencode', 'gemini-3-pro');
+            addModel('opencode', 'claude-sonnet-4-5');
+            addModel('opencode', 'gpt-5.2-codex');
+
+            try {
+              const client = await ai!.getClient();
+              const providers = await client.config.providers();
+              const defaultModel = providers.data?.default?.opencode;
+              if (defaultModel) {
+                addModel('opencode', defaultModel);
+              }
+            } catch {
+              // ignore provider lookup failures
+            }
+
+            return result;
+          },
+        },
+
         chat: async (
           prompt: string,
           options?: {
             sessionId?: string;
+            model?: {
+              providerID: string;
+              modelID: string;
+            };
             stream?: boolean;
             onStream?: (delta: string) => void;
           }
@@ -795,6 +854,7 @@ export function init(config: InitConfig): EditorTsEditor {
           const sessionId = options?.sessionId ?? currentSessionId;
 
           const shouldStream = options?.stream ?? aiConfig.stream?.enabled === true;
+          const selectedModel = options?.model;
 
           const result = await requestAiReplacements({
             client,
@@ -803,6 +863,7 @@ export function init(config: InitConfig): EditorTsEditor {
             css: page.getCSS() ?? '',
             componentScripts,
             sessionId: sessionId ?? undefined,
+            model: selectedModel,
             stream: shouldStream,
             onStream: options?.onStream,
           });
@@ -930,6 +991,10 @@ export function init(config: InitConfig): EditorTsEditor {
           });
         }
 
+        if (aiModelSelect) {
+          void refreshAiModelSelect();
+        }
+
         if (aiSessionNewButton) {
           aiSessionNewButton.addEventListener('click', async () => {
             if (!ai) return;
@@ -974,21 +1039,28 @@ export function init(config: InitConfig): EditorTsEditor {
             try {
               const selectedSessionId = aiSessionSelect?.value?.trim() || undefined;
 
-              let streamedText = '';
-              if (streamEnabled && aiChatLog) {
-                aiChatLog.textContent = `${aiChatLog.textContent ?? ''}assistant: `;
-              }
+          let streamedText = '';
+          if (streamEnabled && aiChatLog) {
+            aiChatLog.textContent = `${aiChatLog.textContent ?? ''}assistant: `;
+          }
 
-              const result = await ai.chat(prompt, {
-                sessionId: selectedSessionId,
-                stream: streamEnabled,
-                onStream: streamEnabled
-                  ? (delta) => {
-                      streamedText += delta;
-                      appendAiChatStreamDelta(delta);
-                    }
-                  : undefined,
-              });
+          const selectedModelValue = aiModelSelect?.value?.trim() || '';
+          const model = selectedModelValue
+            ? { providerID: 'opencode', modelID: selectedModelValue }
+            : undefined;
+
+          const result = await ai.chat(prompt, {
+            sessionId: selectedSessionId,
+            model,
+            stream: streamEnabled,
+            onStream: streamEnabled
+              ? (delta) => {
+                  streamedText += delta;
+                  appendAiChatStreamDelta(delta);
+                }
+              : undefined,
+          });
+
 
               if (streamEnabled && aiChatLog) {
                 aiChatLog.textContent = `${aiChatLog.textContent ?? ''}\n\n`;
