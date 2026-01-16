@@ -11,6 +11,8 @@ Started: Thu Jan 15 10:10:39 PM EST 2026
 - Server-side sync helpers live under `src/server` and are exported from `index.ts`.
 - Page metadata helpers (`PageMetaStore`, adapters) live in `src/server` for bun/sqlite and Cloudflare durable objects.
 - Frontend sync uses storage keys prefixed with `<pageKey>:` to store per-file content alongside a `meta` entry.
+- `examples/quickstart.ts` runs in browser context and expects `document` to exist.
+- `src/core/iframeCanvas.ts` owns WYSIWYG iframe styling and event handling.
 
 ## Thu Jan 15 22:50:00 EST 2026 - 2025-12-19-supertab-dl4
 - Added sqlocal-based storage adapter and config type for OPFS-backed storage.
@@ -69,4 +71,11 @@ Started: Thu Jan 15 10:10:39 PM EST 2026
 - **Learnings for future iterations:**
   - Server sync messages are normalized to a `page` payload with simple ack responses.
   - Use `createBunSyncServer`/`createCfSyncWorker` for websocket integration in backend runtimes.
+
+## 2026-01-16 00:02:51 EST - 2025-12-19-supertab-re8
+- Added hover-only box model overlay to show margin/padding on canvas components.
+- Files changed: `src/core/iframeCanvas.ts`.
+- **Learnings for future iterations:**
+  - Box model overlays are best implemented inside the iframe WYSIWYG CSS/script.
+  - Hover interactions can be wired via `initWYSIWYG` listeners on component elements.
 ---
