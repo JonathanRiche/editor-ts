@@ -266,6 +266,15 @@ export type CustomComponentDefinition = {
 
 export type CustomComponentRegistry = Record<string, CustomComponentDefinition>;
 
+export type UiRender<Props> = (props: Props) => string | void;
+
+export type PagesRenderProps = {
+  container: HTMLElement;
+  pages: PageData[];
+  activePageIndex: number;
+  onSelect: (index: number) => void;
+};
+
 export interface InitConfig {
   // Required: iframe element ID (user creates this in their HTML)
   iframeId: string;
@@ -323,6 +332,8 @@ export interface InitConfig {
     pages?: {
       containerId?: string; // Where to render page dropdown
       enabled?: boolean;
+      /** Optional: custom render for page dropdown. */
+      render?: UiRender<PagesRenderProps>;
     };
 
     // Optional: component palette (click-to-place)

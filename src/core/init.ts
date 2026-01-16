@@ -11,7 +11,7 @@ import { VersionControl } from './VersionControl';
 import { KeyboardShortcuts, createCommandPaletteShortcuts, createDefaultShortcuts, createEditorShortcuts, type ShortcutContext } from './KeyboardShortcuts';
 import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
 import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
-import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName } from '../types';
+import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName, PagesRenderProps } from '../types';
 
 /**
  * Initialize EditorTs Editor
@@ -2413,7 +2413,7 @@ export function init(config: InitConfig): EditorTsEditor {
     refresh();
   };
 
-  const renderPagesDropdown = () => {
+  const defaultRenderPagesDropdown = (): void => {
     if (!shouldEnablePages || !pagesContainer) return;
 
     // If not multipage, show empty.
@@ -2444,6 +2444,26 @@ export function init(config: InitConfig): EditorTsEditor {
       if (!Number.isFinite(idx)) return;
       setActivePageIndex(idx);
     });
+  };
+
+  const renderPagesDropdown = () => {
+    if (!shouldEnablePages || !pagesContainer) return;
+
+    const customRender = config.ui?.pages?.render;
+    if (!customRender) {
+      defaultRenderPagesDropdown();
+      return;
+    }
+
+    const pages = multiPageData?.pages ?? [];
+    const props: PagesRenderProps = {
+      container: pagesContainer,
+      pages,
+      activePageIndex,
+      onSelect: (index) => setActivePageIndex(index),
+    };
+
+    customRender(props);
   };
 
   // Initial render for multipage dropdown (refresh() may not be called yet)

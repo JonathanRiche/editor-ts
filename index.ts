@@ -70,6 +70,8 @@ export type {
   RemoteStorageConfig,
   CustomComponentDefinition,
   CustomComponentRegistry,
+  UiRender,
+  PagesRenderProps,
 } from './src/types';
 
 export type { LayerManagerConfig } from './src/core/LayerManager';
