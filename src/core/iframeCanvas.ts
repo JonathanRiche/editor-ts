@@ -23,6 +23,28 @@ function buildWysiwygCss(): string {
       outline: 3px solid #10b981 !important;
     }
 
+    .editorts-box-model {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9998;
+      box-sizing: border-box;
+      display: none;
+    }
+    .editorts-box-model [data-layer] {
+      position: absolute;
+      inset: 0;
+      box-sizing: border-box;
+      border-style: solid;
+      pointer-events: none;
+    }
+    .editorts-box-model [data-layer="margin"] {
+      border-color: rgba(251, 146, 60, 0.35);
+    }
+    .editorts-box-model [data-layer="padding"] {
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+
     .editorts-flash {
       animation: editortsFlash 300ms cubic-bezier(0.2, 0.8, 0.2, 1) 1;
     }
@@ -123,6 +145,77 @@ function iframeWysiwygScript() {
 
   const isComponentElement = (el: HTMLElement | null): el is HTMLElement => {
     return !!el && !!el.id && !el.id.startsWith('editorts-');
+  };
+
+  const parsePixelValue = (value: string | null): number => {
+    if (!value) return 0;
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const toPixelStyle = (value: number) => `${Math.max(0, value)}px`;
+
+  const getBoxModelMetrics = (el: HTMLElement) => {
+    const style = window.getComputedStyle(el);
+    return {
+      marginTop: parsePixelValue(style.marginTop),
+      marginRight: parsePixelValue(style.marginRight),
+      marginBottom: parsePixelValue(style.marginBottom),
+      marginLeft: parsePixelValue(style.marginLeft),
+      paddingTop: parsePixelValue(style.paddingTop),
+      paddingRight: parsePixelValue(style.paddingRight),
+      paddingBottom: parsePixelValue(style.paddingBottom),
+      paddingLeft: parsePixelValue(style.paddingLeft),
+    };
+  };
+
+  const ensureBoxModelOverlay = (el: HTMLElement) => {
+    let overlay = el.querySelector('.editorts-box-model') as HTMLDivElement | null;
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'editorts-box-model';
+
+      const marginLayer = document.createElement('div');
+      marginLayer.dataset.layer = 'margin';
+      const paddingLayer = document.createElement('div');
+      paddingLayer.dataset.layer = 'padding';
+
+      overlay.appendChild(marginLayer);
+      overlay.appendChild(paddingLayer);
+      el.appendChild(overlay);
+    }
+
+    return overlay;
+  };
+
+  const updateBoxModelOverlay = (el: HTMLElement) => {
+    const overlay = ensureBoxModelOverlay(el);
+    const marginLayer = overlay.querySelector('[data-layer="margin"]') as HTMLDivElement | null;
+    const paddingLayer = overlay.querySelector('[data-layer="padding"]') as HTMLDivElement | null;
+    if (!marginLayer || !paddingLayer) return;
+
+    const metrics = getBoxModelMetrics(el);
+
+    marginLayer.style.position = 'absolute';
+    marginLayer.style.inset = `-${metrics.marginTop}px -${metrics.marginRight}px -${metrics.marginBottom}px -${metrics.marginLeft}px`;
+    marginLayer.style.borderWidth = `${metrics.marginTop}px ${metrics.marginRight}px ${metrics.marginBottom}px ${metrics.marginLeft}px`;
+    marginLayer.style.background = 'transparent';
+
+    paddingLayer.style.position = 'absolute';
+    paddingLayer.style.inset = '0';
+    paddingLayer.style.borderWidth = `${metrics.paddingTop}px ${metrics.paddingRight}px ${metrics.paddingBottom}px ${metrics.paddingLeft}px`;
+    paddingLayer.style.background = 'transparent';
+  };
+
+  const showBoxModelOverlay = (el: HTMLElement) => {
+    const overlay = ensureBoxModelOverlay(el);
+    updateBoxModelOverlay(el);
+    overlay.style.display = 'block';
+  };
+
+  const hideBoxModelOverlay = (el: HTMLElement) => {
+    const overlay = el.querySelector('.editorts-box-model') as HTMLDivElement | null;
+    if (overlay) overlay.style.display = 'none';
   };
 
   const getParentComponent = (el: HTMLElement): HTMLElement | null => {
@@ -251,6 +344,15 @@ function iframeWysiwygScript() {
         );
       });
 
+      el.addEventListener('mouseenter', () => {
+        if (editingElement || imageEditTarget) return;
+        showBoxModelOverlay(el);
+      });
+
+      el.addEventListener('mouseleave', () => {
+        hideBoxModelOverlay(el);
+      });
+
       el.addEventListener('click', (e) => {
         if (editingElement === el) return;
         e.stopPropagation();
@@ -290,6 +392,7 @@ function iframeWysiwygScript() {
   function selectElement(el: HTMLElement) {
     if (selectedElement) {
       selectedElement.classList.remove('editorts-selected');
+      hideBoxModelOverlay(selectedElement);
       const oldToolbar = selectedElement.querySelector('.editorts-context-toolbar');
       if (oldToolbar) oldToolbar.remove();
     }
@@ -496,16 +599,18 @@ function iframeWysiwygScript() {
       document.body.style.cursor = placementMode ? 'crosshair' : '';
     } else if (event.data.type === 'editorts:flashSelect') {
       const el = document.getElementById(event.data.id);
-      if (el) {
-        // Flash by retriggering CSS animation
-        el.classList.remove('editorts-flash');
-        // Force reflow
-        void el.offsetHeight;
-        el.classList.add('editorts-flash');
+        if (el) {
+          // Flash by retriggering CSS animation
+          el.classList.remove('editorts-flash');
+          // Force reflow
+          void el.offsetHeight;
+          el.classList.add('editorts-flash');
 
-        selectElement(el);
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+          selectElement(el);
+          showBoxModelOverlay(el);
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
     }
   });
 
