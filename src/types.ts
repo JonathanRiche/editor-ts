@@ -421,6 +421,8 @@ export interface InitConfig {
         action: () => void | Promise<void>;
         type?: 'component' | 'command';
       }>;
+      /** Optional: command palette shortcuts (runtime only). */
+      shortcuts?: ShortcutDefinition[];
       /** Enable palette UI (default true when IDs provided). */
       enabled?: boolean;
     };

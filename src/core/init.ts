@@ -8,7 +8,7 @@ import { LayerManager } from './LayerManager';
 import { ComponentPalette } from './ComponentPalette';
 import { StorageManager } from './StorageManager';
 import { VersionControl } from './VersionControl';
-import { KeyboardShortcuts, createDefaultShortcuts } from './KeyboardShortcuts';
+import { KeyboardShortcuts, createCommandPaletteShortcuts, createDefaultShortcuts, createEditorShortcuts, type ShortcutContext } from './KeyboardShortcuts';
 import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
 import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
 import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName } from '../types';
@@ -2786,56 +2786,65 @@ export function init(config: InitConfig): EditorTsEditor {
     });
   }
 
+  const shortcutContext: ShortcutContext = {
+    openCommandPalette: () => {
+      if (!commandPaletteEnabled) return;
+      openCommandPalette();
+    },
+    undo: async () => {
+      if (versionControl && versionControl.canUndo()) {
+        const snapshot = versionControl.undo();
+        if (!snapshot) return;
+        await checkoutSnapshot(snapshot);
+        await persistVersionState();
+        return;
+      }
+
+      (document.getElementById('history-undo') as HTMLButtonElement | null)?.click();
+    },
+    redo: async () => {
+      if (versionControl && versionControl.canRedo()) {
+        const snapshot = versionControl.redo();
+        if (!snapshot) return;
+        await checkoutSnapshot(snapshot);
+        await persistVersionState();
+        return;
+      }
+
+      (document.getElementById('history-redo') as HTMLButtonElement | null)?.click();
+    },
+    deleteSelected: async () => {
+      const targetId = selectedComponentId ?? page.components.getAll()[0]?.attributes?.id ?? null;
+      if (!targetId) return;
+      handleToolbarAction('delete', targetId);
+    },
+  };
+
+  const editorShortcuts = [
+    ...createEditorShortcuts({
+      undo: shortcutContext.undo,
+      redo: shortcutContext.redo,
+      deleteSelected: shortcutContext.deleteSelected,
+    }),
+    ...(config.shortcuts ?? []),
+  ];
+
+  const paletteShortcuts = commandPaletteEnabled
+    ? [
+        ...createCommandPaletteShortcuts({ openCommandPalette: shortcutContext.openCommandPalette }),
+        ...(config.ui?.commandPalette?.shortcuts ?? []),
+      ]
+    : [];
+
   const keyboardShortcuts = new KeyboardShortcuts({
-    shortcuts: [
-      ...createDefaultShortcuts({
-        openCommandPalette: commandPaletteEnabled ? openCommandPalette : undefined,
-        undo: async () => {
-          if (versionControl && versionControl.canUndo()) {
-            const snapshot = versionControl.undo();
-            if (!snapshot) return;
-            await checkoutSnapshot(snapshot);
-            await persistVersionState();
-            return;
-          }
-
-          (document.getElementById('history-undo') as HTMLButtonElement | null)?.click();
-        },
-        redo: async () => {
-          if (versionControl && versionControl.canRedo()) {
-            const snapshot = versionControl.redo();
-            if (!snapshot) return;
-            await checkoutSnapshot(snapshot);
-            await persistVersionState();
-            return;
-          }
-
-          (document.getElementById('history-redo') as HTMLButtonElement | null)?.click();
-        },
-        deleteSelected: async () => {
-          const targetId = selectedComponentId ?? page.components.getAll()[0]?.attributes?.id ?? null;
-          if (!targetId) return;
-          handleToolbarAction('delete', targetId);
-        },
-      }),
-      ...(config.shortcuts ?? []),
-    ],
+    shortcuts: [...paletteShortcuts, ...editorShortcuts],
     modKey: config.shortcutConfig?.modKey ?? 'ctrl',
     shouldIgnore: (event) => {
-      if (!isCommandPaletteOpen) return false;
-      return [
-        'ArrowUp',
-        'ArrowDown',
-        'ArrowLeft',
-        'ArrowRight',
-        'Enter',
-        'Escape',
-        'Tab',
-        'Home',
-        'End',
-        'PageUp',
-        'PageDown',
-      ].includes(event.key);
+      if (isCommandPaletteOpen) {
+        event.preventDefault();
+        return true;
+      }
+      return false;
     },
   });
   keyboardShortcuts.bind(document);

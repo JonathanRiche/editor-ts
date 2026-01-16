@@ -1,5 +1,14 @@
 import type { ShortcutDefinition } from '../types';
 
+export type ShortcutAction = () => void | Promise<void>;
+
+export type ShortcutContext = {
+  openCommandPalette: () => void;
+  undo: () => void | Promise<void>;
+  redo: () => void | Promise<void>;
+  deleteSelected: () => void | Promise<void>;
+};
+
 type ParsedShortcut = {
   key: string;
   ctrl: boolean;
@@ -81,17 +90,35 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
   return tag === 'input' || tag === 'textarea' || tag === 'select';
 };
 
-export const createDefaultShortcuts = (handlers: {
-  openCommandPalette?: () => void;
-  undo?: () => void | Promise<void>;
-  redo?: () => void | Promise<void>;
-  deleteSelected?: () => void | Promise<void>;
-}): ShortcutDefinition[] => {
+export const createDefaultShortcuts = (handlers: Partial<ShortcutContext>): ShortcutDefinition[] => {
   const shortcuts: ShortcutDefinition[] = [];
 
   if (handlers.openCommandPalette) {
     shortcuts.push({ key: 'mod+p', action: handlers.openCommandPalette });
   }
+
+  if (handlers.undo) {
+    shortcuts.push({ key: 'mod+z', action: handlers.undo });
+  }
+
+  if (handlers.redo) {
+    shortcuts.push({ key: 'mod+r', action: handlers.redo });
+  }
+
+  if (handlers.deleteSelected) {
+    shortcuts.push({ key: 'delete', action: handlers.deleteSelected });
+    shortcuts.push({ key: 'backspace', action: handlers.deleteSelected });
+  }
+
+  return shortcuts;
+};
+
+export const createCommandPaletteShortcuts = (handlers: Pick<ShortcutContext, 'openCommandPalette'>): ShortcutDefinition[] => {
+  return [{ key: 'mod+p', action: handlers.openCommandPalette }];
+};
+
+export const createEditorShortcuts = (handlers: Omit<ShortcutContext, 'openCommandPalette'>): ShortcutDefinition[] => {
+  const shortcuts: ShortcutDefinition[] = [];
 
   if (handlers.undo) {
     shortcuts.push({ key: 'mod+z', action: handlers.undo });
@@ -127,6 +154,7 @@ export class KeyboardShortcuts {
     this.shouldIgnore = options.shouldIgnore;
     this.modKey = options.modKey ?? 'ctrl';
   }
+
 
   bind(target: Document = document): void {
     if (this.targets.has(target)) return;

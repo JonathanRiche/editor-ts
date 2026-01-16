@@ -267,6 +267,15 @@ const editor = init({
       resultsId: 'command-palette-results',
       closeButtonId: 'command-palette-close',
       hintId: 'command-palette-hint',
+      shortcuts: [
+        {
+          key: 'mod+k',
+          action: () => {
+            const input = document.getElementById('command-palette-input') as HTMLInputElement | null;
+            input?.focus();
+          },
+        },
+      ],
       items: [
         {
           title: 'Reset canvas zoom',
