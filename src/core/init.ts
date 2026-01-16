@@ -865,8 +865,9 @@ export function init(config: InitConfig): EditorTsEditor {
         });
 
         await commitSnapshot({ source: 'ai', message: 'apply ai changes' });
-
+ 
         refresh();
+        refreshLayers();
       },
        close: async () => {
          // Only close server that EditorTs started itself.
@@ -1779,10 +1780,11 @@ export function init(config: InitConfig): EditorTsEditor {
         await workspace.fs.writeFile('styles.css', cssEditor.getValue(), { isModelContentChange: true });
       }
 
-      await commitSnapshot({ source: 'user', message: 'edit css' });
-
-      refresh();
-    });
+        await commitSnapshot({ source: 'user', message: 'edit css' });
+ 
+        refresh();
+        refreshLayers();
+      });
   }
 
   if (shouldEnableJsEditor && jsEditorContainer) {
@@ -1802,9 +1804,10 @@ export function init(config: InitConfig): EditorTsEditor {
          await workspace.fs.writeFile(`components/${selectedComponentId}.js`, nextValue, { isModelContentChange: true });
        }
 
-       await commitSnapshot({ source: 'user', message: 'edit component script' });
-
-       refresh();
+      await commitSnapshot({ source: 'user', message: 'edit component script' });
+ 
+      refresh();
+      refreshLayers();
     });
   }
 
@@ -1848,8 +1851,9 @@ export function init(config: InitConfig): EditorTsEditor {
         }
 
         await commitSnapshot({ source: 'user', message: 'edit json' });
-
+ 
         refresh();
+        refreshLayers();
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
 
@@ -1920,15 +1924,16 @@ export function init(config: InitConfig): EditorTsEditor {
       if (!targetInfo) return;
 
       page.components.moveComponent(draggedId, targetInfo.parentId, targetInfo.index);
-
+ 
       const component = page.components.findById(draggedId);
       if (component) {
         emit('componentReorder', component, targetInfo.parentId, targetInfo.index);
       }
-
+ 
       void commitSnapshot({ source: 'user', message: 'reorder component' });
-
+ 
       refresh();
+      refreshLayers();
     } else if (event.data.type === 'editorts:placeComponent') {
       const targetId = event.data.targetId as string;
       if (!pendingInsertType) return;
@@ -1939,17 +1944,18 @@ export function init(config: InitConfig): EditorTsEditor {
 
       // Insert as child of target for now.
       page.components.addChildComponent(targetId, componentToInsert);
-
+ 
       pendingInsertType = null;
       componentPalette?.setSelected(null);
       iframe.contentWindow?.postMessage({ type: 'editorts:placementMode', enabled: false }, '*');
-
+ 
       emit('componentInsert', componentToInsert, targetId);
-
+ 
       void commitSnapshot({ source: 'user', message: 'insert component' });
-
+ 
       refresh();
-
+      refreshLayers();
+ 
       // Flash/select the target so placement is obvious.
       iframe.contentWindow?.postMessage({ type: 'editorts:flashSelect', id: targetId }, '*');
     } else if (event.data.type === 'editorts:textEditStart') {
@@ -1970,6 +1976,7 @@ export function init(config: InitConfig): EditorTsEditor {
         if (config.onTextUpdate) {
           config.onTextUpdate(component, event.data.content, event.data.originalContent);
         }
+        refreshLayers();
       }
     } else if (event.data.type === 'editorts:textEditEnd') {
       const component = page.components.findById(event.data.id);
@@ -1982,6 +1989,7 @@ export function init(config: InitConfig): EditorTsEditor {
         if (event.data.saved) {
           void commitSnapshot({ source: 'user', message: 'edit text' });
         }
+        refreshLayers();
       }
     } else if (event.data.type === 'editorts:imageEditStart') {
       const component = page.components.findById(event.data.id);
@@ -2007,6 +2015,7 @@ export function init(config: InitConfig): EditorTsEditor {
         if (config.onImageUpdate) {
           config.onImageUpdate(component, event.data.src, event.data.originalSrc, fileInfo);
         }
+        refreshLayers();
       }
     } else if (event.data.type === 'editorts:imageEditEnd') {
       const component = page.components.findById(event.data.id);
@@ -2019,6 +2028,7 @@ export function init(config: InitConfig): EditorTsEditor {
         if (event.data.saved) {
           void commitSnapshot({ source: 'user', message: 'edit image' });
         }
+        refreshLayers();
       }
     }
   });
@@ -2210,11 +2220,12 @@ export function init(config: InitConfig): EditorTsEditor {
         if (styleEl) styleEl.textContent = nextCss;
 
         await commitSnapshot({ source: 'user', message: 'edit style' });
-
+ 
         styleProps.forEach(populateStyleField);
-
+ 
         void ensureCssEditorReady();
         void ensureJsonEditorReady();
+        refreshLayers();
       });
     }
 
@@ -2235,14 +2246,15 @@ export function init(config: InitConfig): EditorTsEditor {
         if (styleEl) styleEl.textContent = nextCss;
 
         await commitSnapshot({ source: 'user', message: 'clear style' });
-
+ 
         styleProps.forEach((p) => {
           const input = selectedInfoContainer.querySelector(`[data-editorts-style="${p}"]`) as HTMLInputElement | null;
           if (input) input.value = '';
         });
-
+ 
         void ensureCssEditorReady();
         void ensureJsonEditorReady();
+        refreshLayers();
       });
     }
 
@@ -2270,6 +2282,7 @@ export function init(config: InitConfig): EditorTsEditor {
         if (selectedElement) {
           selectedElement.textContent = nextText;
         }
+        refreshLayers();
       });
     }
 
@@ -2279,17 +2292,18 @@ export function init(config: InitConfig): EditorTsEditor {
         const nextSrc = imageSrcInput.value;
 
         page.components.updateImageSrc(elementId, nextSrc);
-
+ 
         if (selectedElement) {
           const imgEl =
             selectedElement.tagName.toLowerCase() === 'img'
               ? (selectedElement as HTMLImageElement)
               : (selectedElement.querySelector('img') as HTMLImageElement | null);
-
+ 
           if (imgEl) {
             imgEl.src = nextSrc;
           }
         }
+        refreshLayers();
       });
     }
   }
@@ -2333,19 +2347,21 @@ export function init(config: InitConfig): EditorTsEditor {
         clone.attributes = clone.attributes || {};
         clone.attributes.id = elementId + '-copy-' + Date.now();
         page.components.addComponent(clone);
-
+ 
         emit('componentDuplicate', component, clone);
         if (config.onComponentDuplicate) {
           config.onComponentDuplicate(component, clone);
         }
-
+ 
         void commitSnapshot({ source: 'user', message: 'duplicate component' });
-
+ 
         refresh();
+        refreshLayers();
         break;
-
+ 
       case 'delete':
         page.components.removeComponent(elementId);
+
 
         emit('componentDelete', component);
         if (config.onComponentDelete) {
@@ -2360,6 +2376,8 @@ export function init(config: InitConfig): EditorTsEditor {
           action: 'delete',
           elementId: elementId
         }, '*');
+
+        refreshLayers();
         break;
     }
   }
@@ -2424,14 +2442,18 @@ export function init(config: InitConfig): EditorTsEditor {
   // Initial render for multipage dropdown (refresh() may not be called yet)
   renderPagesDropdown();
 
+  function refreshLayers() {
+    if (layerManager) {
+      layerManager.update(page.components.getAll());
+    }
+  }
+
   // Refresh iframe and layer panel
   function refresh() {
     iframe.srcdoc = buildIframeContent();
     void syncWorkspaceFiles();
 
-    if (layerManager) {
-      layerManager.update(page.components.getAll());
-    }
+    refreshLayers();
 
     renderStats();
     renderPagesDropdown();
@@ -2503,11 +2525,12 @@ export function init(config: InitConfig): EditorTsEditor {
       } else {
         page.components.addComponent(newComponent);
       }
-
+ 
       emit('componentInsert', newComponent, targetId);
-
+ 
       await commitSnapshot({ source: 'user', message: 'command palette add' });
       refresh();
+      refreshLayers();
       closeCommandPalette();
     };
 
