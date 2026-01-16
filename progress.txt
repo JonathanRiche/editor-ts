@@ -5,6 +5,9 @@ Started: Thu Jan 15 10:10:39 PM EST 2026
 
 ## Codebase Patterns
 - The library uses optional peer dependencies for editor add-ons (e.g. `modern-monaco`, `@opencode-ai/sdk`), with config toggles in runtime config.
+- `index.html` defines demo UI elements (like AI chat controls).
+- `examples/quickstart.ts` wires UI IDs to `init()` config.
+- AI chat behavior is centralized in `src/core/init.ts` and `src/core/aiChat.ts`.
 
 ## Thu Jan 15 22:50:00 EST 2026 - 2025-12-19-supertab-dl4
 - Added sqlocal-based storage adapter and config type for OPFS-backed storage.
@@ -14,4 +17,11 @@ Started: Thu Jan 15 10:10:39 PM EST 2026
   - Optional storage adapters should be surfaced as peer dependencies.
   - Storage config lives in both `src/core/StorageManager.ts` and `src/types.ts`.
   - `README.md` is the place for usage examples of new adapters.
+
+## 2026-01-15 23:53 - 2025-12-19-supertab-7gv
+- Added AI chat model selection dropdown + model routing to chat prompts.
+- Files changed: `src/types.ts`, `src/core/aiChat.ts`, `src/core/init.ts`, `examples/quickstart.ts`, `index.html`, `progress.txt`.
+- **Learnings for future iterations:**
+  - `bun run build` is the configured test script; lint/typecheck scripts are absent.
+  - `examples/quickstart.ts` requires a browser context (DOM) and fails under Bun CLI.
 ---

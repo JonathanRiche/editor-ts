@@ -165,7 +165,7 @@ export const buildAiChatSnapshot = (pageJson: string, css: string, componentScri
   ].join('\n');
 };
 
-const normalizeOpencodeModelId = (providerID: string, modelID: string): string => {
+export const normalizeOpencodeModelId = (providerID: string, modelID: string): string => {
   if (providerID !== 'opencode') return modelID;
   if (modelID === 'claude-sonnet-4-5-20250929') return 'claude-sonnet-4-5';
   return modelID;
@@ -199,6 +199,10 @@ export const requestAiReplacements = async (args: {
   componentScripts: Record<string, string>;
   sessionId?: string;
   sessionTitle?: string;
+  model?: {
+    providerID: string;
+    modelID: string;
+  };
   stream?: boolean;
   onStream?: (delta: string) => void;
 }): Promise<EditorTsAiChatResult> => {
@@ -210,6 +214,7 @@ export const requestAiReplacements = async (args: {
     componentScripts,
     sessionId: existingSessionId,
     sessionTitle,
+    model: selectedModel,
     stream,
     onStream,
   } = args;
@@ -227,7 +232,7 @@ export const requestAiReplacements = async (args: {
   const system = buildAiChatSystemPrompt();
   const snapshot = buildAiChatSnapshot(pageJson, css, componentScripts);
 
-  const model = await chooseChatModel(client);
+  const model = selectedModel ?? await chooseChatModel(client);
 
   if (stream && typeof onStream === 'function') {
     // Fire-and-forget the prompt (async), then listen to SSE for message part deltas.

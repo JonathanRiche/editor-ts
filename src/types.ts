@@ -124,6 +124,10 @@ export interface EditorTsAiModule {
     prompt: string,
     options?: {
       sessionId?: string;
+      model?: {
+        providerID: string;
+        modelID: string;
+      };
       stream?: boolean;
       onStream?: (delta: string) => void;
     }
@@ -138,6 +142,11 @@ export interface EditorTsAiModule {
     setCurrent(sessionId: string | null): Promise<void>;
     list(): Promise<EditorTsAiChatSession[]>;
     create(title?: string): Promise<EditorTsAiChatSession>;
+  };
+
+  /** Optional model selector data. */
+  models: {
+    list(): Promise<Array<{ providerID: string; modelID: string }>>;
   };
 
   /** Closes embedded server if started */
@@ -373,6 +382,9 @@ export interface InitConfig {
 
       /** Optional sessions dropdown id. */
       sessionSelectId?: string;
+
+      /** Optional model selector dropdown id. */
+      modelSelectId?: string;
 
       /** Optional create-session button id. */
       sessionNewButtonId?: string;

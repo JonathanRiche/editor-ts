@@ -258,6 +258,7 @@ const editorConfig: InitConfig = {
       healthStatusId: 'ai-health-status',
 
       sessionSelectId: 'ai-session-select',
+      modelSelectId: 'ai-model-select',
       sessionNewButtonId: 'ai-session-new',
 
       inputId: 'ai-chat-input',
