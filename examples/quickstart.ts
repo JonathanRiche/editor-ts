@@ -182,6 +182,24 @@ const editor = init({
     pages: {
       containerId: 'pages-container',
       enabled: true,
+      render: ({ container, pages, activePageIndex, onSelect }) => {
+        container.innerHTML = pages
+          .map((page, index) => {
+            const label = page.title?.trim() ? page.title.trim() : `Page ${index + 1}`;
+            const isActive = index === activePageIndex;
+            return `<button type="button" data-page-index="${index}" style="margin-right:0.25rem; padding:0.25rem 0.5rem; ${isActive ? 'background:#4f46e5; color:white;' : ''}">${label}</button>`;
+          })
+          .join('');
+
+        container.querySelectorAll('[data-page-index]').forEach((button) => {
+          button.addEventListener('click', () => {
+            const index = Number((button as HTMLElement).dataset.pageIndex);
+            if (Number.isFinite(index)) {
+              onSelect(index);
+            }
+          });
+        });
+      },
     },
     componentPalette: {
       containerId: 'component-palette',
