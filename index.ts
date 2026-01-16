@@ -82,7 +82,12 @@ export type {
   CustomComponentRegistry,
   UiRender,
   PagesRenderProps,
+  PagePayload,
+  EditorTsSyncMessage,
+  EditorTsSyncAck,
+  EditorTsSyncEnvelope,
 } from './src/types';
+
 
 export type { LayerManagerConfig } from './src/core/LayerManager';
 export type { StorageAdapter } from './src/core/StorageManager';
@@ -122,6 +127,17 @@ export {
   isValidURL,
   extractDomain,
 } from './src/utils/helpers';
+
+export {
+  createSyncAck,
+  createSyncMessage,
+  isSyncAck,
+  isSyncMessage,
+  parseSyncEnvelope,
+} from './src/server/sync';
+
+export { createBunSyncServer } from './src/server/bun_server';
+export { createCfSyncWorker } from './src/server/cf_worker';
 
 // Toolbar exports
 export {

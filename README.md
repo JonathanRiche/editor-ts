@@ -165,6 +165,47 @@ export function Header() {
 `)
 ```
 
+## Server sync (Bun + Cloudflare)
+
+EditorTs ships lightweight websocket utilities for server-side sync.
+
+### Bun server
+
+```ts
+import { createBunSyncServer, createSyncMessage } from 'editorts'
+
+const server = createBunSyncServer({
+  port: 8787,
+  onSync: async (message) => {
+    console.log('received', message.payload)
+  },
+})
+
+// elsewhere, send a message
+const payload = createSyncMessage(pageData)
+```
+
+### Cloudflare worker
+
+```ts
+import { createCfSyncWorker } from 'editorts'
+
+export default createCfSyncWorker({
+  onSync: async (message) => {
+    console.log('received', message.payload)
+  },
+})
+```
+
+### Message helpers
+
+```ts
+import { createSyncMessage, parseSyncEnvelope } from 'editorts'
+
+const message = createSyncMessage(pageData)
+const parsed = parseSyncEnvelope(JSON.stringify(message))
+```
+
 ## AI provider (OpenCode)
 
 Optional integration via `@opencode-ai/sdk`.

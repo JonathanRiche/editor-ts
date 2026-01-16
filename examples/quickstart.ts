@@ -126,6 +126,7 @@ const editorConfig: InitConfig = {
   data: multiPageData,
 
   // Optional: Custom components
+  // Server sync helpers live in the server package (Bun + Cloudflare).
   customComponents: {
     hero: createCustomComponentDefinition({
       type: 'hero',

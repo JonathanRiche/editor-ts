@@ -60,3 +60,13 @@ Started: Thu Jan 15 10:10:39 PM EST 2026
 - **Learnings for future iterations:**
   - Use the Drizzle schema in `src/server/schema.ts` for sqlite-backed page storage.
 ---
+
+## Fri Jan 16 00:56:00 EST 2026 - 2025-12-19-supertab-g0c
+- Added server sync utilities for websocket page payloads in Bun and Cloudflare Worker environments.
+- Exported sync message helpers and types from the library entrypoint.
+- Documented server sync usage in README and noted helpers in quickstart.
+- Files changed: `src/server/sync.ts`, `src/server/bun_server.ts`, `src/server/cf_worker.ts`, `src/types.ts`, `index.ts`, `README.md`, `examples/quickstart.ts`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Server sync messages are normalized to a `page` payload with simple ack responses.
+  - Use `createBunSyncServer`/`createCfSyncWorker` for websocket integration in backend runtimes.
+---
