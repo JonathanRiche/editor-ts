@@ -3,7 +3,7 @@
  * User controls the layout in index.html, init() populates it
  */
 
-import { init, createCustomComponentDefinition, type PageData, type Component, type PagesRenderProps, type InitConfig } from '../index';
+import { init, createCustomComponentDefinition, createPageMeta, type PageData, type Component, type PagesRenderProps, type InitConfig } from '../index';
 // import sampleData from '../samples/page_template.json';
 
 console.log('QuickStart script loaded');
@@ -375,6 +375,9 @@ const editorConfig: InitConfig = {
 };
 
 const editor = init(editorConfig);
+
+const pageMeta = createPageMeta('quickstart-page', editor.page.toObject());
+console.log('🗂️ Page meta:', pageMeta);
 
 // ==================== USE THE EDITOR INSTANCE ====================
 

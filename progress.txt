@@ -2,3 +2,18 @@
 Branch: main
 Started: Thu Jan 15 10:10:39 PM EST 2026
 ---
+
+## Codebase Patterns
+- The library uses optional peer dependencies for editor add-ons (e.g. `modern-monaco`, `@opencode-ai/sdk`), with config toggles in runtime config.
+- Server-side sync helpers live under `src/server` and are exported from `index.ts`.
+- Page metadata helpers (`PageMetaStore`, adapters) live in `src/server` for bun/sqlite and Cloudflare durable objects.
+---
+
+## Thu Jan 15 11:12:42 PM EST 2026 - 2025-12-19-supertab-z8n
+- Added server page metadata helpers with Bun SQLite and Cloudflare Durable Object adapters.
+- Exported new server helpers and demonstrated metadata creation in the quickstart example.
+- Files changed: `src/server/sync.ts`, `src/server/bun_server.ts`, `src/server/cf_worker.ts`, `index.ts`, `examples/quickstart.ts`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Page meta storage is handled by `PageMetaStore` adapters in `src/server` for bun/sqlite and CF durable objects.
+  - `createPageMeta` converts `PageData` into metadata payloads for server persistence.
+---
