@@ -13,7 +13,8 @@ set -e
 
 # Parse arguments
 MAX_ITERATIONS=100
-MODEL="opencode/gpt-5.2-codex"
+# MODEL="opencode/gpt-5.2-codex"
+MODEL="openai/gpt-5.2-codex"
 BROWSER_MODE="dev-browser" # Default to playwright, options: playwright, dev-browser, none
 
 while getopts "m:n:b:h" opt; do
