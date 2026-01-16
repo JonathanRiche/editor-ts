@@ -31,6 +31,7 @@
   "devDependencies": {
     "@opencode-ai/sdk": "^1.1.14",
     "@types/bun": "latest",
+    "drizzle-orm": "^0.44.0",
     "modern-monaco": "^0.3.6",
     "playwright": "^1.57.0"
   },
@@ -38,7 +39,8 @@
     "typescript": "^5",
     "modern-monaco": "^0.3.6",
     "@opencode-ai/sdk": "^1.1.14",
-    "sqlocal": "^0.16.0"
+    "sqlocal": "^0.16.0",
+    "drizzle-orm": "^0.44.0"
   },
   "peerDependenciesMeta": {
     "modern-monaco": {
@@ -51,6 +53,9 @@
       "optional": true
     },
     "typescript": {
+      "optional": true
+    },
+    "drizzle-orm": {
       "optional": true
     }
   },
