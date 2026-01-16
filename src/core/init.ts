@@ -889,7 +889,7 @@ export function init(config: InitConfig): EditorTsEditor {
         if (aiChatLinkAnchor) {
           const path = aiChatConfig?.link?.path ?? '/chats';
 
-          const baseUrl = aiBaseUrlInput?.value || aiConfig.baseUrl || aiProxiedBaseUrl;
+          const baseUrl = ai?.getUrl() ?? aiBaseUrlInput?.value ?? aiConfig.baseUrl ?? aiProxiedBaseUrl;
           const resolvedBase = baseUrl.startsWith('http')
             ? baseUrl
             : `${window.location.origin}${baseUrl.startsWith('/') ? '' : '/'}${baseUrl}`;

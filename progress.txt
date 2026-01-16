@@ -2,3 +2,14 @@
 Branch: main
 Started: Thu Jan 15 10:10:39 PM EST 2026
 ---
+
+## Codebase Patterns
+- `examples/quickstart.ts` runs in browser context and expects `document` to exist.
+- `src/core/iframeCanvas.ts` owns WYSIWYG iframe styling and event handling.
+
+## 2026-01-16 00:07:00 - 2025-12-19-supertab-7su
+- Updated AI chat link to prefer the configured OpenCode server URL.
+- Files changed: `src/core/init.ts`.
+- **Learnings for future iterations:**
+  - AI chat external link is built in `src/core/init.ts` from AI provider config.
+---
