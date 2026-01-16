@@ -3,7 +3,7 @@
  * User controls the layout in index.html, init() populates it
  */
 
-import { init, createCustomComponentDefinition, type PageData, type Component } from '../index';
+import { init, createCustomComponentDefinition, type PageData, type Component, type PagesRenderProps, type InitConfig } from '../index';
 // import sampleData from '../samples/page_template.json';
 
 console.log('QuickStart script loaded');
@@ -94,7 +94,7 @@ const multiPageData = {
 
 
 // Initialize the editor - user controls layout in index.html
-const editor = init({
+const editorConfig: InitConfig = {
   storage: {
     type: 'local',
   },
@@ -182,7 +182,7 @@ const editor = init({
     pages: {
       containerId: 'pages-container',
       enabled: true,
-      render: ({ container, pages, activePageIndex, onSelect }) => {
+      render: ({ container, pages, activePageIndex, onSelect }: PagesRenderProps) => {
         container.innerHTML = pages
           .map((page, index) => {
             const label = page.title?.trim() ? page.title.trim() : `Page ${index + 1}`;
@@ -372,7 +372,9 @@ const editor = init({
       selectedContainer.classList.remove('active');
     }
   }
-});
+};
+
+const editor = init(editorConfig);
 
 // ==================== USE THE EDITOR INSTANCE ====================
 
