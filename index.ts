@@ -41,6 +41,9 @@ export {
 export { VersionControl } from './src/core/VersionControl';
 export { KeyboardShortcuts, createDefaultShortcuts } from './src/core/KeyboardShortcuts';
 
+// Server schema exports (drizzle)
+export { pages, pageFiles } from './src/server/schema';
+
 // Type exports
 export type {
   PageData,
