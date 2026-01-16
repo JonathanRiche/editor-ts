@@ -78,4 +78,10 @@ Started: Thu Jan 15 10:10:39 PM EST 2026
 - **Learnings for future iterations:**
   - Box model overlays are best implemented inside the iframe WYSIWYG CSS/script.
   - Hover interactions can be wired via `initWYSIWYG` listeners on component elements.
+
+## 2026-01-16 00:07:00 - 2025-12-19-supertab-7su
+- Updated AI chat link to prefer the configured OpenCode server URL.
+- Files changed: `src/core/init.ts`.
+- **Learnings for future iterations:**
+  - AI chat external link is built in `src/core/init.ts` from AI provider config.
 ---
