@@ -4,7 +4,7 @@
 
 import type { OpencodeClient, ServerOptions, createOpencode } from '@opencode-ai/sdk';
 import type { Page } from './core/Page';
-import type { StorageManager } from './core/StorageManager';
+import type { StorageAdapter, StorageManager } from './core/StorageManager';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[] | Component;
@@ -603,6 +603,37 @@ export interface SqlocalStorageConfig {
 }
 
 export type StorageConfig = LocalStorageConfig | RemoteStorageConfig | SqlocalStorageConfig;
+
+export interface ServerPageMeta {
+  key: string;
+  updatedAt: number;
+  checksum?: string;
+}
+
+export interface ServerFile {
+  path: string;
+  content: string;
+}
+
+export interface ServerSyncAdapter {
+  listPages(): Promise<ServerPageMeta[]>;
+  listFiles(pageKey: string): Promise<ServerFile[]>;
+  saveFiles(pageKey: string, files: ServerFile[]): Promise<void>;
+}
+
+export type FrontendSyncStatus =
+  | { state: 'loading' }
+  | { state: 'saving' }
+  | { state: 'idle' }
+  | { state: 'error'; message: string };
+
+export interface FrontendSyncOptions {
+  pageKey: string;
+  storage: StorageAdapter;
+  adapter: ServerSyncAdapter;
+  includeFiles?: (path: string) => boolean;
+  onStatus?: (status: FrontendSyncStatus) => void;
+}
 
 export interface ToolbarInitConfig {
   byId?: Record<string, ToolbarConfig>;
