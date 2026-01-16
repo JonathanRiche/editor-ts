@@ -27,7 +27,7 @@ export { StyleManager } from './src/core/StyleManager';
 export { AssetManager } from './src/core/AssetManager';
 export { ToolbarManager } from './src/core/ToolbarManager';
 export { LayerManager } from './src/core/LayerManager';
-export { StorageManager, LocalStorageAdapter, RemoteStorageAdapter } from './src/core/StorageManager';
+export { StorageManager, LocalStorageAdapter, RemoteStorageAdapter, SqlocalStorageAdapter } from './src/core/StorageManager';
 export { init } from './src/core/init';
 export { defaultComponentRegistry, mergeCustomComponentRegistry, createCustomComponentDefinition, defaultComponentFactories } from './src/core/CustomComponentRegistry';
 export {
@@ -68,6 +68,7 @@ export type {
   StorageConfig,
   LocalStorageConfig,
   RemoteStorageConfig,
+  SqlocalStorageConfig,
   CustomComponentDefinition,
   CustomComponentRegistry,
   UiRender,
