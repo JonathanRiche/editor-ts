@@ -25,8 +25,8 @@
     "server": "bun run local-server.ts",
     "build": "bun build index.ts --outdir=dist",
     "example": "bun run local-server.ts",
-    "test": "bun run build",
-    "test:api": "bun run build"
+    "test": "bun test",
+    "test:api": "bun test"
   },
   "devDependencies": {
     "@opencode-ai/sdk": "^1.1.14",
