@@ -47,7 +47,13 @@ export interface RemoteStorageConfig {
   };
 }
 
-export type StorageConfig = LocalStorageConfig | RemoteStorageConfig;
+export interface SqlocalStorageConfig {
+  type: 'sqlocal';
+  /** SQLite database file name stored in OPFS. */
+  databaseName?: string;
+}
+
+export type StorageConfig = LocalStorageConfig | RemoteStorageConfig | SqlocalStorageConfig;
 
 /**
  * LocalStorage Adapter - Stores data in browser localStorage
@@ -188,7 +194,7 @@ export class RemoteStorageAdapter implements StorageAdapter {
       // Multipart form data upload
       const formData = new FormData();
       formData.append('image', file, filename || 'image');
-      
+
       response = await fetch(this.buildUrl(this.endpoints.uploadImage), {
         method: 'POST',
         headers: this.headers, // Don't set Content-Type for FormData
@@ -223,7 +229,7 @@ export class RemoteStorageAdapter implements StorageAdapter {
     // Extract ID from URL (assumes URL ends with /images/:id or similar)
     const parts = url.split('/');
     const id = parts[parts.length - 1] || '';
-    
+
     const response = await fetch(this.buildUrl(this.endpoints.deleteImage, { id }), {
       method: 'DELETE',
       headers: this.headers,
@@ -260,6 +266,115 @@ export class RemoteStorageAdapter implements StorageAdapter {
   }
 }
 
+type SqlocalModule = {
+  SQLocal: new (databaseName: string) => {
+    sql: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<Array<Record<string, unknown>>>;
+  };
+};
+
+type SqlocalClient = {
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<Array<Record<string, unknown>>>;
+};
+
+export class SqlocalStorageAdapter implements StorageAdapter {
+  private databaseName: string;
+  private sqlocalPromise: Promise<SqlocalClient> | null = null;
+
+  constructor(config?: SqlocalStorageConfig) {
+    this.databaseName = config?.databaseName || 'editorts.sqlite';
+  }
+
+  private async loadClient(): Promise<SqlocalClient> {
+    if (!this.sqlocalPromise) {
+      this.sqlocalPromise = (async () => {
+        try {
+          const module = (await import('sqlocal')) as unknown as SqlocalModule;
+          const { SQLocal } = module;
+          const { sql } = new SQLocal(this.databaseName);
+          await sql`
+            CREATE TABLE IF NOT EXISTS editor_pages (
+              key TEXT PRIMARY KEY,
+              data TEXT NOT NULL
+            )
+          `;
+          await sql`
+            CREATE TABLE IF NOT EXISTS editor_images (
+              key TEXT PRIMARY KEY,
+              data TEXT NOT NULL
+            )
+          `;
+          return { sql };
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          throw new Error(`Failed to load sqlocal: ${message}`);
+        }
+      })();
+    }
+
+    return this.sqlocalPromise;
+  }
+
+  async savePage(key: string, data: string): Promise<void> {
+    const { sql } = await this.loadClient();
+    await sql`
+      INSERT INTO editor_pages (key, data)
+      VALUES (${key}, ${data})
+      ON CONFLICT(key) DO UPDATE SET data = excluded.data
+    `;
+  }
+
+  async loadPage(key: string): Promise<string | null> {
+    const { sql } = await this.loadClient();
+    const rows = await sql`
+      SELECT data FROM editor_pages WHERE key = ${key} LIMIT 1
+    `;
+    const result = rows[0] as { data?: unknown } | undefined;
+    return typeof result?.data === 'string' ? result.data : null;
+  }
+
+  async deletePage(key: string): Promise<void> {
+    const { sql } = await this.loadClient();
+    await sql`
+      DELETE FROM editor_pages WHERE key = ${key}
+    `;
+  }
+
+  async uploadImage(file: File | Blob, filename?: string): Promise<string> {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Failed to read image file'));
+      reader.readAsDataURL(file);
+    });
+
+    const { sql } = await this.loadClient();
+    const imageKey = filename || `${Date.now()}`;
+    await sql`
+      INSERT INTO editor_images (key, data)
+      VALUES (${imageKey}, ${dataUrl})
+      ON CONFLICT(key) DO UPDATE SET data = excluded.data
+    `;
+    return dataUrl;
+  }
+
+  async deleteImage(url: string): Promise<void> {
+    const { sql } = await this.loadClient();
+    await sql`
+      DELETE FROM editor_images WHERE data = ${url}
+    `;
+  }
+
+  async listPages(): Promise<string[]> {
+    const { sql } = await this.loadClient();
+    const rows = await sql`
+      SELECT key FROM editor_pages ORDER BY key
+    `;
+    return rows
+      .map((row) => (row as { key?: unknown }).key)
+      .filter((key): key is string => typeof key === 'string');
+  }
+}
+
 /**
  * StorageManager - Main class for managing storage
  */
@@ -269,10 +384,12 @@ export class StorageManager {
   constructor(config?: StorageConfig) {
     // Local storage is the default.
     // Only use remote storage when explicitly requested.
-    if (!config || config.type !== 'remote') {
+    if (!config || config.type === 'local') {
       this.adapter = new LocalStorageAdapter(config as LocalStorageConfig | undefined);
-    } else {
+    } else if (config.type === 'remote') {
       this.adapter = new RemoteStorageAdapter(config);
+    } else {
+      this.adapter = new SqlocalStorageAdapter(config as SqlocalStorageConfig);
     }
   }
 

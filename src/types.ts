@@ -584,7 +584,13 @@ export interface RemoteStorageConfig {
   };
 }
 
-export type StorageConfig = LocalStorageConfig | RemoteStorageConfig;
+export interface SqlocalStorageConfig {
+  type: 'sqlocal';
+  /** SQLite database file name stored in OPFS. */
+  databaseName?: string;
+}
+
+export type StorageConfig = LocalStorageConfig | RemoteStorageConfig | SqlocalStorageConfig;
 
 export interface ToolbarInitConfig {
   byId?: Record<string, ToolbarConfig>;

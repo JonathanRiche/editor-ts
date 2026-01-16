@@ -2,3 +2,16 @@
 Branch: main
 Started: Thu Jan 15 10:10:39 PM EST 2026
 ---
+
+## Codebase Patterns
+- The library uses optional peer dependencies for editor add-ons (e.g. `modern-monaco`, `@opencode-ai/sdk`), with config toggles in runtime config.
+
+## Thu Jan 15 22:50:00 EST 2026 - 2025-12-19-supertab-dl4
+- Added sqlocal-based storage adapter and config type for OPFS-backed storage.
+- Documented sqlocal storage setup and optional peer dependency.
+- Files changed: `src/core/StorageManager.ts`, `src/types.ts`, `index.ts`, `package.json`, `README.md`, `src/types/sqlocal.d.ts`.
+- **Learnings for future iterations:**
+  - Optional storage adapters should be surfaced as peer dependencies.
+  - Storage config lives in both `src/core/StorageManager.ts` and `src/types.ts`.
+  - `README.md` is the place for usage examples of new adapters.
+---

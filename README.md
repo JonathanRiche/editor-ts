@@ -46,6 +46,23 @@ const editor = init({
 })
 ```
 
+### Storage adapters
+
+Local storage is the default. To use SQLite in the browser via OPFS, install the optional `sqlocal` peer dependency and configure the storage adapter:
+
+```ts
+import { init } from 'editorts'
+
+const editor = init({
+  iframeId: 'preview-iframe',
+  data: pageData,
+  storage: {
+    type: 'sqlocal',
+    databaseName: 'editorts.sqlite',
+  },
+})
+```
+
 ### Toolbars (runtime only)
 
 ```ts
