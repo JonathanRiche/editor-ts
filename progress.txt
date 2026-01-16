@@ -24,4 +24,10 @@ Started: Thu Jan 15 10:10:39 PM EST 2026
 - **Learnings for future iterations:**
   - `bun run build` is the configured test script; lint/typecheck scripts are absent.
   - `examples/quickstart.ts` requires a browser context (DOM) and fails under Bun CLI.
+
+## Thu Jan 15 11:59:00 PM EST 2026 - 2025-12-19-supertab-qes
+- Adjusted AI chat streaming to attach to message part events immediately and filter by session to avoid waiting for completion.
+- Files changed: src/core/aiChat.ts, progress.txt.
+- **Learnings for future iterations:**
+  - AI chat streaming listens to opencode SSE message.part.updated events; ensure session filtering doesn’t delay deltas.
 ---
