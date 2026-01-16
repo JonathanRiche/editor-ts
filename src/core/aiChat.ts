@@ -294,7 +294,7 @@ export const requestAiReplacements = async (args: {
           const msg = info.info;
 
           // Track the first assistant message for this session that has a completion.
-          if (msg.role === 'assistant' && typeof msg.sessionID === 'string') {
+          if (msg.role === 'assistant' && typeof msg.sessionID === 'string' && msg.sessionID === sessionId) {
             targetSessionId = msg.sessionID;
 
             // We only know we're done once the assistant message has completed.
@@ -313,8 +313,14 @@ export const requestAiReplacements = async (args: {
           const part = properties.part;
           if (!isTextPart(part)) continue;
 
-          // Only stream the text for the current session once we know it.
-          if (targetSessionId && part.sessionID !== targetSessionId) continue;
+          const rawSessionId = (part as { sessionID?: unknown }).sessionID;
+          const partSessionId = typeof rawSessionId === 'string' ? rawSessionId : null;
+
+          if (!targetSessionId) {
+            targetSessionId = partSessionId ?? sessionId;
+          }
+
+          if (targetSessionId && partSessionId && partSessionId !== targetSessionId) continue;
 
           const delta = typeof properties.delta === 'string' ? properties.delta : null;
           if (delta && delta.length > 0) {
