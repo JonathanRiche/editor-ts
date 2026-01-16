@@ -1,4 +1,5 @@
 import type { StorageAdapter } from '../core/StorageManager';
+import type { PageData } from '../types';
 
 export type ServerPageMeta = {
   key: string;
@@ -30,6 +31,20 @@ export type FrontendSyncStatus =
   | { state: 'saving' }
   | { state: 'idle' }
   | { state: 'error'; message: string };
+
+export interface PageMeta {
+  key: string;
+  title: string;
+  itemId: number;
+  updatedAt: string;
+}
+
+export interface PageMetaStore {
+  save(meta: PageMeta): Promise<void>;
+  get(key: string): Promise<PageMeta | null>;
+  list(): Promise<PageMeta[]>;
+  delete(key: string): Promise<void>;
+}
 
 const defaultIncludeFiles = (path: string): boolean => {
   return path === 'page.json' || path === 'styles.css' || path === 'index.html' || path.startsWith('components/');
@@ -127,4 +142,17 @@ export const syncFrontendWithServer = async (options: FrontendSyncOptions): Prom
     const message = err instanceof Error ? err.message : String(err);
     updateStatus(options, { state: 'error', message });
   }
+};
+
+export const createPageMeta = (
+  key: string,
+  page: PageData,
+  options?: { updatedAt?: string }
+): PageMeta => {
+  return {
+    key,
+    title: page.title,
+    itemId: page.item_id,
+    updatedAt: options?.updatedAt ?? new Date().toISOString(),
+  };
 };

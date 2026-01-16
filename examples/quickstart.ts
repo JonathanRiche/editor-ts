@@ -3,7 +3,19 @@
  * User controls the layout in index.html, init() populates it
  */
 
-import { init, createCustomComponentDefinition, syncFrontendWithServer, type PageData, type Component, type PagesRenderProps, type InitConfig, type ServerSyncAdapter, type ServerPageMeta, type ServerFile } from '../index';
+import {
+  init,
+  createCustomComponentDefinition,
+  createPageMeta,
+  syncFrontendWithServer,
+  type PageData,
+  type Component,
+  type PagesRenderProps,
+  type InitConfig,
+  type ServerSyncAdapter,
+  type ServerPageMeta,
+  type ServerFile,
+} from '../index';
 // import sampleData from '../samples/page_template.json';
 
 console.log('QuickStart script loaded');
@@ -417,6 +429,9 @@ void syncFrontendWithServer({
     console.log('Sync status:', status.state);
   },
 });
+
+const pageMeta = createPageMeta('quickstart-page', editor.page.toObject());
+console.log('🗂️ Page meta:', pageMeta);
 
 // ==================== USE THE EDITOR INSTANCE ====================
 

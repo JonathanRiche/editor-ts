@@ -87,6 +87,23 @@ export type {
 export type { LayerManagerConfig } from './src/core/LayerManager';
 export type { StorageAdapter } from './src/core/StorageManager';
 
+// Server exports
+export {
+  createPageMeta,
+} from './src/server/sync';
+export type { PageMeta, PageMetaStore } from './src/server/sync';
+export { createBunPageMetaStore } from './src/server/bun_server';
+export {
+  createCfPageMetaStore,
+  EditorTsPageMetaDurableObject,
+  EditorTsPageMetaIndexDurableObject,
+  type DurableObjectNamespace,
+  type DurableObjectState,
+  type DurableObjectStorage,
+  type DurableObjectId,
+  type DurableObjectStub,
+} from './src/server/cf_worker';
+
 // Utility exports
 export {
   deepClone,
