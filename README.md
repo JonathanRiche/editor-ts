@@ -48,20 +48,34 @@ const editor = init({
 
 ### Storage adapters
 
-Local storage is the default. To use SQLite in the browser via OPFS, install the optional `sqlocal` peer dependency and configure the storage adapter:
+Local storage is the default. To use SQLite in the browser via OPFS, install the optional `sqlocal` peer dependency and configure the storage adapter. SQLocal requires cross-origin isolation headers, so the easiest way is to use the Vite example in `examples/localsql`.
 
 ```ts
 import { init } from 'editorts'
+import { SQLocal } from 'sqlocal'
+
+const sqlocalClient = new SQLocal('editorts.sqlite')
 
 const editor = init({
   iframeId: 'preview-iframe',
   data: pageData,
   storage: {
     type: 'sqlocal',
-    databaseName: 'editorts.sqlite',
+    client: sqlocalClient,
+    // databaseName: 'editorts.sqlite', // when not passing client
   },
 })
 ```
+
+Run the SQLocal demo (Vite):
+
+```bash
+cd examples/localsql
+bun install
+bun run dev
+```
+
+Open `http://localhost:5173`.
 
 ### Toolbars (runtime only)
 

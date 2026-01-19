@@ -4,7 +4,7 @@
 
 import type { OpencodeClient, ServerOptions, createOpencode } from '@opencode-ai/sdk';
 import type { Page } from './core/Page';
-import type { StorageAdapter, StorageManager } from './core/StorageManager';
+import type { StorageAdapter, StorageManager, SqlocalClient } from './core/StorageManager';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[] | Component;
@@ -615,8 +615,10 @@ export interface RemoteStorageConfig {
 
 export interface SqlocalStorageConfig {
   type: 'sqlocal';
-  /** SQLite database file name stored in OPFS. */
+  /** SQLite database file name stored in OPFS (used when `client` is not provided). */
   databaseName?: string;
+  /** Pre-initialized SQLocal client (avoids dynamic import). */
+  client?: SqlocalClient;
 }
 
 export type StorageConfig = LocalStorageConfig | RemoteStorageConfig | SqlocalStorageConfig;

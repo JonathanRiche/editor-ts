@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EditorTs + SQLocal (Vite)</title>
+  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><path fill='%23facc15' d='M36 2L12 36h16l-4 26 28-40H36z'/></svg>" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      height: 100vh;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    main {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 280px 1fr;
+    }
+
+    aside {
+      background: #ffffff;
+      padding: 1.5rem;
+      border-right: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    aside h1 {
+      font-size: 1.2rem;
+      font-weight: 600;
+    }
+
+    section.card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    #stats-container,
+    #layers-container,
+    #selected-info {
+      font-size: 0.9rem;
+    }
+
+    .content {
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .tabs button {
+      border: 1px solid #cbd5f5;
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 0.4rem 0.7rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .tabs button.active {
+      background: #4f46e5;
+      color: #ffffff;
+      border-color: #4f46e5;
+    }
+
+    html[data-editorts-view="editor"] .code-tabs {
+      display: none;
+    }
+
+    html[data-editorts-view="code"] #preview-iframe {
+      display: none;
+    }
+
+    html[data-editorts-view="editor"] #code-panels {
+      display: none;
+    }
+
+    html[data-editorts-view="editor"] .code-tabs {
+      display: none;
+    }
+
+    #preview-iframe {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      border: none;
+      border-radius: 12px;
+      background: #ffffff;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+    }
+
+    #code-panels {
+      flex: 1 1 auto;
+      min-height: 0;
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+    }
+
+    #code-panels > div {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    #code-tabs {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    #code-tabs button {
+      border: 1px solid #cbd5f5;
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 0.3rem 0.6rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+
+    #code-tabs button.active {
+      background: #0f172a;
+      color: #ffffff;
+      border-color: #0f172a;
+    }
+
+    @media (max-width: 960px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid #e2e8f0;
+      }
+
+      .content {
+        padding: 1rem;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <aside>
+      <h1>EditorTs + SQLocal</h1>
+      <section class="card">
+        <strong>Stats</strong>
+        <div id="stats-container"></div>
+      </section>
+      <section class="card">
+        <strong>Layers</strong>
+        <div id="layers-container"></div>
+      </section>
+      <section class="card">
+        <strong>Selected</strong>
+        <div id="selected-info"></div>
+      </section>
+      <section class="card">
+        <strong>Pages</strong>
+        <div id="pages-container"></div>
+      </section>
+      <section class="card">
+        <strong>Components</strong>
+        <div id="component-palette"></div>
+      </section>
+    </aside>
+    <div class="content">
+      <div class="tabs">
+        <button id="tab-editor" type="button">Editor</button>
+        <button id="tab-code" type="button">Code</button>
+      </div>
+      <iframe id="preview-iframe" title="Editor preview"></iframe>
+      <div id="code-tabs" class="code-tabs">
+        <button id="code-tab-files" type="button">Files</button>
+        <button id="code-tab-viewer" type="button">View</button>
+        <button id="code-tab-js" type="button">JS</button>
+        <button id="code-tab-css" type="button">CSS</button>
+        <button id="code-tab-json" type="button">JSON</button>
+        <button id="code-tab-jsx" type="button">JSX</button>
+      </div>
+      <div id="code-panels">
+        <div id="files-viewer-container"></div>
+        <div id="viewer-editor-container"></div>
+        <div id="js-editor-container"></div>
+        <div id="css-editor-container"></div>
+        <div id="json-editor-container"></div>
+        <div id="jsx-editor-container"></div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>

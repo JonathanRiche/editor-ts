@@ -109,7 +109,9 @@ const multiPageData = {
 const editorConfig: InitConfig = {
   storage: {
     type: 'local',
-    prefix: 'quickstart_',
+    // For SQLocal + Vite, see examples/localsql.
+    // type: 'sqlocal',
+    // prefix: 'quickstart_',
   },
 
   initialStorageKey: 'quickstart-page',

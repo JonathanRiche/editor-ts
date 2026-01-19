@@ -47,10 +47,16 @@ export interface RemoteStorageConfig {
   };
 }
 
+export type SqlocalClient = {
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<Array<Record<string, unknown>>>;
+};
+
 export interface SqlocalStorageConfig {
   type: 'sqlocal';
-  /** SQLite database file name stored in OPFS. */
+  /** SQLite database file name stored in OPFS (used when `client` is not provided). */
   databaseName?: string;
+  /** Pre-initialized SQLocal client (avoids dynamic import). */
+  client?: SqlocalClient;
 }
 
 export type StorageConfig = LocalStorageConfig | RemoteStorageConfig | SqlocalStorageConfig;
@@ -267,43 +273,49 @@ export class RemoteStorageAdapter implements StorageAdapter {
 }
 
 type SqlocalModule = {
-  SQLocal: new (databaseName: string) => {
-    sql: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<Array<Record<string, unknown>>>;
-  };
+  SQLocal: new (databaseName: string) => SqlocalClient;
 };
 
-type SqlocalClient = {
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<Array<Record<string, unknown>>>;
-};
 
 export class SqlocalStorageAdapter implements StorageAdapter {
   private databaseName: string;
+  private client: SqlocalClient | null;
   private sqlocalPromise: Promise<SqlocalClient> | null = null;
 
   constructor(config?: SqlocalStorageConfig) {
     this.databaseName = config?.databaseName || 'editorts.sqlite';
+    this.client = config?.client ?? null;
+  }
+
+  private async ensureSchema(client: SqlocalClient): Promise<void> {
+    await client.sql`
+      CREATE TABLE IF NOT EXISTS editor_pages (
+        key TEXT PRIMARY KEY,
+        data TEXT NOT NULL
+      )
+    `;
+    await client.sql`
+      CREATE TABLE IF NOT EXISTS editor_images (
+        key TEXT PRIMARY KEY,
+        data TEXT NOT NULL
+      )
+    `;
   }
 
   private async loadClient(): Promise<SqlocalClient> {
+    if (this.client) {
+      await this.ensureSchema(this.client);
+      return this.client;
+    }
+
     if (!this.sqlocalPromise) {
       this.sqlocalPromise = (async () => {
         try {
           const module = (await import('sqlocal')) as unknown as SqlocalModule;
           const { SQLocal } = module;
-          const { sql } = new SQLocal(this.databaseName);
-          await sql`
-            CREATE TABLE IF NOT EXISTS editor_pages (
-              key TEXT PRIMARY KEY,
-              data TEXT NOT NULL
-            )
-          `;
-          await sql`
-            CREATE TABLE IF NOT EXISTS editor_images (
-              key TEXT PRIMARY KEY,
-              data TEXT NOT NULL
-            )
-          `;
-          return { sql };
+          const client = new SQLocal(this.databaseName);
+          await this.ensureSchema(client);
+          return client;
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : 'Unknown error';
           throw new Error(`Failed to load sqlocal: ${message}`);

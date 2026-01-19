@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { StorageManager } from '../src/core/StorageManager';
-import type { StorageAdapter } from '../src/core/StorageManager';
+import { StorageManager, SqlocalStorageAdapter } from '../src/core/StorageManager';
+import type { SqlocalClient, StorageAdapter } from '../src/core/StorageManager';
 
 class MemoryStorageAdapter implements StorageAdapter {
   private pages = new Map<string, string>();
@@ -44,5 +44,26 @@ describe('StorageManager', () => {
 
     await manager.deletePage('page-2');
     expect(await manager.listPages()).toEqual(['page-1']);
+  });
+
+  it('uses provided sqlocal client without dynamic import', async () => {
+    const schemaStatements: string[] = [];
+    const sqlocalClient: SqlocalClient = {
+      sql: async (strings: TemplateStringsArray): Promise<Array<Record<string, unknown>>> => {
+        schemaStatements.push(strings.join(''));
+        return [];
+      },
+    };
+
+    const adapter = new SqlocalStorageAdapter({
+      type: 'sqlocal',
+      client: sqlocalClient,
+    });
+
+    await adapter.listPages();
+
+    expect(schemaStatements.length).toBeGreaterThanOrEqual(2);
+    expect(schemaStatements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS editor_pages'))).toBe(true);
+    expect(schemaStatements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS editor_images'))).toBe(true);
   });
 });
