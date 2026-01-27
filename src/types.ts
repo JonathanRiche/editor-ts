@@ -305,6 +305,9 @@ export interface InitConfig {
   // Required: iframe element ID (user creates this in their HTML)
   iframeId: string;
 
+  // Optional: vim mode defaults to false
+  vimMode?: boolean;
+
   /** Optional: Version control / undo-redo history (runtime config, persisted separately). */
   versionControl?: {
     enabled?: boolean;
@@ -692,6 +695,7 @@ export interface EditorTsEditor {
   page: Page;
   storage: StorageManager;
   ai?: EditorTsAiModule;
+  vimMode: boolean;
   versionControl?: {
     enabled: boolean;
     canUndo(): boolean;

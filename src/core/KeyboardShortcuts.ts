@@ -102,7 +102,7 @@ export const createDefaultShortcuts = (handlers: Partial<ShortcutContext>): Shor
   }
 
   if (handlers.redo) {
-    shortcuts.push({ key: 'mod+r', action: handlers.redo });
+    shortcuts.push({ key: 'mod+shift+z', action: handlers.redo });
   }
 
   if (handlers.deleteSelected) {
@@ -125,7 +125,7 @@ export const createEditorShortcuts = (handlers: Omit<ShortcutContext, 'openComma
   }
 
   if (handlers.redo) {
-    shortcuts.push({ key: 'mod+r', action: handlers.redo });
+    shortcuts.push({ key: 'mod+shift+z', action: handlers.redo });
   }
 
   if (handlers.deleteSelected) {

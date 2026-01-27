@@ -304,7 +304,7 @@ const editorConfig: InitConfig = {
       hintId: 'command-palette-hint',
       shortcuts: [
         {
-          key: 'mod+k',
+          key: 'mod+p',
           action: () => {
             const input = document.getElementById('command-palette-input') as HTMLInputElement | null;
             input?.focus();

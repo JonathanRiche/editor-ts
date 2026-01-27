@@ -24,6 +24,7 @@ export function init(config: InitConfig): EditorTsEditor {
   if (!iframe || iframe.tagName !== 'IFRAME') {
     throw new Error(`Iframe element #${config.iframeId} not found or is not an iframe`);
   }
+  const vimMode = config.vimMode ?? false;
 
   const isMultiPageData = (data: PageData | MultiPageData): data is MultiPageData => {
     return !!data && typeof data === 'object' && Array.isArray((data as MultiPageData).pages);
@@ -478,21 +479,21 @@ export function init(config: InitConfig): EditorTsEditor {
           config.onComponentSelect(component);
         }
       },
-       onReorder: (componentId, newParentId, newIndex) => {
-         // Reorder in component manager
-         page.components.moveComponent(componentId, newParentId, newIndex);
+      onReorder: (componentId, newParentId, newIndex) => {
+        // Reorder in component manager
+        page.components.moveComponent(componentId, newParentId, newIndex);
 
-         // Emit event
-         const component = page.components.findById(componentId);
-         if (component) {
-           emit('componentReorder', component, newParentId, newIndex);
-         }
+        // Emit event
+        const component = page.components.findById(componentId);
+        if (component) {
+          emit('componentReorder', component, newParentId, newIndex);
+        }
 
-         void commitSnapshot({ source: 'user', message: 'reorder component' });
+        void commitSnapshot({ source: 'user', message: 'reorder component' });
 
-         // Refresh iframe
-         refresh();
-       }
+        // Refresh iframe
+        refresh();
+      }
     });
 
     // Initial render
@@ -568,9 +569,9 @@ export function init(config: InitConfig): EditorTsEditor {
   let commandPaletteEntries: CommandPaletteEntry[] = [];
   let commandPaletteActiveIndex = 0;
   let isRenderingCommandPalette = false;
-  let renderCommandPaletteResults = (): void => {};
-  let openCommandPalette = (): void => {};
-  let closeCommandPalette = (): void => {};
+  let renderCommandPaletteResults = (): void => { };
+  let openCommandPalette = (): void => { };
+  let closeCommandPalette = (): void => { };
 
   // Optional AI provider module (lazy)
   let ai: EditorTsAiModule | undefined;
@@ -589,130 +590,130 @@ export function init(config: InitConfig): EditorTsEditor {
       return import('@opencode-ai/sdk');
     };
 
-     const aiSessionStorageKey = 'ai_sessions';
-     const aiSessionCurrentKey = 'ai_session_current';
+    const aiSessionStorageKey = 'ai_sessions';
+    const aiSessionCurrentKey = 'ai_session_current';
 
-     let currentSessionId: string | null = null;
+    let currentSessionId: string | null = null;
 
-      const loadSessionIndex = async (): Promise<{ current: string | null; sessions: Array<{ id: string; title?: string }> }> => {
-       const rawSessions = await storage.loadPage(aiSessionStorageKey);
-       const rawCurrent = await storage.loadPage(aiSessionCurrentKey);
+    const loadSessionIndex = async (): Promise<{ current: string | null; sessions: Array<{ id: string; title?: string }> }> => {
+      const rawSessions = await storage.loadPage(aiSessionStorageKey);
+      const rawCurrent = await storage.loadPage(aiSessionCurrentKey);
 
-       let sessions: Array<{ id: string; title?: string }> = [];
-       if (rawSessions) {
-         try {
-           const parsed = JSON.parse(rawSessions) as unknown;
-           if (Array.isArray(parsed)) {
-             sessions = parsed
-               .filter((s): s is { id: string; title?: string } => typeof (s as { id?: unknown }).id === 'string')
-               .map((s) => ({ id: s.id, title: typeof s.title === 'string' ? s.title : undefined }));
-           }
-         } catch {
-           // ignore
-         }
-       }
-
-       let current: string | null = null;
-       if (rawCurrent) {
-         try {
-           const parsed = JSON.parse(rawCurrent) as unknown;
-           current = typeof parsed === 'string' && parsed.length > 0 ? parsed : null;
-         } catch {
-           // ignore
-         }
-       }
-
-       return { current, sessions };
-     };
-
-     const saveSessionIndex = async (next: { current: string | null; sessions: Array<{ id: string; title?: string }> }) => {
-       await storage.savePage(aiSessionStorageKey, JSON.stringify(next.sessions, null, 2));
-       await storage.savePage(aiSessionCurrentKey, JSON.stringify(next.current));
-     };
-
-      const appendAiChatLog = (label: string, text: string) => {
-        if (!aiChatLog) return;
-        aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${label}: ${text}\n\n`;
-      };
-
-      const appendAiChatStreamDelta = (delta: string) => {
-        if (!aiChatLog) return;
-        aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${delta}`;
-      };
-
-      const refreshAiSessionSelect = async () => {
-        if (!aiSessionSelect || !ai) return;
-
-        if (currentSessionId === null) {
-          const index = await loadSessionIndex();
-          currentSessionId = index.current;
-        }
-
-        const sessions = await ai.sessions.list();
-        const current = ai.sessions.current();
-
-        aiSessionSelect.innerHTML = '';
-
-        const addOption = (id: string, label: string) => {
-          const opt = document.createElement('option');
-          opt.value = id;
-          opt.textContent = label;
-          if (id === current) {
-            opt.selected = true;
+      let sessions: Array<{ id: string; title?: string }> = [];
+      if (rawSessions) {
+        try {
+          const parsed = JSON.parse(rawSessions) as unknown;
+          if (Array.isArray(parsed)) {
+            sessions = parsed
+              .filter((s): s is { id: string; title?: string } => typeof (s as { id?: unknown }).id === 'string')
+              .map((s) => ({ id: s.id, title: typeof s.title === 'string' ? s.title : undefined }));
           }
-          aiSessionSelect.appendChild(opt);
-        };
-
-        addOption('', '(auto)');
-
-        sessions.forEach((s) => {
-          addOption(s.id, s.title ? `${s.title} (${s.id})` : s.id);
-        });
-      };
-
-      const refreshAiModelSelect = async () => {
-        if (!aiModelSelect || !ai) return;
-
-        const models = await ai.models.list();
-        aiModelSelect.innerHTML = '';
-
-        const addModelOption = (modelID: string, label: string) => {
-          const opt = document.createElement('option');
-          opt.value = modelID;
-          opt.textContent = label;
-          aiModelSelect.appendChild(opt);
-        };
-
-        models.forEach((model) => {
-          addModelOption(model.modelID, model.modelID);
-        });
-
-        if (models.length === 0) {
-          addModelOption('', 'No models');
+        } catch {
+          // ignore
         }
+      }
+
+      let current: string | null = null;
+      if (rawCurrent) {
+        try {
+          const parsed = JSON.parse(rawCurrent) as unknown;
+          current = typeof parsed === 'string' && parsed.length > 0 ? parsed : null;
+        } catch {
+          // ignore
+        }
+      }
+
+      return { current, sessions };
+    };
+
+    const saveSessionIndex = async (next: { current: string | null; sessions: Array<{ id: string; title?: string }> }) => {
+      await storage.savePage(aiSessionStorageKey, JSON.stringify(next.sessions, null, 2));
+      await storage.savePage(aiSessionCurrentKey, JSON.stringify(next.current));
+    };
+
+    const appendAiChatLog = (label: string, text: string) => {
+      if (!aiChatLog) return;
+      aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${label}: ${text}\n\n`;
+    };
+
+    const appendAiChatStreamDelta = (delta: string) => {
+      if (!aiChatLog) return;
+      aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${delta}`;
+    };
+
+    const refreshAiSessionSelect = async () => {
+      if (!aiSessionSelect || !ai) return;
+
+      if (currentSessionId === null) {
+        const index = await loadSessionIndex();
+        currentSessionId = index.current;
+      }
+
+      const sessions = await ai.sessions.list();
+      const current = ai.sessions.current();
+
+      aiSessionSelect.innerHTML = '';
+
+      const addOption = (id: string, label: string) => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = label;
+        if (id === current) {
+          opt.selected = true;
+        }
+        aiSessionSelect.appendChild(opt);
       };
 
-      let lastAiReplacements: Array<{ path: string; content: string }> | null = null;
+      addOption('', '(auto)');
 
-      ai = {
-        provider: 'opencode',
-        mode,
-        getClient: async () => {
+      sessions.forEach((s) => {
+        addOption(s.id, s.title ? `${s.title} (${s.id})` : s.id);
+      });
+    };
+
+    const refreshAiModelSelect = async () => {
+      if (!aiModelSelect || !ai) return;
+
+      const models = await ai.models.list();
+      aiModelSelect.innerHTML = '';
+
+      const addModelOption = (modelID: string, label: string) => {
+        const opt = document.createElement('option');
+        opt.value = modelID;
+        opt.textContent = label;
+        aiModelSelect.appendChild(opt);
+      };
+
+      models.forEach((model) => {
+        addModelOption(model.modelID, model.modelID);
+      });
+
+      if (models.length === 0) {
+        addModelOption('', 'No models');
+      }
+    };
+
+    let lastAiReplacements: Array<{ path: string; content: string }> | null = null;
+
+    ai = {
+      provider: 'opencode',
+      mode,
+      getClient: async () => {
         if (!clientPromise) {
           if (externalClient) {
             clientPromise = Promise.resolve(externalClient);
           } else {
             clientPromise = loadSdk().then(async (sdk) => {
               if (mode === 'client') {
-                  const baseUrl = aiBaseUrlInput?.value || aiConfig.baseUrl || aiProxiedBaseUrl;
-                  if (!baseUrl) {
-                    throw new Error("EditorTs: aiProvider.baseUrl is required when mode is 'client'");
-                  }
-                  if (typeof sdk.createOpencodeClient !== 'function') {
-                    throw new Error('EditorTs: @opencode-ai/sdk missing createOpencodeClient');
-                  }
+                const baseUrl = aiBaseUrlInput?.value || aiConfig.baseUrl || aiProxiedBaseUrl;
+                if (!baseUrl) {
+                  throw new Error("EditorTs: aiProvider.baseUrl is required when mode is 'client'");
+                }
+                if (typeof sdk.createOpencodeClient !== 'function') {
+                  throw new Error('EditorTs: @opencode-ai/sdk missing createOpencodeClient');
+                }
 
-                 const createAuthedFetch = (username: string, password: string): ((request: Request) => Promise<Response>) => {
+                const createAuthedFetch = (username: string, password: string): ((request: Request) => Promise<Response>) => {
                   const basic = btoa(`${username}:${password}`);
 
                   return async (request: Request): Promise<Response> => {
@@ -723,16 +724,16 @@ export function init(config: InitConfig): EditorTsEditor {
                   };
                 };
 
-                 // If the app is using a same-origin proxy (like /opencode/*), do NOT send basic auth
-                 // from the browser; let the proxy attach it.
-                 const auth = baseUrl.startsWith(window.location.origin)
-                   ? undefined
-                   : aiConfig.auth;
+                // If the app is using a same-origin proxy (like /opencode/*), do NOT send basic auth
+                // from the browser; let the proxy attach it.
+                const auth = baseUrl.startsWith(window.location.origin)
+                  ? undefined
+                  : aiConfig.auth;
 
-                 return sdk.createOpencodeClient({
-                   baseUrl,
-                   fetch: auth ? createAuthedFetch(auth.username ?? 'opencode', auth.password) : undefined,
-                 });
+                return sdk.createOpencodeClient({
+                  baseUrl,
+                  fetch: auth ? createAuthedFetch(auth.username ?? 'opencode', auth.password) : undefined,
+                });
               }
 
               if (typeof sdk.createOpencode !== 'function') {
@@ -755,129 +756,129 @@ export function init(config: InitConfig): EditorTsEditor {
 
         return clientPromise;
       },
-       getUrl: () => {
-         if (mode === 'client') return aiConfig.baseUrl ?? externalServer?.url ?? null;
-         return server?.url ?? externalServer?.url ?? null;
-       },
-    sessions: {
-          current: () => {
-            return currentSessionId;
-          },
-          setCurrent: async (sessionId: string | null) => {
-            currentSessionId = sessionId;
-            const index = await loadSessionIndex();
-            await saveSessionIndex({ ...index, current: sessionId });
-          },
-          list: async () => {
-            const index = await loadSessionIndex();
-            return index.sessions;
-          },
-          create: async (title?: string) => {
-            const client = await ai!.getClient();
-            const result = await client.session.create({ body: { title: title ?? 'EditorTs Chat' } });
-            if (!result.data) {
-              throw new Error(`Failed to create session: ${String(result.error)}`);
-            }
-
-            const created = { id: result.data.id, title: result.data.title };
-
-            const index = await loadSessionIndex();
-            const nextSessions = [created, ...index.sessions.filter((s) => s.id !== created.id)].slice(0, 50);
-            await saveSessionIndex({ current: created.id, sessions: nextSessions });
-
-            return created;
-          },
+      getUrl: () => {
+        if (mode === 'client') return aiConfig.baseUrl ?? externalServer?.url ?? null;
+        return server?.url ?? externalServer?.url ?? null;
+      },
+      sessions: {
+        current: () => {
+          return currentSessionId;
         },
-        models: {
-          list: async () => {
-            const result: Array<{ providerID: string; modelID: string }> = [];
-
-            const addModel = (providerID: string, modelID: string) => {
-              const normalized = normalizeOpencodeModelId(providerID, modelID);
-              if (!result.some((entry) => entry.providerID === providerID && entry.modelID === normalized)) {
-                result.push({ providerID, modelID: normalized });
-              }
-            };
-
-            addModel('opencode', 'gemini-3-pro');
-            addModel('opencode', 'claude-sonnet-4-5');
-            addModel('opencode', 'gpt-5.2-codex');
-
-            try {
-              const client = await ai!.getClient();
-              const providers = await client.config.providers();
-              const defaultModel = providers.data?.default?.opencode;
-              if (defaultModel) {
-                addModel('opencode', defaultModel);
-              }
-            } catch {
-              // ignore provider lookup failures
-            }
-
-            return result;
-          },
+        setCurrent: async (sessionId: string | null) => {
+          currentSessionId = sessionId;
+          const index = await loadSessionIndex();
+          await saveSessionIndex({ ...index, current: sessionId });
         },
-
-        chat: async (
-          prompt: string,
-          options?: {
-            sessionId?: string;
-            model?: {
-              providerID: string;
-              modelID: string;
-            };
-            stream?: boolean;
-            onStream?: (delta: string) => void;
+        list: async () => {
+          const index = await loadSessionIndex();
+          return index.sessions;
+        },
+        create: async (title?: string) => {
+          const client = await ai!.getClient();
+          const result = await client.session.create({ body: { title: title ?? 'EditorTs Chat' } });
+          if (!result.data) {
+            throw new Error(`Failed to create session: ${String(result.error)}`);
           }
-        ) => {
-         const client = await ai!.getClient();
 
-         const componentScripts: Record<string, string> = {};
-         const collectScripts = (components: Component[]) => {
-           components.forEach((component) => {
-             const id = typeof component.attributes?.id === 'string' ? component.attributes.id : null;
-             if (id) {
-               componentScripts[`components/${id}.js`] = typeof component.script === 'string' ? component.script : '';
-             }
-             if (component.components && component.components.length > 0) {
-               collectScripts(component.components);
-             }
-           });
-         };
-         collectScripts(page.components.getAll());
+          const created = { id: result.data.id, title: result.data.title };
 
-         if (currentSessionId === null) {
-           const index = await loadSessionIndex();
-           currentSessionId = index.current;
-         }
+          const index = await loadSessionIndex();
+          const nextSessions = [created, ...index.sessions.filter((s) => s.id !== created.id)].slice(0, 50);
+          await saveSessionIndex({ current: created.id, sessions: nextSessions });
 
-          const sessionId = options?.sessionId ?? currentSessionId;
+          return created;
+        },
+      },
+      models: {
+        list: async () => {
+          const result: Array<{ providerID: string; modelID: string }> = [];
 
-          const shouldStream = options?.stream ?? aiConfig.stream?.enabled === true;
-          const selectedModel = options?.model;
+          const addModel = (providerID: string, modelID: string) => {
+            const normalized = normalizeOpencodeModelId(providerID, modelID);
+            if (!result.some((entry) => entry.providerID === providerID && entry.modelID === normalized)) {
+              result.push({ providerID, modelID: normalized });
+            }
+          };
 
-          const result = await requestAiReplacements({
-            client,
-            prompt,
-            pageJson: save(),
-            css: page.getCSS() ?? '',
-            componentScripts,
-            sessionId: sessionId ?? undefined,
-            model: selectedModel,
-            stream: shouldStream,
-            onStream: options?.onStream,
+          addModel('opencode', 'gemini-3-pro');
+          addModel('opencode', 'claude-sonnet-4-5');
+          addModel('opencode', 'gpt-5.2-codex');
+
+          try {
+            const client = await ai!.getClient();
+            const providers = await client.config.providers();
+            const defaultModel = providers.data?.default?.opencode;
+            if (defaultModel) {
+              addModel('opencode', defaultModel);
+            }
+          } catch {
+            // ignore provider lookup failures
+          }
+
+          return result;
+        },
+      },
+
+      chat: async (
+        prompt: string,
+        options?: {
+          sessionId?: string;
+          model?: {
+            providerID: string;
+            modelID: string;
+          };
+          stream?: boolean;
+          onStream?: (delta: string) => void;
+        }
+      ) => {
+        const client = await ai!.getClient();
+
+        const componentScripts: Record<string, string> = {};
+        const collectScripts = (components: Component[]) => {
+          components.forEach((component) => {
+            const id = typeof component.attributes?.id === 'string' ? component.attributes.id : null;
+            if (id) {
+              componentScripts[`components/${id}.js`] = typeof component.script === 'string' ? component.script : '';
+            }
+            if (component.components && component.components.length > 0) {
+              collectScripts(component.components);
+            }
           });
+        };
+        collectScripts(page.components.getAll());
 
-         // Persist session for reuse.
-         if (result.sessionId) {
-           currentSessionId = result.sessionId;
-           const index = await loadSessionIndex();
-           const nextSessions = [{ id: result.sessionId }, ...index.sessions.filter((s) => s.id !== result.sessionId)].slice(0, 50);
-           await saveSessionIndex({ current: result.sessionId, sessions: nextSessions });
-         }
+        if (currentSessionId === null) {
+          const index = await loadSessionIndex();
+          currentSessionId = index.current;
+        }
 
-         return result;
-       },
+        const sessionId = options?.sessionId ?? currentSessionId;
+
+        const shouldStream = options?.stream ?? aiConfig.stream?.enabled === true;
+        const selectedModel = options?.model;
+
+        const result = await requestAiReplacements({
+          client,
+          prompt,
+          pageJson: save(),
+          css: page.getCSS() ?? '',
+          componentScripts,
+          sessionId: sessionId ?? undefined,
+          model: selectedModel,
+          stream: shouldStream,
+          onStream: options?.onStream,
+        });
+
+        // Persist session for reuse.
+        if (result.sessionId) {
+          currentSessionId = result.sessionId;
+          const index = await loadSessionIndex();
+          const nextSessions = [{ id: result.sessionId }, ...index.sessions.filter((s) => s.id !== result.sessionId)].slice(0, 50);
+          await saveSessionIndex({ current: result.sessionId, sessions: nextSessions });
+        }
+
+        return result;
+      },
       apply: async (replacements) => {
         // Apply potentially many files, then refresh once.
         await applyAiReplacementsToPage({
@@ -927,182 +928,182 @@ export function init(config: InitConfig): EditorTsEditor {
         });
 
         await commitSnapshot({ source: 'ai', message: 'apply ai changes' });
- 
+
         refresh();
         refreshLayers();
       },
-       close: async () => {
-         // Only close server that EditorTs started itself.
-         if (server) {
-           server.close();
-         }
-         server = null;
-       },
-
-
-      };
-
-      // Wire AI Chat UI controls, if the app provided them.
-      if (shouldEnableAiChatUi) {
-        const autoApply = aiChatConfig?.autoApply !== false;
-        const streamEnabled = aiChatConfig?.stream?.enabled ?? aiConfig.stream?.enabled === true;
-
-        if (aiChatLinkAnchor) {
-          const path = aiChatConfig?.link?.path ?? '/chats';
-
-          const baseUrl = ai?.getUrl() ?? aiBaseUrlInput?.value ?? aiConfig.baseUrl ?? aiProxiedBaseUrl;
-          const resolvedBase = baseUrl.startsWith('http')
-            ? baseUrl
-            : `${window.location.origin}${baseUrl.startsWith('/') ? '' : '/'}${baseUrl}`;
-
-          const nextUrl = new URL(path.startsWith('/') ? path : `/${path}`, resolvedBase);
-          aiChatLinkAnchor.href = nextUrl.toString();
-          aiChatLinkAnchor.target = '_blank';
-          aiChatLinkAnchor.rel = 'noopener noreferrer';
+      close: async () => {
+        // Only close server that EditorTs started itself.
+        if (server) {
+          server.close();
         }
+        server = null;
+      },
 
-        if (aiHealthButton && aiHealthStatus) {
-          aiHealthButton.addEventListener('click', async () => {
-            if (!ai) {
-              aiHealthStatus.textContent = 'AI provider is disabled.';
-              return;
-            }
 
-            aiHealthStatus.textContent = 'Checking...';
+    };
 
-            try {
-              const client = await ai.getClient();
-              const result = await client.config.get();
-              aiHealthStatus.textContent = JSON.stringify(result.data ?? result, null, 2);
-            } catch (err: unknown) {
-              aiHealthStatus.textContent = err instanceof Error ? err.message : String(err);
-            }
-          });
-        }
+    // Wire AI Chat UI controls, if the app provided them.
+    if (shouldEnableAiChatUi) {
+      const autoApply = aiChatConfig?.autoApply !== false;
+      const streamEnabled = aiChatConfig?.stream?.enabled ?? aiConfig.stream?.enabled === true;
 
-        if (aiSessionSelect) {
-          void refreshAiSessionSelect();
+      if (aiChatLinkAnchor) {
+        const path = aiChatConfig?.link?.path ?? '/chats';
 
-          aiSessionSelect.addEventListener('change', async () => {
-            if (!ai) return;
-            const next = aiSessionSelect.value.trim();
-            await ai.sessions.setCurrent(next.length ? next : null);
-            await refreshAiSessionSelect();
-          });
-        }
+        const baseUrl = ai?.getUrl() ?? aiBaseUrlInput?.value ?? aiConfig.baseUrl ?? aiProxiedBaseUrl;
+        const resolvedBase = baseUrl.startsWith('http')
+          ? baseUrl
+          : `${window.location.origin}${baseUrl.startsWith('/') ? '' : '/'}${baseUrl}`;
 
-        if (aiModelSelect) {
-          void refreshAiModelSelect();
-        }
+        const nextUrl = new URL(path.startsWith('/') ? path : `/${path}`, resolvedBase);
+        aiChatLinkAnchor.href = nextUrl.toString();
+        aiChatLinkAnchor.target = '_blank';
+        aiChatLinkAnchor.rel = 'noopener noreferrer';
+      }
 
-        if (aiSessionNewButton) {
-          aiSessionNewButton.addEventListener('click', async () => {
-            if (!ai) return;
-            const created = await ai.sessions.create('EditorTs Chat');
-            await ai.sessions.setCurrent(created.id);
-            await refreshAiSessionSelect();
-          });
-        }
-
-        if (aiChatApplyButton) {
-          aiChatApplyButton.addEventListener('click', async () => {
-            if (!lastAiReplacements || lastAiReplacements.length === 0) return;
-            if (!ai) {
-              appendAiChatLog('error', 'AI provider is disabled.');
-              return;
-            }
-
-            try {
-              await ai.apply(lastAiReplacements);
-              appendAiChatLog('apply', `Applied ${lastAiReplacements.length} replacement(s).`);
-              lastAiReplacements = null;
-              aiChatApplyButton.toggleAttribute('disabled', true);
-            } catch (err: unknown) {
-              appendAiChatLog('error', err instanceof Error ? err.message : String(err));
-            }
-          });
-        }
-
-        if (aiChatSendButton && aiChatInput) {
-          aiChatSendButton.addEventListener('click', async () => {
-            if (!ai) {
-              appendAiChatLog('error', 'AI provider is disabled.');
-              return;
-            }
-
-            const prompt = aiChatInput.value.trim();
-            if (!prompt) return;
-
-            appendAiChatLog('user', prompt);
-            aiChatSendButton.toggleAttribute('disabled', true);
-
-            try {
-              const selectedSessionId = aiSessionSelect?.value?.trim() || undefined;
-
-          let streamedText = '';
-          if (streamEnabled && aiChatLog) {
-            aiChatLog.textContent = `${aiChatLog.textContent ?? ''}assistant: `;
+      if (aiHealthButton && aiHealthStatus) {
+        aiHealthButton.addEventListener('click', async () => {
+          if (!ai) {
+            aiHealthStatus.textContent = 'AI provider is disabled.';
+            return;
           }
 
-          const selectedModelValue = aiModelSelect?.value?.trim() || '';
-          const model = selectedModelValue
-            ? { providerID: 'opencode', modelID: selectedModelValue }
-            : undefined;
+          aiHealthStatus.textContent = 'Checking...';
 
-          const result = await ai.chat(prompt, {
-            sessionId: selectedSessionId,
-            model,
-            stream: streamEnabled,
-            onStream: streamEnabled
-              ? (delta) => {
+          try {
+            const client = await ai.getClient();
+            const result = await client.config.get();
+            aiHealthStatus.textContent = JSON.stringify(result.data ?? result, null, 2);
+          } catch (err: unknown) {
+            aiHealthStatus.textContent = err instanceof Error ? err.message : String(err);
+          }
+        });
+      }
+
+      if (aiSessionSelect) {
+        void refreshAiSessionSelect();
+
+        aiSessionSelect.addEventListener('change', async () => {
+          if (!ai) return;
+          const next = aiSessionSelect.value.trim();
+          await ai.sessions.setCurrent(next.length ? next : null);
+          await refreshAiSessionSelect();
+        });
+      }
+
+      if (aiModelSelect) {
+        void refreshAiModelSelect();
+      }
+
+      if (aiSessionNewButton) {
+        aiSessionNewButton.addEventListener('click', async () => {
+          if (!ai) return;
+          const created = await ai.sessions.create('EditorTs Chat');
+          await ai.sessions.setCurrent(created.id);
+          await refreshAiSessionSelect();
+        });
+      }
+
+      if (aiChatApplyButton) {
+        aiChatApplyButton.addEventListener('click', async () => {
+          if (!lastAiReplacements || lastAiReplacements.length === 0) return;
+          if (!ai) {
+            appendAiChatLog('error', 'AI provider is disabled.');
+            return;
+          }
+
+          try {
+            await ai.apply(lastAiReplacements);
+            appendAiChatLog('apply', `Applied ${lastAiReplacements.length} replacement(s).`);
+            lastAiReplacements = null;
+            aiChatApplyButton.toggleAttribute('disabled', true);
+          } catch (err: unknown) {
+            appendAiChatLog('error', err instanceof Error ? err.message : String(err));
+          }
+        });
+      }
+
+      if (aiChatSendButton && aiChatInput) {
+        aiChatSendButton.addEventListener('click', async () => {
+          if (!ai) {
+            appendAiChatLog('error', 'AI provider is disabled.');
+            return;
+          }
+
+          const prompt = aiChatInput.value.trim();
+          if (!prompt) return;
+
+          appendAiChatLog('user', prompt);
+          aiChatSendButton.toggleAttribute('disabled', true);
+
+          try {
+            const selectedSessionId = aiSessionSelect?.value?.trim() || undefined;
+
+            let streamedText = '';
+            if (streamEnabled && aiChatLog) {
+              aiChatLog.textContent = `${aiChatLog.textContent ?? ''}assistant: `;
+            }
+
+            const selectedModelValue = aiModelSelect?.value?.trim() || '';
+            const model = selectedModelValue
+              ? { providerID: 'opencode', modelID: selectedModelValue }
+              : undefined;
+
+            const result = await ai.chat(prompt, {
+              sessionId: selectedSessionId,
+              model,
+              stream: streamEnabled,
+              onStream: streamEnabled
+                ? (delta) => {
                   streamedText += delta;
                   appendAiChatStreamDelta(delta);
                 }
-              : undefined,
-          });
+                : undefined,
+            });
 
 
-              if (streamEnabled && aiChatLog) {
-                aiChatLog.textContent = `${aiChatLog.textContent ?? ''}\n\n`;
-                if (!streamedText.trim()) {
-                  appendAiChatLog('assistant', result.rawText);
-                }
-              } else {
+            if (streamEnabled && aiChatLog) {
+              aiChatLog.textContent = `${aiChatLog.textContent ?? ''}\n\n`;
+              if (!streamedText.trim()) {
                 appendAiChatLog('assistant', result.rawText);
               }
-
-              if (result.replacements.length === 0) {
-                lastAiReplacements = null;
-                aiChatApplyButton?.toggleAttribute('disabled', true);
-                return;
-              }
-
-              if (!autoApply) {
-                lastAiReplacements = result.replacements;
-                aiChatApplyButton?.toggleAttribute('disabled', false);
-                return;
-              }
-
-              try {
-                await ai.apply(result.replacements);
-                appendAiChatLog('apply', `Applied ${result.replacements.length} replacement(s).`);
-                lastAiReplacements = null;
-                aiChatApplyButton?.toggleAttribute('disabled', true);
-              } catch (err: unknown) {
-                lastAiReplacements = result.replacements;
-                aiChatApplyButton?.toggleAttribute('disabled', false);
-                appendAiChatLog('error', err instanceof Error ? err.message : String(err));
-              }
-            } catch (err: unknown) {
-              appendAiChatLog('error', err instanceof Error ? err.message : String(err));
-            } finally {
-              aiChatSendButton.toggleAttribute('disabled', false);
+            } else {
+              appendAiChatLog('assistant', result.rawText);
             }
-          });
-        }
-      }
 
+            if (result.replacements.length === 0) {
+              lastAiReplacements = null;
+              aiChatApplyButton?.toggleAttribute('disabled', true);
+              return;
+            }
+
+            if (!autoApply) {
+              lastAiReplacements = result.replacements;
+              aiChatApplyButton?.toggleAttribute('disabled', false);
+              return;
+            }
+
+            try {
+              await ai.apply(result.replacements);
+              appendAiChatLog('apply', `Applied ${result.replacements.length} replacement(s).`);
+              lastAiReplacements = null;
+              aiChatApplyButton?.toggleAttribute('disabled', true);
+            } catch (err: unknown) {
+              lastAiReplacements = result.replacements;
+              aiChatApplyButton?.toggleAttribute('disabled', false);
+              appendAiChatLog('error', err instanceof Error ? err.message : String(err));
+            }
+          } catch (err: unknown) {
+            appendAiChatLog('error', err instanceof Error ? err.message : String(err));
+          } finally {
+            aiChatSendButton.toggleAttribute('disabled', false);
+          }
+        });
+      }
     }
+
+  }
 
   // Built-in code editor setup (optional)
   const codeEditorProvider = config.codeEditor?.provider ?? 'textarea';
@@ -1277,84 +1278,84 @@ export function init(config: InitConfig): EditorTsEditor {
     monacoHost.style.minHeight = '0';
     host.appendChild(monacoHost);
 
-     const mod = await import('modern-monaco');
-     const ws = await ensureWorkspace(mod);
+    const mod = await import('modern-monaco');
+    const ws = await ensureWorkspace(mod);
 
-     const monaco = await loadModernMonaco(mod, ws);
+    const monaco = await loadModernMonaco(mod, ws);
 
-     const editor = monaco.editor.create(monacoHost, {
-       automaticLayout: true,
-       minimap: { enabled: false },
-       readOnly: options?.readOnly === true,
-     });
+    const editor = monaco.editor.create(monacoHost, {
+      automaticLayout: true,
+      minimap: { enabled: false },
+      readOnly: options?.readOnly === true,
+    });
 
-     const openFile = async (path: string, fallback: string): Promise<ReturnType<typeof monaco.editor.createModel>> => {
-       if (ws) {
-         await ws.fs.writeFile(path, fallback, { isModelContentChange: false });
+    const openFile = async (path: string, fallback: string): Promise<ReturnType<typeof monaco.editor.createModel>> => {
+      if (ws) {
+        await ws.fs.writeFile(path, fallback, { isModelContentChange: false });
 
-         // modern-monaco's public `openTextDocument()` opens in the first editor.
-         // We need to open into *this* editor instance.
-         const internal = ws as unknown as {
-           _openTextDocument?: (
-             uri: string,
-             editor: ReturnType<typeof monaco.editor.create>,
-             selectionOrPosition?: unknown,
-             readonlyContent?: string
-           ) => Promise<ReturnType<typeof monaco.editor.createModel>>;
-         };
+        // modern-monaco's public `openTextDocument()` opens in the first editor.
+        // We need to open into *this* editor instance.
+        const internal = ws as unknown as {
+          _openTextDocument?: (
+            uri: string,
+            editor: ReturnType<typeof monaco.editor.create>,
+            selectionOrPosition?: unknown,
+            readonlyContent?: string
+          ) => Promise<ReturnType<typeof monaco.editor.createModel>>;
+        };
 
-         const opened = typeof internal._openTextDocument === 'function'
-           ? await internal._openTextDocument(path, editor)
-           : await ws.openTextDocument(path);
+        const opened = typeof internal._openTextDocument === 'function'
+          ? await internal._openTextDocument(path, editor)
+          : await ws.openTextDocument(path);
 
-         const languageId = language === 'typescript' ? 'typescript' : language;
-         monaco.editor.setModelLanguage(opened, languageId);
+        const languageId = language === 'typescript' ? 'typescript' : language;
+        monaco.editor.setModelLanguage(opened, languageId);
 
-         return opened;
-       }
+        return opened;
+      }
 
-       const extByLanguage: Record<string, string> = {
-         javascript: 'js',
-         typescript: 'tsx',
-         css: 'css',
-         json: 'json',
-       };
+      const extByLanguage: Record<string, string> = {
+        javascript: 'js',
+        typescript: 'tsx',
+        css: 'css',
+        json: 'json',
+      };
 
-       const ext = extByLanguage[language] ?? 'txt';
+      const ext = extByLanguage[language] ?? 'txt';
 
-       const uri = monaco?.Uri?.parse
-         ? monaco.Uri.parse(`file:///editorts/${language}/${Date.now()}.${ext}`)
-         : undefined;
+      const uri = monaco?.Uri?.parse
+        ? monaco.Uri.parse(`file:///editorts/${language}/${Date.now()}.${ext}`)
+        : undefined;
 
-       const model = monaco.editor.createModel(fallback ?? '', language === 'typescript' ? 'typescript' : language, uri);
-       return model;
-     };
+      const model = monaco.editor.createModel(fallback ?? '', language === 'typescript' ? 'typescript' : language, uri);
+      return model;
+    };
 
-     // Default file mapping per language
-     const defaultPathByLanguage: Record<typeof language, string> = {
-       javascript: 'components/selected.js',
-       typescript: 'export.tsx',
-       css: 'styles.css',
-       json: 'page.json',
-     };
+    // Default file mapping per language
+    const defaultPathByLanguage: Record<typeof language, string> = {
+      javascript: 'components/selected.js',
+      typescript: 'export.tsx',
+      css: 'styles.css',
+      json: 'page.json',
+    };
 
-     const initialPath = defaultPathByLanguage[language];
-     const model = await openFile(initialPath, initialValue ?? '');
+    const initialPath = defaultPathByLanguage[language];
+    const model = await openFile(initialPath, initialValue ?? '');
 
-     editor.setModel(model);
+    editor.setModel(model);
 
-     return {
-       getValue: () => model.getValue(),
-       setValue: (value: string) => model.setValue(value ?? ''),
-       focus: () => editor.focus(),
-       dispose: () => {
-         editor.dispose();
-         if (!ws) {
-           model.dispose();
-         }
-         monacoHost.remove();
-       },
-     };
+    return {
+      getValue: () => model.getValue(),
+      setValue: (value: string) => model.setValue(value ?? ''),
+      focus: () => editor.focus(),
+      dispose: () => {
+        editor.dispose();
+        if (!ws) {
+          model.dispose();
+        }
+        monacoHost.remove();
+      },
+    };
 
   }
 
@@ -1538,10 +1539,10 @@ export function init(config: InitConfig): EditorTsEditor {
 
     const language =
       path.endsWith('.css') ? 'css' :
-      path.endsWith('.json') ? 'json' :
-      path.endsWith('.js') ? 'javascript' :
-      path.endsWith('.ts') || path.endsWith('.tsx') || path.endsWith('.jsx') ? 'typescript' :
-      'typescript';
+        path.endsWith('.json') ? 'json' :
+          path.endsWith('.js') ? 'javascript' :
+            path.endsWith('.ts') || path.endsWith('.tsx') || path.endsWith('.jsx') ? 'typescript' :
+              'typescript';
 
     if (!viewerEditor) {
       viewerEditor = await createCodeEditor(host, content, language, { readOnly: true });
@@ -1606,9 +1607,9 @@ export function init(config: InitConfig): EditorTsEditor {
 
         const targetTab: CodeTab =
           path === 'styles.css' ? 'css'
-          : path === 'page.json' ? 'json'
-          : path.startsWith('components/') && path.endsWith('.js') ? 'js'
-          : 'viewer';
+            : path === 'page.json' ? 'json'
+              : path.startsWith('components/') && path.endsWith('.js') ? 'js'
+                : 'viewer';
 
         // Switch tabs immediately so the user sees something happen.
         // Also ensures Monaco hosts are visible before editor creation.
@@ -1788,21 +1789,21 @@ export function init(config: InitConfig): EditorTsEditor {
         const component = page.components.findById(id);
         if (!component) return;
 
-      // Keep canvas + layers selection in sync
-      iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
-      layerManager?.setSelected(id);
+        // Keep canvas + layers selection in sync
+        iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
+        layerManager?.setSelected(id);
 
-      void ensureJsEditorReadyFor(component).then(() => {
-        renderJsFileList();
-        jsEditor?.focus();
-      });
-
-      if (workspace) {
-        const filename = `components/${id}.js`;
-        void workspace.openTextDocument(filename, typeof component.script === 'string' ? component.script : '').then((model) => {
-          jsEditor?.setValue(model.getValue());
+        void ensureJsEditorReadyFor(component).then(() => {
+          renderJsFileList();
+          jsEditor?.focus();
         });
-      }
+
+        if (workspace) {
+          const filename = `components/${id}.js`;
+          void workspace.openTextDocument(filename, typeof component.script === 'string' ? component.script : '').then((model) => {
+            jsEditor?.setValue(model.getValue());
+          });
+        }
       });
 
       host.appendChild(btn);
@@ -1853,11 +1854,11 @@ export function init(config: InitConfig): EditorTsEditor {
         await workspace.fs.writeFile('styles.css', cssEditor.getValue(), { isModelContentChange: true });
       }
 
-        await commitSnapshot({ source: 'user', message: 'edit css' });
- 
-        refresh();
-        refreshLayers();
-      });
+      await commitSnapshot({ source: 'user', message: 'edit css' });
+
+      refresh();
+      refreshLayers();
+    });
   }
 
   if (shouldEnableJsEditor && jsEditorContainer) {
@@ -1870,15 +1871,15 @@ export function init(config: InitConfig): EditorTsEditor {
       await ensureJsEditorReadyFor(component);
       if (!jsEditor) return;
 
-       const nextValue = jsEditor.getValue();
-       page.components.updateComponent(selectedComponentId, { script: nextValue });
+      const nextValue = jsEditor.getValue();
+      page.components.updateComponent(selectedComponentId, { script: nextValue });
 
-       if (workspace) {
-         await workspace.fs.writeFile(`components/${selectedComponentId}.js`, nextValue, { isModelContentChange: true });
-       }
+      if (workspace) {
+        await workspace.fs.writeFile(`components/${selectedComponentId}.js`, nextValue, { isModelContentChange: true });
+      }
 
       await commitSnapshot({ source: 'user', message: 'edit component script' });
- 
+
       refresh();
       refreshLayers();
     });
@@ -1924,7 +1925,7 @@ export function init(config: InitConfig): EditorTsEditor {
         }
 
         await commitSnapshot({ source: 'user', message: 'edit json' });
- 
+
         refresh();
         refreshLayers();
       } catch (err: unknown) {
@@ -2024,18 +2025,18 @@ export function init(config: InitConfig): EditorTsEditor {
 
       // Insert as child of target for now.
       page.components.addChildComponent(targetId, componentToInsert);
- 
+
       pendingInsertType = null;
       componentPalette?.setSelected(null);
       iframe.contentWindow?.postMessage({ type: 'editorts:placementMode', enabled: false }, '*');
- 
+
       emit('componentInsert', componentToInsert, targetId);
- 
+
       void commitSnapshot({ source: 'user', message: 'insert component' });
- 
+
       refresh();
       refreshLayers();
- 
+
       // Flash/select the target so placement is obvious.
       iframe.contentWindow?.postMessage({ type: 'editorts:flashSelect', id: targetId }, '*');
     } else if (event.data.type === 'editorts:textEditStart') {
@@ -2300,9 +2301,9 @@ export function init(config: InitConfig): EditorTsEditor {
         if (styleEl) styleEl.textContent = nextCss;
 
         await commitSnapshot({ source: 'user', message: 'edit style' });
- 
+
         styleProps.forEach(populateStyleField);
- 
+
         void ensureCssEditorReady();
         void ensureJsonEditorReady();
         refreshLayers();
@@ -2326,12 +2327,12 @@ export function init(config: InitConfig): EditorTsEditor {
         if (styleEl) styleEl.textContent = nextCss;
 
         await commitSnapshot({ source: 'user', message: 'clear style' });
- 
+
         styleProps.forEach((p) => {
           const input = selectedInfoContainer.querySelector(`[data-editorts-style="${p}"]`) as HTMLInputElement | null;
           if (input) input.value = '';
         });
- 
+
         void ensureCssEditorReady();
         void ensureJsonEditorReady();
         refreshLayers();
@@ -2372,13 +2373,13 @@ export function init(config: InitConfig): EditorTsEditor {
         const nextSrc = imageSrcInput.value;
 
         page.components.updateImageSrc(elementId, nextSrc);
- 
+
         if (selectedElement) {
           const imgEl =
             selectedElement.tagName.toLowerCase() === 'img'
               ? (selectedElement as HTMLImageElement)
               : (selectedElement.querySelector('img') as HTMLImageElement | null);
- 
+
           if (imgEl) {
             imgEl.src = nextSrc;
           }
@@ -2427,18 +2428,18 @@ export function init(config: InitConfig): EditorTsEditor {
         clone.attributes = clone.attributes || {};
         clone.attributes.id = elementId + '-copy-' + Date.now();
         page.components.addComponent(clone);
- 
+
         emit('componentDuplicate', component, clone);
         if (config.onComponentDuplicate) {
           config.onComponentDuplicate(component, clone);
         }
- 
+
         void commitSnapshot({ source: 'user', message: 'duplicate component' });
- 
+
         refresh();
         refreshLayers();
         break;
- 
+
       case 'delete':
         page.components.removeComponent(elementId);
 
@@ -2625,9 +2626,9 @@ export function init(config: InitConfig): EditorTsEditor {
       } else {
         page.components.addComponent(newComponent);
       }
- 
+
       emit('componentInsert', newComponent, targetId);
- 
+
       await commitSnapshot({ source: 'user', message: 'command palette add' });
       refresh();
       refreshLayers();
@@ -2924,9 +2925,9 @@ export function init(config: InitConfig): EditorTsEditor {
 
   const paletteShortcuts = commandPaletteEnabled
     ? [
-        ...createCommandPaletteShortcuts({ openCommandPalette: shortcutContext.openCommandPalette }),
-        ...(config.ui?.commandPalette?.shortcuts ?? []),
-      ]
+      ...createCommandPaletteShortcuts({ openCommandPalette: shortcutContext.openCommandPalette }),
+      ...(config.ui?.commandPalette?.shortcuts ?? []),
+    ]
     : [];
 
   const keyboardShortcuts = new KeyboardShortcuts({
@@ -3150,8 +3151,8 @@ export function init(config: InitConfig): EditorTsEditor {
     if (cssEditorContainer) cssEditorContainer.innerHTML = '';
     if (jsonEditorContainer) jsonEditorContainer.innerHTML = '';
     if (jsxEditorContainer) jsxEditorContainer.innerHTML = '';
-     if (layerManager) layerManager.destroy();
-     componentPalette?.destroy();
+    if (layerManager) layerManager.destroy();
+    componentPalette?.destroy();
 
     (Object.keys(eventListeners) as EditorTsEventName[]).forEach((key) => {
       eventListeners[key] = [];
@@ -3195,6 +3196,7 @@ export function init(config: InitConfig): EditorTsEditor {
     saveTo,
     loadFrom,
     destroy,
+    vimMode,
     elements: {
       iframe,
       sidebar: sidebarContainer || undefined,

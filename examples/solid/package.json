@@ -1,0 +1,25 @@
+{
+  "name": "editorts-solid",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "bun run src/server.ts"
+  },
+  "dependencies": {
+    "@cloudflare/vite-plugin": "^1.21.0",
+    "hono": "^4.11.4",
+    "solid-js": "^1.9.0",
+    "sqlocal": "^0.16.0"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.7.2",
+    "vite": "^7.3.1",
+    "vite-plugin-solid": "^2.11.10",
+    "wrangler": "^4.59.2"
+  }
+}

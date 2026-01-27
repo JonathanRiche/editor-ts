@@ -48,7 +48,7 @@ const editor = init({
 
 ### Storage adapters
 
-Local storage is the default. To use SQLite in the browser via OPFS, install the optional `sqlocal` peer dependency and configure the storage adapter. SQLocal requires cross-origin isolation headers, so the easiest way is to use the Vite example in `examples/localsql`.
+Local storage is the default, but we recommend SQLocal for persistent, browser-native SQLite storage. SQLocal requires cross-origin isolation headers, so the easiest way is to use the Vite examples in `examples/localsql` or `examples/solid`.
 
 ```ts
 import { init } from 'editorts'
@@ -67,10 +67,16 @@ const editor = init({
 })
 ```
 
-Run the SQLocal demo (Vite):
+Run the SQLocal demos (Vite):
 
 ```bash
 cd examples/localsql
+bun install
+bun run dev
+```
+
+```bash
+cd examples/solid
 bun install
 bun run dev
 ```

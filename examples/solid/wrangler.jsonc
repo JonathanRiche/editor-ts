@@ -1,0 +1,9 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "editorts-solid-sqlocal",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	// "compatibility_date": "2025-04-03",
+	"main": "./src/server.ts"
+}
