@@ -101,6 +101,16 @@ export default function App() {
       codeEditor: {
         provider: 'textarea',
       },
+      shortcuts: [
+        {
+          key: 'j',
+          action: () => {
+            if (document.documentElement.dataset.editortsView === 'code') return;
+            const codeButton = document.getElementById('tab-code') as HTMLButtonElement | null;
+            codeButton?.click();
+          },
+        },
+      ],
       toolbars: {
         byType: {
           box: {

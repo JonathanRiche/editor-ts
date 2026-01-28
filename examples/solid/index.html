@@ -24,19 +24,12 @@
       height: 100vh;
     }
 
-    html[data-editorts-view="editor"] .code-tabs {
+    html:not([data-editorts-view="code"]) .code-tabs,
+    html:not([data-editorts-view="code"]) .code-panels {
       display: none;
     }
 
     html[data-editorts-view="code"] .preview-frame {
-      display: none;
-    }
-
-    html[data-editorts-view="editor"] .code-panels {
-      display: none;
-    }
-
-    html[data-editorts-view="editor"] .code-tabs {
       display: none;
     }
   </style>
