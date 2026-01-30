@@ -1391,7 +1391,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
   // Build iframe content with WYSIWYG
   // NOTE: this must be built on-demand so refresh() reflects current Page state.
-  const buildIframeContent = () => buildIframeCanvasSrcdocFromPage(page);
+  const buildIframeContent = () => buildIframeCanvasSrcdocFromPage(page, config.iframe);
 
 
   // Load content into iframe
@@ -2297,7 +2297,9 @@ export function init(config: InitConfig): EditorTsEditor {
           await workspace.fs.writeFile('page.json', save(), { isModelContentChange: true });
         }
 
-        const styleEl = iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null;
+        const styleEl =
+          (iframe.contentDocument?.querySelector('head style[data-editorts="page-css"]') as HTMLStyleElement | null)
+          ?? (iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null);
         if (styleEl) styleEl.textContent = nextCss;
 
         await commitSnapshot({ source: 'user', message: 'edit style' });
@@ -2323,7 +2325,9 @@ export function init(config: InitConfig): EditorTsEditor {
           await workspace.fs.writeFile('page.json', save(), { isModelContentChange: true });
         }
 
-        const styleEl = iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null;
+        const styleEl =
+          (iframe.contentDocument?.querySelector('head style[data-editorts="page-css"]') as HTMLStyleElement | null)
+          ?? (iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null);
         if (styleEl) styleEl.textContent = nextCss;
 
         await commitSnapshot({ source: 'user', message: 'clear style' });

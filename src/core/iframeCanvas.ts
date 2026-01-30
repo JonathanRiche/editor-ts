@@ -4,6 +4,10 @@ export type IframeCanvasBuildOptions = {
   title: string;
   css: string;
   htmlBody: string;
+  headHtml?: string;
+  stylesheets?: string[];
+  inlineStyles?: string[];
+  baseHref?: string;
 };
 
 function buildWysiwygCss(): string {
@@ -644,10 +648,24 @@ function iframeWysiwygScript() {
 }
 
 export function buildIframeCanvasSrcdoc(options: IframeCanvasBuildOptions): string {
-  const { title, css, htmlBody } = options;
+  const { title, css, htmlBody, headHtml, stylesheets, inlineStyles, baseHref } = options;
 
   // Serialize a real function body into the iframe.
   const scriptSource = `(${iframeWysiwygScript.toString()})();`;
+  const safeScriptSource = scriptSource.replace(/<\/script>/gi, '<\\/script>');
+
+  const stylesheetTags = (stylesheets ?? [])
+    .filter((href) => typeof href === 'string' && href.trim().length > 0)
+    .map((href) => `  <link rel="stylesheet" href="${href}">`)
+    .join('\n');
+
+  const extraInlineStyles = (inlineStyles ?? [])
+    .filter((style) => typeof style === 'string' && style.trim().length > 0)
+    .map((style) => `  <style>${style}</style>`)
+    .join('\n');
+
+  const baseTag = baseHref && baseHref.trim().length > 0 ? `  <base href="${baseHref}">` : '';
+  const headHtmlBlock = headHtml ? `\n${headHtml}` : '';
 
   return `<!DOCTYPE html>
 <html>
@@ -655,18 +673,26 @@ export function buildIframeCanvasSrcdoc(options: IframeCanvasBuildOptions): stri
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title}</title>
-  <style>${css}</style>
+${baseTag}
+${stylesheetTags}
+  <style data-editorts="page-css">${css}</style>
+${extraInlineStyles}
   <style>${buildWysiwygCss()}</style>
+${headHtmlBlock}
 </head>
 ${htmlBody}
-<script>${scriptSource}</script>
+<script>${safeScriptSource}</script>
 </html>`;
 }
 
-export function buildIframeCanvasSrcdocFromPage(page: Page): string {
+export function buildIframeCanvasSrcdocFromPage(
+  page: Page,
+  options?: Pick<IframeCanvasBuildOptions, 'headHtml' | 'stylesheets' | 'inlineStyles' | 'baseHref'>
+): string {
   return buildIframeCanvasSrcdoc({
     title: page.getTitle(),
     css: page.getCSS(),
     htmlBody: page.getHTML(),
+    ...options,
   });
 }

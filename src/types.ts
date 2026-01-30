@@ -305,6 +305,9 @@ export interface InitConfig {
   // Required: iframe element ID (user creates this in their HTML)
   iframeId: string;
 
+  /** Optional: iframe head configuration (runtime only). */
+  iframe?: IframeHeadConfig;
+
   // Optional: vim mode defaults to false
   vimMode?: boolean;
 
@@ -576,6 +579,17 @@ export interface InitConfig {
 
   // Optional: storage configuration
   storage?: StorageConfig;
+}
+
+export interface IframeHeadConfig {
+  /** Raw HTML injected before </head>. */
+  headHtml?: string;
+  /** External stylesheet URLs injected as <link rel="stylesheet">. */
+  stylesheets?: string[];
+  /** Additional inline <style> contents injected in <head>. */
+  inlineStyles?: string[];
+  /** Optional <base href="..."> for resolving relative URLs. */
+  baseHref?: string;
 }
 
 export type ShortcutDefinition = {
