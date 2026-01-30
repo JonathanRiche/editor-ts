@@ -1,6 +1,6 @@
 {
   "name": "editor-ts",
-  "version": "0.0.11",
+  "version": "0.0.13",
   "description": "TypeScript library for editing HTML content with JSON representation",
   "module": "index.ts",
   "main": "index.ts",
