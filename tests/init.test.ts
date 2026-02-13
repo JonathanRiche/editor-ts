@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { init } from '../src/core/init';
-import type { InitConfig, ToolbarConfig } from '../src/types';
+import type { ContentAdapter, InitConfig, ToolbarConfig } from '../src/types';
 
 type MockIframe = HTMLIFrameElement & { contentWindow: Window };
 
@@ -126,6 +126,57 @@ describe('init', () => {
 
     const missingToolbar = editor.page.toolbars.getToolbarForComponent({ type: 'text' });
     expect(missingToolbar.actions[0]?.id).toBe('default');
+  });
+
+  it('accepts content adapter without data and exposes content API', async () => {
+    createIframe(mockDocument, 'adapter-frame');
+
+    let saveCount = 0;
+    let loadCount = 0;
+
+    const adapter: ContentAdapter = {
+      id: 'mock',
+      mode: 'json',
+      capabilities: {
+        writable: true,
+        supportsFileTree: true,
+      },
+      load: async () => {
+        loadCount += 1;
+        return {
+          data: {
+            title: 'Loaded from adapter',
+            item_id: 12,
+            body: {
+              components: [],
+              styles: [],
+              assets: [],
+            },
+          },
+        };
+      },
+      save: async () => {
+        saveCount += 1;
+      },
+      listFiles: async () => [{ path: 'page.json', language: 'json' }],
+      readFile: async () => '{"title":"Loaded from adapter"}',
+      writeFile: async () => {
+        return;
+      },
+    };
+
+    const editor = init({
+      iframeId: 'adapter-frame',
+      content: { adapter },
+    });
+
+    expect(editor.content.adapter).toBe(adapter);
+
+    await editor.content.save();
+    await editor.content.load();
+
+    expect(saveCount).toBeGreaterThan(0);
+    expect(loadCount).toBeGreaterThan(0);
   });
 
   afterEach(() => {

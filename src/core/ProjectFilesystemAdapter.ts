@@ -264,9 +264,16 @@ export class ProjectFilesystemAdapter implements ContentAdapter {
     this.resolvedPaths = this.resolvePaths(files);
 
     let data: PageData | MultiPageData;
-    const canLoadPageJson = this.loadStrategy === 'auto' || this.loadStrategy === 'page-json';
+    const hasProjectFileSources = !!(
+      this.resolvedPaths.htmlPath
+      || this.resolvedPaths.cssPath
+      || this.resolvedPaths.jsxPath
+    );
 
-    if (canLoadPageJson && this.resolvedPaths.pageJsonPath) {
+    const shouldLoadPageJson = this.loadStrategy === 'page-json'
+      || (this.loadStrategy === 'auto' && !hasProjectFileSources);
+
+    if (shouldLoadPageJson && this.resolvedPaths.pageJsonPath) {
       const raw = await this.readFile(this.resolvedPaths.pageJsonPath);
       if (raw) {
         data = parsePayload(raw);

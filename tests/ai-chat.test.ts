@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'bun:test';
-import { applyAiReplacementsToPage, buildAiChatSnapshot, buildAiChatSystemPrompt, normalizeOpencodeModelId, parseAiChatResponse } from '../src/core/aiChat';
+import {
+  applyAiReplacementsToFiles,
+  applyAiReplacementsToPage,
+  buildAiChatSnapshot,
+  buildAiChatSnapshotFromFiles,
+  buildAiChatSystemPrompt,
+  buildAiChatSystemPromptWithOptions,
+  normalizeOpencodeModelId,
+  parseAiChatResponse,
+} from '../src/core/aiChat';
 import { Page } from '../src/core/Page';
 import type { EditorTsAiChatReplacement, PageData } from '../src/types';
 
@@ -44,6 +53,27 @@ describe('aiChat helpers', () => {
     expect(snapshot).toContain('components/hero.js');
   });
 
+  it('supports adapter-aware prompt and snapshot helpers', () => {
+    const prompt = buildAiChatSystemPromptWithOptions({
+      allowedPaths: ['src/App.tsx', 'styles/site.css'],
+    });
+
+    const snapshot = buildAiChatSnapshotFromFiles(
+      {
+        'src/App.tsx': 'export const App = () => null;',
+        'styles/site.css': 'body { margin: 0; }',
+      },
+      {
+        derivedPaths: ['src/App.tsx'],
+        readOnlyPaths: ['styles/site.css'],
+      }
+    );
+
+    expect(prompt).toContain('Allowed paths: src/App.tsx, styles/site.css');
+    expect(snapshot).toContain('src/App.tsx (derived)');
+    expect(snapshot).toContain('styles/site.css (read-only)');
+  });
+
   it('normalizes opencode model ids', () => {
     expect(normalizeOpencodeModelId('opencode', 'claude-sonnet-4-5-20250929')).toBe('claude-sonnet-4-5');
     expect(normalizeOpencodeModelId('other', 'model-x')).toBe('model-x');
@@ -76,5 +106,24 @@ describe('aiChat helpers', () => {
       'styles.css',
       'components/hero.js',
     ]);
+  });
+
+  it('applies replacements through file saver with path guardrails', async () => {
+    const writes: Array<{ path: string; content: string }> = [];
+
+    const result = await applyAiReplacementsToFiles({
+      replacements: [
+        { path: 'styles.css', content: 'body { color: red; }' },
+        { path: 'secret.env', content: 'SHOULD_NOT_WRITE=true' },
+      ],
+      isPathAllowed: (path) => path === 'styles.css',
+      saveFile: async (path, content) => {
+        writes.push({ path, content });
+      },
+    });
+
+    expect(writes).toEqual([{ path: 'styles.css', content: 'body { color: red; }' }]);
+    expect(result.appliedPaths).toEqual(['styles.css']);
+    expect(result.skippedPaths).toEqual(['secret.env']);
   });
 });
