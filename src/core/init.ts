@@ -352,7 +352,6 @@ export function init(config: InitConfig): EditorTsEditor {
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           console.warn('Failed to load modern-monaco workspace:', message);
-          return;
         }
       }
 
@@ -1522,25 +1521,31 @@ export function init(config: InitConfig): EditorTsEditor {
   }
 
 
-  const listWorkspaceFiles = async (): Promise<string[]> => {
-    if (!workspace) return [];
+  const listAdapterFiles = async (): Promise<Array<{ path: string; readOnly?: boolean; language?: string }>> => {
+    try {
+      const files = await contentAdapter.listFiles();
+      return files
+        .map((file) => ({
+          path: file.path,
+          readOnly: file.readOnly,
+          language: file.language,
+        }))
+        .sort((a, b) => a.path.localeCompare(b.path));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn('EditorTs: failed to list content adapter files:', message);
+      return [];
+    }
+  };
 
-    const out: string[] = [];
-
-    const walk = async (dir: string) => {
-      const entries = await workspace!.fs.readDirectory(dir);
-      for (const [name, type] of entries) {
-        const path = dir ? `${dir}/${name}` : name;
-        if (type === 2) {
-          await walk(path);
-        } else {
-          out.push(path);
-        }
-      }
-    };
-
-    await walk('');
-    return out.sort();
+  const readAdapterFile = async (path: string): Promise<string | null> => {
+    try {
+      return await contentAdapter.readFile(path);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`EditorTs: failed to read adapter file ${path}:`, message);
+      return null;
+    }
   };
 
   let viewerEditor: RuntimeCodeEditor | null = null;
@@ -1593,16 +1598,16 @@ export function init(config: InitConfig): EditorTsEditor {
 
     listHost.innerHTML = '';
 
-    if (!workspace) {
-      listHost.textContent = 'Workspace not enabled';
+    if (contentAdapter.capabilities?.supportsFileTree === false) {
+      listHost.textContent = 'Current content adapter does not expose files';
       return;
     }
 
-    const files = await listWorkspaceFiles();
+    const files = await listAdapterFiles();
     if (renderNonce !== filesListRenderNonce) return;
 
     const visibleFiles = filter
-      ? files.filter((p) => p.toLowerCase().includes(filter))
+      ? files.filter((f) => f.path.toLowerCase().includes(filter))
       : files;
 
     if (visibleFiles.length === 0) {
@@ -1610,10 +1615,11 @@ export function init(config: InitConfig): EditorTsEditor {
       return;
     }
 
-    visibleFiles.forEach((path) => {
+    visibleFiles.forEach((file) => {
+      const path = file.path;
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = path;
+      btn.textContent = file.readOnly ? `${path} [read-only]` : path;
       btn.style.display = 'block';
       btn.style.width = '100%';
       btn.style.textAlign = 'left';
@@ -1648,11 +1654,12 @@ export function init(config: InitConfig): EditorTsEditor {
         }
 
         void (async () => {
-          if (!workspace) return;
-
           try {
-            const model = await workspace.openTextDocument(path);
-            const value = model.getValue();
+            const value = await readAdapterFile(path);
+            if (value === null) {
+              console.warn(`EditorTs: adapter did not return content for ${path}`);
+              return;
+            }
 
             if (path === 'styles.css') {
               await ensureCssEditorReady();
@@ -1687,7 +1694,7 @@ export function init(config: InitConfig): EditorTsEditor {
             void renderFilesList();
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
-            console.warn(`Failed to open workspace file ${path}:`, message);
+            console.warn(`Failed to open adapter file ${path}:`, message);
           }
         })();
       });
@@ -1844,7 +1851,6 @@ export function init(config: InitConfig): EditorTsEditor {
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           console.warn('Failed to load modern-monaco workspace:', message);
-          return;
         }
       }
 
