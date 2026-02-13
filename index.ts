@@ -37,8 +37,11 @@ export {
   requestAiReplacements,
   parseAiChatResponse,
   applyAiReplacementsToPage,
+  applyAiReplacementsToFiles,
   buildAiChatSystemPrompt,
+  buildAiChatSystemPromptWithOptions,
   buildAiChatSnapshot,
+  buildAiChatSnapshotFromFiles,
   chooseChatModel,
 } from './src/core/aiChat';
 export { VersionControl } from './src/core/VersionControl';

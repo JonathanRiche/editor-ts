@@ -173,6 +173,7 @@ export class JsonContentAdapter implements ContentAdapter {
       .sort((a, b) => a.localeCompare(b))
       .map((path) => ({
         path,
+        readOnly: path === 'index.html',
         language: inferLanguageFromPath(path),
       }));
   }

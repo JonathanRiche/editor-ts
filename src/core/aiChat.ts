@@ -130,12 +130,26 @@ export const parseAiChatResponse = (assistantText: string, sessionId: string): E
 };
 
 export const buildAiChatSystemPrompt = (): string => {
+  return buildAiChatSystemPromptWithOptions();
+};
+
+export const buildAiChatSystemPromptWithOptions = (options?: {
+  allowedPaths?: string[];
+}): string => {
+  const allowedPaths = Array.isArray(options?.allowedPaths)
+    ? options.allowedPaths.filter((path) => path.trim().length > 0)
+    : ['page.json', 'styles.css', 'components/<id>.js'];
+
+  const allowedPathLine = allowedPaths.length > 0
+    ? `Allowed paths: ${allowedPaths.join(', ')}`
+    : 'Allowed paths: (none)';
+
   return [
     'You are an automated assistant integrated with EditorTs.',
     'Return JSON only. No markdown. No backticks. No commentary.',
     'Schema: { "replacements": [{ "path": string, "content_b64": string }] }',
     'Always use content_b64 (base64 of full UTF-8 file contents).',
-    'Allowed paths: page.json, styles.css, components/<id>.js',
+    allowedPathLine,
     '',
     'IMPORTANT CSS RULES:',
     '- When writing styles.css, use valid CSS selectors.',
@@ -144,24 +158,49 @@ export const buildAiChatSystemPrompt = (): string => {
 };
 
 export const buildAiChatSnapshot = (pageJson: string, css: string, componentScripts: Record<string, string>): string => {
-  const scriptsList = Object.keys(componentScripts).sort();
-  const scriptLines = scriptsList.length
-    ? scriptsList.map((p) => `- ${p}`).join('\n')
+  const files: Record<string, string> = {
+    'page.json': pageJson,
+    'styles.css': css,
+  };
+
+  Object.entries(componentScripts).forEach(([path, content]) => {
+    files[path] = content;
+  });
+
+  return buildAiChatSnapshotFromFiles(files, { derivedPaths: ['index.html'] });
+};
+
+export const buildAiChatSnapshotFromFiles = (
+  files: Record<string, string>,
+  options?: {
+    derivedPaths?: string[];
+    readOnlyPaths?: string[];
+  }
+): string => {
+  const sortedPaths = Object.keys(files).sort((a, b) => a.localeCompare(b));
+  const derivedPathSet = new Set(options?.derivedPaths ?? []);
+  const readOnlyPathSet = new Set(options?.readOnlyPaths ?? []);
+
+  const treeLines = sortedPaths.length > 0
+    ? sortedPaths.map((path) => {
+      const labels: string[] = [];
+      if (derivedPathSet.has(path)) labels.push('derived');
+      if (readOnlyPathSet.has(path)) labels.push('read-only');
+      const suffix = labels.length > 0 ? ` (${labels.join(', ')})` : '';
+      return `- ${path}${suffix}`;
+    }).join('\n')
     : '- (none)';
+
+  const fileBlocks = sortedPaths.length > 0
+    ? sortedPaths.map((path) => `${path}:\n${files[path] ?? ''}`).join('\n\n')
+    : '(no file content)';
 
   return [
     'WORKSPACE TREE:',
-    '- page.json',
-    '- styles.css',
-    '- index.html (derived; do not edit)',
-    '- components/<id>.js',
-    '',
-    'COMPONENT SCRIPTS:',
-    scriptLines,
+    treeLines,
     '',
     'FILES:',
-    `page.json:\n${pageJson}`,
-    `\nstyles.css:\n${css}`,
+    fileBlocks,
   ].join('\n');
 };
 
@@ -194,9 +233,13 @@ export const chooseChatModel = async (client: OpencodeClient): Promise<{ provide
 export const requestAiReplacements = async (args: {
   client: OpencodeClient;
   prompt: string;
-  pageJson: string;
-  css: string;
-  componentScripts: Record<string, string>;
+  pageJson?: string;
+  css?: string;
+  componentScripts?: Record<string, string>;
+  workspaceFiles?: Record<string, string>;
+  allowedPaths?: string[];
+  derivedPaths?: string[];
+  readOnlyPaths?: string[];
   sessionId?: string;
   sessionTitle?: string;
   model?: {
@@ -212,6 +255,10 @@ export const requestAiReplacements = async (args: {
     pageJson,
     css,
     componentScripts,
+    workspaceFiles,
+    allowedPaths,
+    derivedPaths,
+    readOnlyPaths,
     sessionId: existingSessionId,
     sessionTitle,
     model: selectedModel,
@@ -229,8 +276,22 @@ export const requestAiReplacements = async (args: {
     sessionId = sessionResult.data.id;
   }
 
-  const system = buildAiChatSystemPrompt();
-  const snapshot = buildAiChatSnapshot(pageJson, css, componentScripts);
+  const normalizedWorkspaceFiles = workspaceFiles ?? {
+    'page.json': pageJson ?? '',
+    'styles.css': css ?? '',
+    ...(componentScripts ?? {}),
+  };
+
+  const normalizedAllowedPaths = allowedPaths
+    ?? Object.keys(normalizedWorkspaceFiles).sort((a, b) => a.localeCompare(b));
+
+  const system = buildAiChatSystemPromptWithOptions({
+    allowedPaths: normalizedAllowedPaths,
+  });
+  const snapshot = buildAiChatSnapshotFromFiles(normalizedWorkspaceFiles, {
+    derivedPaths,
+    readOnlyPaths,
+  });
 
   const model = selectedModel ?? await chooseChatModel(client);
 
@@ -424,4 +485,26 @@ export const applyAiReplacementsToPage = async (args: {
       await saveComponentScript(id, r.content);
     }
   }
+};
+
+export const applyAiReplacementsToFiles = async (args: {
+  replacements: EditorTsAiChatReplacement[];
+  saveFile: (path: string, content: string) => Promise<void>;
+  isPathAllowed?: (path: string) => boolean;
+}): Promise<{ appliedPaths: string[]; skippedPaths: string[] }> => {
+  const { replacements, saveFile, isPathAllowed } = args;
+  const appliedPaths: string[] = [];
+  const skippedPaths: string[] = [];
+
+  for (const replacement of replacements) {
+    if (isPathAllowed && !isPathAllowed(replacement.path)) {
+      skippedPaths.push(replacement.path);
+      continue;
+    }
+
+    await saveFile(replacement.path, replacement.content);
+    appliedPaths.push(replacement.path);
+  }
+
+  return { appliedPaths, skippedPaths };
 };

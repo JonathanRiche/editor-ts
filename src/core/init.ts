@@ -12,7 +12,7 @@ import { VersionControl } from './VersionControl';
 import { KeyboardShortcuts, createCommandPaletteShortcuts, createDefaultShortcuts, createEditorShortcuts, type ShortcutContext } from './KeyboardShortcuts';
 import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
 import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
-import { applyAiReplacementsToPage, normalizeOpencodeModelId, requestAiReplacements } from './aiChat';
+import { applyAiReplacementsToFiles, normalizeOpencodeModelId, requestAiReplacements } from './aiChat';
 import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName, PagesRenderProps, PagePayload, ContentAdapter } from '../types';
 
 /**
@@ -685,6 +685,73 @@ export function init(config: InitConfig): EditorTsEditor {
       aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${delta}`;
     };
 
+    const collectFallbackComponentScripts = (): Record<string, string> => {
+      const scripts: Record<string, string> = {};
+
+      const collect = (components: Component[]) => {
+        components.forEach((component) => {
+          const id = typeof component.attributes?.id === 'string' ? component.attributes.id : null;
+          if (id) {
+            scripts[`components/${id}.js`] = typeof component.script === 'string' ? component.script : '';
+          }
+          if (component.components && component.components.length > 0) {
+            collect(component.components);
+          }
+        });
+      };
+
+      collect(page.components.getAll());
+      return scripts;
+    };
+
+    const buildAiWorkspaceFiles = async (): Promise<{
+      files: Record<string, string>;
+      editablePaths: string[];
+      readOnlyPaths: string[];
+    }> => {
+      const files: Record<string, string> = {};
+      const editablePaths: string[] = [];
+      const readOnlyPaths: string[] = [];
+
+      try {
+        const listed = await contentAdapter.listFiles();
+
+        for (const file of listed) {
+          const content = await contentAdapter.readFile(file.path);
+          if (content === null) continue;
+
+          files[file.path] = content;
+
+          if (file.readOnly) {
+            readOnlyPaths.push(file.path);
+          } else {
+            editablePaths.push(file.path);
+          }
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn('EditorTs: failed to build AI workspace from content adapter:', message);
+      }
+
+      if (Object.keys(files).length === 0) {
+        files['page.json'] = save();
+        files['styles.css'] = page.getCSS() ?? '';
+
+        const scripts = collectFallbackComponentScripts();
+        Object.entries(scripts).forEach(([path, content]) => {
+          files[path] = content;
+        });
+
+        editablePaths.push(...Object.keys(files));
+      }
+
+      return {
+        files,
+        editablePaths: Array.from(new Set(editablePaths)).sort((a, b) => a.localeCompare(b)),
+        readOnlyPaths: Array.from(new Set(readOnlyPaths)).sort((a, b) => a.localeCompare(b)),
+      };
+    };
+
     const refreshAiSessionSelect = async () => {
       if (!aiSessionSelect || !ai) return;
 
@@ -877,19 +944,7 @@ export function init(config: InitConfig): EditorTsEditor {
       ) => {
         const client = await ai!.getClient();
 
-        const componentScripts: Record<string, string> = {};
-        const collectScripts = (components: Component[]) => {
-          components.forEach((component) => {
-            const id = typeof component.attributes?.id === 'string' ? component.attributes.id : null;
-            if (id) {
-              componentScripts[`components/${id}.js`] = typeof component.script === 'string' ? component.script : '';
-            }
-            if (component.components && component.components.length > 0) {
-              collectScripts(component.components);
-            }
-          });
-        };
-        collectScripts(page.components.getAll());
+        const workspaceSnapshot = await buildAiWorkspaceFiles();
 
         if (currentSessionId === null) {
           const index = await loadSessionIndex();
@@ -904,9 +959,9 @@ export function init(config: InitConfig): EditorTsEditor {
         const result = await requestAiReplacements({
           client,
           prompt,
-          pageJson: save(),
-          css: page.getCSS() ?? '',
-          componentScripts,
+          workspaceFiles: workspaceSnapshot.files,
+          allowedPaths: workspaceSnapshot.editablePaths,
+          readOnlyPaths: workspaceSnapshot.readOnlyPaths,
           sessionId: sessionId ?? undefined,
           model: selectedModel,
           stream: shouldStream,
@@ -924,30 +979,23 @@ export function init(config: InitConfig): EditorTsEditor {
         return result;
       },
       apply: async (replacements) => {
-        // Apply potentially many files, then refresh once.
-        await applyAiReplacementsToPage({
-          page,
-          replacements,
-          saveJson: async (jsonText: string) => {
-            applyPayload(jsonText);
+        const workspaceSnapshot = await buildAiWorkspaceFiles();
+        const editablePathSet = new Set(workspaceSnapshot.editablePaths);
 
-            if (workspace) {
-              await workspace.fs.writeFile('page.json', jsonText, { isModelContentChange: true });
-            }
-          },
-          saveCss: async (cssText: string) => {
-            page.styles.setCompiledCSS(cssText);
-            if (workspace) {
-              await workspace.fs.writeFile('styles.css', cssText, { isModelContentChange: true });
-            }
-          },
-          saveComponentScript: async (id: string, script: string) => {
-            page.components.updateComponent(id, { script });
-            if (workspace) {
-              await workspace.fs.writeFile(`components/${id}.js`, script, { isModelContentChange: true });
-            }
+        const result = await applyAiReplacementsToFiles({
+          replacements,
+          isPathAllowed: editablePathSet.size > 0 ? (path) => editablePathSet.has(path) : undefined,
+          saveFile: async (path: string, content: string) => {
+            await contentAdapter.writeFile(path, content);
           },
         });
+
+        if (result.skippedPaths.length > 0) {
+          console.warn(`EditorTs: skipped AI replacements for non-editable paths: ${result.skippedPaths.join(', ')}`);
+        }
+
+        const latestSnapshot = await contentAdapter.load();
+        applyPayload(latestSnapshot.data);
 
         await commitSnapshot({ source: 'ai', message: 'apply ai changes' });
 
