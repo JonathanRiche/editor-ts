@@ -137,6 +137,19 @@ bun run dev
 
 Open `http://localhost:5173`.
 
+Run filesystem-backed Solid demo:
+
+```bash
+cd examples/filesystem-solid
+bun install
+bun run dev
+```
+
+Open `http://localhost:5173` and use either:
+
+- **Open Folder** (browser File System Access API), or
+- **Server Routes** mode for host/VM/container filesystem access via `/api/fs/*`.
+
 ### Toolbars (runtime only)
 
 ```ts
