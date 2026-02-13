@@ -27,6 +27,7 @@ export { StyleManager } from './src/core/StyleManager';
 export { AssetManager } from './src/core/AssetManager';
 export { ToolbarManager } from './src/core/ToolbarManager';
 export { LayerManager } from './src/core/LayerManager';
+export { JsonContentAdapter } from './src/core/JsonContentAdapter';
 export { StorageManager, LocalStorageAdapter, RemoteStorageAdapter, SqlocalStorageAdapter, type SqlocalClient } from './src/core/StorageManager';
 export { syncFrontendWithServer } from './src/server/sync';
 export { init } from './src/core/init';
@@ -83,6 +84,11 @@ export type {
   UiRender,
   PagesRenderProps,
   PagePayload,
+  ContentAdapterMode,
+  ContentAdapterFile,
+  EditorContentSnapshot,
+  ContentAdapterCapabilities,
+  ContentAdapter,
   EditorTsSyncMessage,
   EditorTsSyncAck,
   EditorTsSyncEnvelope,

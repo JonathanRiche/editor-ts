@@ -23,6 +23,81 @@ export interface MultiPageData {
 
 export type PagePayload = PageData | MultiPageData | string;
 
+export type ContentAdapterMode = 'json' | 'filesystem' | (string & {});
+
+export interface ContentAdapterFile {
+  /** Project-relative file path (for example: components/header.tsx). */
+  path: string;
+
+  /** True when adapter exposes a file but does not allow writes. */
+  readOnly?: boolean;
+
+  /** Optional hint for syntax highlighting / editor language mode. */
+  language?: string;
+}
+
+/**
+ * Canonical in-memory editor snapshot exchanged with content adapters.
+ *
+ * - `data` is the normalized shape consumed by `Page`/`init()`.
+ * - `files` is optional metadata for adapters that expose a file tree.
+ */
+export interface EditorContentSnapshot {
+  data: PagePayload;
+  files?: ContentAdapterFile[];
+}
+
+export interface ContentAdapterCapabilities {
+  /** Adapter can persist data changes. */
+  writable?: boolean;
+
+  /** Adapter provides a browseable file tree. */
+  supportsFileTree?: boolean;
+
+  /** Adapter can represent component JSON as first-class source. */
+  supportsComponents?: boolean;
+
+  /** Adapter supports multi-page payloads. */
+  supportsMultiPage?: boolean;
+
+  /** Adapter supports raw HTML-source workflows. */
+  supportsHtmlSource?: boolean;
+}
+
+/**
+ * Pluggable content adapter contract.
+ *
+ * This is separate from `StorageAdapter`:
+ * - `StorageAdapter` persists serialized page blobs/assets.
+ * - `ContentAdapter` owns how editor content is sourced/saved (JSON model,
+ *   project filesystem model, etc).
+ */
+export interface ContentAdapter {
+  /** Unique adapter id (for example: 'json', 'filesystem'). */
+  id: string;
+
+  /** Optional standardized mode identifier. */
+  mode?: ContentAdapterMode;
+
+  /** Optional capability metadata for UI/runtime behavior decisions. */
+  capabilities?: ContentAdapterCapabilities;
+
+  /** Load adapter content into canonical editor snapshot form. */
+  load(): Promise<EditorContentSnapshot>;
+
+  /** Save canonical editor snapshot back to adapter source of truth. */
+  save(snapshot: EditorContentSnapshot): Promise<void>;
+
+  /** List files available through this adapter. */
+  listFiles(): Promise<ContentAdapterFile[]>;
+
+  /** Read file content by path. */
+  readFile(path: string): Promise<string | null>;
+
+  /** Write file content by path. */
+  writeFile(path: string, content: string): Promise<void>;
+}
+
 export type AiProviderType = 'disabled' | 'opencode';
 export type AiProviderMode = 'client' | 'client+server';
 
@@ -317,8 +392,15 @@ export interface InitConfig {
     maxSnapshots?: number;
   };
 
-  // Required: page data
-  data: PagePayload;
+  // Page data payload used for sync bootstrap.
+  // Required unless a content adapter is provided.
+  data?: PagePayload;
+
+  // Optional: pluggable content source/sink.
+  // When omitted, init() uses the built-in JSON content adapter.
+  content?: {
+    adapter?: ContentAdapter;
+  };
 
   /** Optional: load initial data from storage. */
   initialStorageKey?: string;
@@ -708,6 +790,11 @@ export type EditorTsEventName = keyof EditorTsEventMap;
 export interface EditorTsEditor {
   page: Page;
   storage: StorageManager;
+  content: {
+    adapter: ContentAdapter;
+    load(): Promise<void>;
+    save(): Promise<void>;
+  };
   ai?: EditorTsAiModule;
   vimMode: boolean;
   versionControl?: {

@@ -6,13 +6,14 @@
 import { Page } from './Page';
 import { LayerManager } from './LayerManager';
 import { ComponentPalette } from './ComponentPalette';
+import { JsonContentAdapter } from './JsonContentAdapter';
 import { StorageManager } from './StorageManager';
 import { VersionControl } from './VersionControl';
 import { KeyboardShortcuts, createCommandPaletteShortcuts, createDefaultShortcuts, createEditorShortcuts, type ShortcutContext } from './KeyboardShortcuts';
 import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
 import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
 import { applyAiReplacementsToPage, normalizeOpencodeModelId, requestAiReplacements } from './aiChat';
-import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName, PagesRenderProps } from '../types';
+import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName, PagesRenderProps, PagePayload, ContentAdapter } from '../types';
 
 /**
  * Initialize EditorTs Editor
@@ -26,12 +27,27 @@ export function init(config: InitConfig): EditorTsEditor {
   }
   const vimMode = config.vimMode ?? false;
 
+  if (typeof config.data === 'undefined' && !config.content?.adapter) {
+    throw new Error('EditorTs init requires `data` when `content.adapter` is not provided.');
+  }
+
   const isMultiPageData = (data: PageData | MultiPageData): data is MultiPageData => {
     return !!data && typeof data === 'object' && Array.isArray((data as MultiPageData).pages);
   };
 
+  const parsePayload = (payload: PagePayload): PageData | MultiPageData => {
+    if (typeof payload === 'string') {
+      return JSON.parse(payload) as PageData | MultiPageData;
+    }
+    return payload;
+  };
+
+  const initialPayload = config.data ?? JsonContentAdapter.createDefaultPageData();
+  const contentAdapter: ContentAdapter = config.content?.adapter ?? new JsonContentAdapter(initialPayload);
+  const shouldHydrateFromContentAdapter = !!config.content?.adapter;
+
   const rawData: PageData | MultiPageData =
-    typeof config.data === 'string' ? (JSON.parse(config.data) as PageData | MultiPageData) : config.data;
+    parsePayload(initialPayload);
   let multiPageData: MultiPageData | null = null;
   let activePageIndex = 0;
 
@@ -133,6 +149,35 @@ export function init(config: InitConfig): EditorTsEditor {
       page.toolbars.setGlobalDefault(config.toolbars.default);
     }
   }
+
+  const applyParsedPayload = (parsed: PageData | MultiPageData) => {
+    const toolbarRuntimeConfig = page.toolbars.exportConfig();
+
+    if (isMultiPageData(parsed)) {
+      if (!parsed.pages || parsed.pages.length === 0) {
+        throw new Error('MultiPageData.pages cannot be empty');
+      }
+
+      multiPageData = parsed;
+      activePageIndex = parsed.activePageIndex ?? 0;
+
+      const loadedPageData = resolvePageData(parsed.pages[activePageIndex] ?? parsed.pages[0]!);
+      const newPage = new Page(loadedPageData);
+      Object.assign(page, newPage);
+    } else {
+      multiPageData = null;
+      activePageIndex = 0;
+
+      const newPage = new Page(resolvePageData(parsed as PageData));
+      Object.assign(page, newPage);
+    }
+
+    page.toolbars.importConfig(toolbarRuntimeConfig);
+  };
+
+  const applyPayload = (payload: PagePayload) => {
+    applyParsedPayload(parsePayload(payload));
+  };
 
   // Event system
   type AnyEditorEventArgs = EditorTsEventMap[EditorTsEventName];
@@ -885,29 +930,7 @@ export function init(config: InitConfig): EditorTsEditor {
           page,
           replacements,
           saveJson: async (jsonText: string) => {
-            const toolbarRuntimeConfig = page.toolbars.exportConfig();
-            const parsed = JSON.parse(jsonText) as PageData | MultiPageData;
-
-            if (isMultiPageData(parsed)) {
-              if (!parsed.pages || parsed.pages.length === 0) {
-                throw new Error('MultiPageData.pages cannot be empty');
-              }
-
-              multiPageData = parsed;
-              activePageIndex = parsed.activePageIndex ?? 0;
-
-              const loadedPageData = resolvePageData(parsed.pages[activePageIndex] ?? parsed.pages[0]!);
-              const newPage = new Page(loadedPageData);
-              Object.assign(page, newPage);
-            } else {
-              multiPageData = null;
-              activePageIndex = 0;
-
-              const newPage = new Page(resolvePageData(parsed as PageData));
-              Object.assign(page, newPage);
-            }
-
-            page.toolbars.importConfig(toolbarRuntimeConfig);
+            applyPayload(jsonText);
 
             if (workspace) {
               await workspace.fs.writeFile('page.json', jsonText, { isModelContentChange: true });
@@ -1894,26 +1917,7 @@ export function init(config: InitConfig): EditorTsEditor {
       const errorEl = jsonEditorContainer.querySelector('[data-editorts-field="json-error"]') as HTMLElement | null;
 
       try {
-        const next = JSON.parse(jsonEditor.getValue()) as PageData | MultiPageData;
-
-        const toolbarRuntimeConfig = page.toolbars.exportConfig();
-
-        if (isMultiPageData(next)) {
-          if (!next.pages || next.pages.length === 0) throw new Error('MultiPageData.pages cannot be empty');
-          multiPageData = next;
-          activePageIndex = next.activePageIndex ?? 0;
-          const loadedPageData = resolvePageData(next.pages[activePageIndex] ?? next.pages[0]!);
-          const newPage = new Page(loadedPageData);
-          Object.assign(page, newPage);
-        } else {
-          multiPageData = null;
-          activePageIndex = 0;
-          const newPage = new Page(resolvePageData(next as PageData));
-          Object.assign(page, newPage);
-        }
-
-        // Reapply runtime toolbar configuration
-        page.toolbars.importConfig(toolbarRuntimeConfig);
+        applyPayload(jsonEditor.getValue());
 
         if (errorEl) {
           errorEl.style.display = 'none';
@@ -3038,8 +3042,23 @@ export function init(config: InitConfig): EditorTsEditor {
     setTimeout(() => updateAutoSaveProgress(0), 150);
   };
 
+  function buildCurrentContentPayload(): PageData | MultiPageData {
+    return JSON.parse(serializeData()) as PageData | MultiPageData;
+  }
+
+  async function persistContentAdapter(): Promise<void> {
+    try {
+      await contentAdapter.save({ data: buildCurrentContentPayload() });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn('EditorTs: content adapter save failed:', message);
+    }
+  }
+
   const commitSnapshot = async (meta?: { source?: 'user' | 'ai' | 'system'; message?: string }) => {
     await triggerAutoSave();
+
+    await persistContentAdapter();
 
     if (!versionControlEnabled || !versionControl) return;
 
@@ -3049,8 +3068,23 @@ export function init(config: InitConfig): EditorTsEditor {
     await persistVersionState();
   };
 
+  async function loadFromContentAdapter(): Promise<boolean> {
+    try {
+      const snapshot = await contentAdapter.load();
+      applyPayload(snapshot.data);
+      refresh();
+      return true;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn('EditorTs: content adapter load failed:', message);
+      return false;
+    }
+  }
+
   if (config.initialStorageKey) {
     void loadFrom(config.initialStorageKey);
+  } else if (shouldHydrateFromContentAdapter) {
+    void loadFromContentAdapter();
   }
 
   const checkoutSnapshot = async (snapshot: PageData) => {
@@ -3084,6 +3118,7 @@ export function init(config: InitConfig): EditorTsEditor {
   async function saveTo(key: string): Promise<void> {
     const data = serializeData();
     await storage.savePage(key, data);
+    await persistContentAdapter();
 
     activeStorageKey = key;
 
@@ -3106,26 +3141,8 @@ export function init(config: InitConfig): EditorTsEditor {
     const data = await storage.loadPage(key);
     if (!data) return false;
 
-    const parsed = JSON.parse(data) as PageData | MultiPageData;
-
-    if (isMultiPageData(parsed)) {
-      if (parsed.pages.length === 0) {
-        throw new Error('MultiPageData.pages cannot be empty');
-      }
-
-      multiPageData = parsed;
-      activePageIndex = parsed.activePageIndex ?? 0;
-
-      const loadedPageData = resolvePageData(parsed.pages[activePageIndex] ?? parsed.pages[0]!);
-      const newPage = new Page(loadedPageData);
-      Object.assign(page, newPage);
-    } else {
-      multiPageData = null;
-      activePageIndex = 0;
-
-      const newPage = new Page(resolvePageData(parsed as PageData));
-      Object.assign(page, newPage);
-    }
+    applyPayload(data);
+    await persistContentAdapter();
 
     if (versionControlEnabled) {
       const pageIndex = multiPageData ? activePageIndex : 0;
@@ -3167,6 +3184,13 @@ export function init(config: InitConfig): EditorTsEditor {
   return {
     page,
     storage,
+    content: {
+      adapter: contentAdapter,
+      load: async () => {
+        await loadFromContentAdapter();
+      },
+      save: persistContentAdapter,
+    },
     ai,
     versionControl: versionControlEnabled ? {
       enabled: true,
