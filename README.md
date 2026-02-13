@@ -46,6 +46,60 @@ const editor = init({
 })
 ```
 
+### Content adapters
+
+EditorTs now supports pluggable content sources via `content.adapter`.
+
+- `data` mode (default): JSON payload (`PageData` or `MultiPageData`)
+- `content.adapter` mode: custom source/sink (filesystem, service-backed, etc)
+
+If both are passed, `init()` boots from `data` immediately, then hydrates from `content.adapter.load()`.
+
+```ts
+import { init, JsonContentAdapter } from 'editorts'
+
+const editor = init({
+  iframeId: 'preview-iframe',
+  content: {
+    adapter: new JsonContentAdapter(pageData),
+  },
+})
+
+// Adapter runtime API
+await editor.content.load()
+await editor.content.save()
+```
+
+#### Filesystem adapter (project files)
+
+`ProjectFilesystemAdapter` lets you back the editor from project files (`html`, `css`, `tsx`, etc) by providing an FS bridge.
+
+```ts
+import { init, ProjectFilesystemAdapter } from 'editorts'
+
+const adapter = new ProjectFilesystemAdapter({
+  fs: {
+    listFiles: async () => ['index.html', 'styles.css', 'src/App.tsx'],
+    readFile: async (path) => myFsRead(path),
+    writeFile: async (path, content) => myFsWrite(path, content),
+  },
+  loadStrategy: 'auto', // 'auto' | 'page-json' | 'project-files'
+  save: {
+    writeHtml: true,
+    writeCss: true,
+    writeComponentScripts: true,
+    writePageJson: false,
+  },
+})
+
+const editor = init({
+  iframeId: 'preview-iframe',
+  content: { adapter },
+})
+```
+
+See `docs/content-adapters.md` for architecture details and migration guidance.
+
 ### Storage adapters
 
 Local storage is the default, but we recommend SQLocal for persistent, browser-native SQLite storage. SQLocal requires cross-origin isolation headers, so the easiest way is to use the Vite examples in `examples/localsql` or `examples/solid`.
@@ -270,11 +324,25 @@ bun run build
 bun run test
 ```
 
+## Migration notes (`data` -> `content.adapter`)
+
+1. Keep your existing `data` flow first (no behavior change).
+2. Introduce an adapter that can `load()` and `save()` your canonical snapshot.
+3. Pass `content: { adapter }` to `init()`.
+4. Keep runtime editor config in JS (`toolbars`, `ui`, handlers) - never in persisted data/files.
+5. Use `editor.content.load()` / `editor.content.save()` for adapter-driven sync points.
+
+The existing `storage` option remains separate from `content.adapter`:
+
+- `content.adapter`: where editor content comes from (JSON/filesystem/custom source)
+- `storage`: where editor snapshots/version state are persisted
+
 ## Project map
 
 - Core entry: `src/core/init.ts`
 - Page model: `src/core/Page.ts`
 - Data managers: `src/core/ComponentManager.ts`, `src/core/StyleManager.ts`, `src/core/AssetManager.ts`
 - Storage: `src/core/StorageManager.ts`
+- Content adapters: `src/core/JsonContentAdapter.ts`, `src/core/ProjectFilesystemAdapter.ts`
 - Demo: `index.html` + `examples/quickstart.ts`
 - Architecture + workflow: `AGENTS.md`
