@@ -28,6 +28,7 @@ export { AssetManager } from './src/core/AssetManager';
 export { ToolbarManager } from './src/core/ToolbarManager';
 export { LayerManager } from './src/core/LayerManager';
 export { JsonContentAdapter } from './src/core/JsonContentAdapter';
+export { ProjectFilesystemAdapter } from './src/core/ProjectFilesystemAdapter';
 export { StorageManager, LocalStorageAdapter, RemoteStorageAdapter, SqlocalStorageAdapter, type SqlocalClient } from './src/core/StorageManager';
 export { syncFrontendWithServer } from './src/server/sync';
 export { init } from './src/core/init';
@@ -97,6 +98,12 @@ export type {
 
 export type { LayerManagerConfig } from './src/core/LayerManager';
 export type { StorageAdapter } from './src/core/StorageManager';
+export type {
+  ProjectFilesystemFileEntry,
+  ProjectFilesystemProvider,
+  ProjectFilesystemSaveOptions,
+  ProjectFilesystemAdapterOptions,
+} from './src/core/ProjectFilesystemAdapter';
 
 // Server exports
 export {
