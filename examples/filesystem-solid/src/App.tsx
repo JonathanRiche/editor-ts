@@ -4,6 +4,8 @@ import { init } from '../../../src/core/init';
 import {
   ProjectFilesystemAdapter,
   type ProjectFilesystemProvider,
+  type ProjectFilesystemPermissionReply,
+  type ProjectFilesystemPermissionRequest,
 } from '../../../src/core/ProjectFilesystemAdapter';
 import type {
   Component,
@@ -217,17 +219,82 @@ const ensureSeedFiles = async (fs: ProjectFilesystemProvider): Promise<void> => 
 
 export default function App() {
   let editor: ReturnType<typeof init> | null = null;
+  const permissionQueue: Array<{
+    request: ProjectFilesystemPermissionRequest;
+    resolve: (reply: ProjectFilesystemPermissionReply) => void;
+  }> = [];
+  let activePermissionRequest: {
+    request: ProjectFilesystemPermissionRequest;
+    resolve: (reply: ProjectFilesystemPermissionReply) => void;
+  } | null = null;
 
   const [mode, setMode] = createSignal<FsMode>('browser-folder');
   const [apiBaseUrl, setApiBaseUrl] = createSignal(window.location.origin);
   const [projectRoot, setProjectRoot] = createSignal('');
   const [statusText, setStatusText] = createSignal('No project connected');
   const [hasProject, setHasProject] = createSignal(false);
+  const [pendingPermissionRequest, setPendingPermissionRequest] =
+    createSignal<ProjectFilesystemPermissionRequest | null>(null);
+
+  const describePermissionRequest = (request: ProjectFilesystemPermissionRequest): string => {
+    const targets = request.paths.join(', ');
+    return `${request.permission}: ${targets}`;
+  };
+
+  const processNextPermissionRequest = (): void => {
+    if (activePermissionRequest) return;
+    const next = permissionQueue.shift();
+    if (!next) {
+      setPendingPermissionRequest(null);
+      return;
+    }
+
+    activePermissionRequest = next;
+    setPendingPermissionRequest(next.request);
+    setStatusText(`Permission requested: ${describePermissionRequest(next.request)}`);
+  };
+
+  const enqueuePermissionRequest = (
+    request: ProjectFilesystemPermissionRequest
+  ): Promise<ProjectFilesystemPermissionReply> => {
+    return new Promise<ProjectFilesystemPermissionReply>((resolve) => {
+      permissionQueue.push({ request, resolve });
+      processNextPermissionRequest();
+    });
+  };
+
+  const clearPermissionRequests = (): void => {
+    if (activePermissionRequest) {
+      activePermissionRequest.resolve('reject');
+      activePermissionRequest = null;
+    }
+
+    while (permissionQueue.length > 0) {
+      const item = permissionQueue.shift();
+      item?.resolve('reject');
+    }
+
+    setPendingPermissionRequest(null);
+  };
+
+  const respondToPermissionRequest = (reply: ProjectFilesystemPermissionReply): void => {
+    if (!activePermissionRequest) return;
+
+    const current = activePermissionRequest;
+    activePermissionRequest = null;
+    setPendingPermissionRequest(null);
+    current.resolve(reply);
+
+    setStatusText(`Permission ${reply}: ${describePermissionRequest(current.request)}`);
+    processNextPermissionRequest();
+  };
 
   const initializeWithProvider = async (
     fs: ProjectFilesystemProvider,
     connectedMessage: string
   ): Promise<void> => {
+    clearPermissionRequests();
+
     await ensureSeedFiles(fs);
 
     if (editor) {
@@ -244,6 +311,16 @@ export default function App() {
         adapter: new ProjectFilesystemAdapter({
           fs,
           loadStrategy: 'auto',
+          permissions: {
+            defaultAction: 'allow',
+            rules: [
+              { permission: 'external_directory', pattern: '*', action: 'ask' },
+              { permission: 'edit', pattern: '*', action: 'ask' },
+            ],
+            onRequest: async (request: ProjectFilesystemPermissionRequest): Promise<ProjectFilesystemPermissionReply> => {
+              return enqueuePermissionRequest(request);
+            },
+          },
           save: {
             writeHtml: true,
             writeCss: true,
@@ -412,6 +489,7 @@ export default function App() {
   };
 
   onCleanup(() => {
+    clearPermissionRequests();
     editor?.destroy();
   });
 
@@ -423,6 +501,7 @@ export default function App() {
       apiBaseUrl={apiBaseUrl()}
       projectRoot={projectRoot()}
       statusText={statusText()}
+      permissionRequest={pendingPermissionRequest()}
       onModeChange={(nextMode) => {
         setMode(nextMode);
         setStatusText(nextMode === 'browser-folder'
@@ -443,6 +522,9 @@ export default function App() {
       }}
       onReloadProject={() => {
         void onReloadProject();
+      }}
+      onPermissionReply={(reply) => {
+        respondToPermissionRequest(reply);
       }}
     />
   );

@@ -45,6 +45,29 @@ All adapters exchange data through `EditorContentSnapshot`:
   - `project-files`: prefer html/css/jsx project sources
   - `auto`: uses project files when present, otherwise `page.json`
 - Supports save controls for html/css/component scripts/page.json.
+- Supports runtime file permissions (`list`, `read`, `edit`, `external_directory`) via
+  `permissions.rules` + optional `permissions.onRequest` callback.
+
+Example:
+
+```ts
+const adapter = new ProjectFilesystemAdapter({
+  fs,
+  permissions: {
+    rules: [
+      { permission: 'edit', pattern: 'dist/*', action: 'deny' },
+      { permission: 'read', pattern: '*', action: 'allow' },
+      { permission: 'edit', pattern: '*', action: 'ask' },
+    ],
+    onRequest: async (request) => {
+      // your UI can decide once/always/reject
+      return window.confirm(`Allow ${request.permission} on ${request.paths.join(', ')}?`)
+        ? 'once'
+        : 'reject';
+    },
+  },
+});
+```
 
 ## Runtime wiring (`init`)
 

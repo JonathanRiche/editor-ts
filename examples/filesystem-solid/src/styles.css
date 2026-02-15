@@ -1,3 +1,4 @@
+
 .shell {
   display: grid;
   grid-template-columns: 320px 1fr;
@@ -117,6 +118,81 @@
 
 .dot.ok {
   background: #16a34a;
+}
+
+.permission-panel {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.permission-panel.active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+}
+
+.permission-idle {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #475569;
+}
+
+.permission-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.permission-details > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.permission-key {
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.permission-value {
+  font-size: 0.78rem;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.permission-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.permission-btn {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 0.32rem 0.5rem;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.permission-btn.deny {
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.permission-btn.always {
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.permission-btn.once {
+  border-color: #86efac;
+  color: #166534;
 }
 
 .warning {

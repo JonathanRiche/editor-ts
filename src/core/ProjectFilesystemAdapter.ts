@@ -30,6 +30,32 @@ export interface ProjectFilesystemSaveOptions {
   writeComponentScripts?: boolean;
 }
 
+export type ProjectFilesystemPermission = 'list' | 'read' | 'edit' | 'external_directory';
+
+export type ProjectFilesystemPermissionAction = 'allow' | 'deny' | 'ask';
+
+export type ProjectFilesystemPermissionReply = 'once' | 'always' | 'reject';
+
+export interface ProjectFilesystemPermissionRule {
+  permission: ProjectFilesystemPermission | '*';
+  pattern: string;
+  action: ProjectFilesystemPermissionAction;
+}
+
+export interface ProjectFilesystemPermissionRequest {
+  permission: ProjectFilesystemPermission;
+  paths: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface ProjectFilesystemPermissionsOptions {
+  rules?: ProjectFilesystemPermissionRule[];
+  defaultAction?: ProjectFilesystemPermissionAction;
+  onRequest?: (
+    request: ProjectFilesystemPermissionRequest
+  ) => ProjectFilesystemPermissionReply | Promise<ProjectFilesystemPermissionReply>;
+}
+
 export interface ProjectFilesystemAdapterOptions {
   fs: ProjectFilesystemProvider;
   pageJsonPath?: string;
@@ -43,7 +69,15 @@ export interface ProjectFilesystemAdapterOptions {
     itemId?: number;
   };
   save?: ProjectFilesystemSaveOptions;
+  respectGitignore?: boolean;
+  permissions?: ProjectFilesystemPermissionsOptions;
 }
+
+type GitignoreRule = {
+  sourceDir: string;
+  negated: boolean;
+  regex: RegExp;
+};
 
 type PathResolution = {
   pageJsonPath: string | null;
@@ -63,6 +97,188 @@ const deepClone = <T>(value: T): T => {
 
 const normalizePath = (path: string): string => {
   return path.replace(/^\.\//, '').replace(/\\/g, '/');
+};
+
+const escapeRegExp = (value: string): string => {
+  return value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
+};
+
+const wildcardToRegexFragment = (pattern: string): string => {
+  let out = '';
+
+  for (let i = 0; i < pattern.length; i += 1) {
+    const char = pattern[i] ?? '';
+
+    if (char === '*') {
+      const next = pattern[i + 1] ?? '';
+      if (next === '*') {
+        out += '.*';
+        i += 1;
+      } else {
+        out += '[^/]*';
+      }
+      continue;
+    }
+
+    if (char === '?') {
+      out += '[^/]';
+      continue;
+    }
+
+    out += escapeRegExp(char);
+  }
+
+  return out;
+};
+
+const wildcardMatches = (pattern: string, value: string): boolean => {
+  if (pattern === '*') return true;
+
+  const normalizedPattern = normalizePath(pattern);
+  const regex = new RegExp(`^${wildcardToRegexFragment(normalizedPattern)}$`);
+  return regex.test(value);
+};
+
+const isAbsolutePath = (path: string): boolean => {
+  return path.startsWith('/') || /^[A-Za-z]:\//.test(path);
+};
+
+const collapsePathSegments = (path: string): string => {
+  if (!path) return '';
+
+  const normalized = normalizePath(path);
+  const driveMatch = normalized.match(/^([A-Za-z]:)(?:\/|$)/);
+  const drive = driveMatch?.[1] ?? '';
+  const withoutDrive = drive ? normalized.slice(drive.length) : normalized;
+  const hasUnixRoot = withoutDrive.startsWith('/');
+  const isAbsolute = Boolean(drive) || hasUnixRoot;
+
+  const segments = withoutDrive.split('/');
+  const out: string[] = [];
+
+  for (const segment of segments) {
+    if (!segment || segment === '.') continue;
+
+    if (segment === '..') {
+      const previous = out[out.length - 1];
+      if (previous && previous !== '..') {
+        out.pop();
+      } else if (!isAbsolute) {
+        out.push('..');
+      }
+      continue;
+    }
+
+    out.push(segment);
+  }
+
+  const joined = out.join('/');
+
+  if (isAbsolute) {
+    if (drive) {
+      return `${drive}/${joined}`.replace(/\/+$/, '') || `${drive}/`;
+    }
+    if (hasUnixRoot) {
+      return `/${joined}`.replace(/\/+$/, '') || '/';
+    }
+  }
+
+  return joined;
+};
+
+const pathEscapesProject = (path: string): boolean => {
+  const normalized = normalizePath(path);
+  if (isAbsolutePath(normalized)) return true;
+
+  let depth = 0;
+  const segments = normalized.split('/');
+
+  for (const segment of segments) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      if (depth === 0) return true;
+      depth -= 1;
+      continue;
+    }
+    depth += 1;
+  }
+
+  return false;
+};
+
+const parentGlob = (path: string): string => {
+  const normalized = normalizePath(path);
+  const idx = normalized.lastIndexOf('/');
+  if (idx < 0) return '*';
+  const parent = normalized.slice(0, idx);
+  if (!parent) return '/*';
+  return `${parent}/*`;
+};
+
+const depthOfPath = (path: string): number => {
+  if (!path) return 0;
+  return path.split('/').length;
+};
+
+const relativeToDirectory = (path: string, directory: string): string | null => {
+  if (!directory) return path;
+  if (path === directory) return '';
+  if (path.startsWith(`${directory}/`)) {
+    return path.slice(directory.length + 1);
+  }
+  return null;
+};
+
+const compileGitignoreRules = (sourceDir: string, content: string): GitignoreRule[] => {
+  const rules: GitignoreRule[] = [];
+  const lines = content.split(/\r?\n/);
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+
+    let line = trimmed;
+
+    if (line.startsWith('\\#')) {
+      line = line.slice(1);
+    } else if (line.startsWith('#')) {
+      continue;
+    }
+
+    let negated = false;
+    if (line.startsWith('\\!')) {
+      line = line.slice(1);
+    } else if (line.startsWith('!')) {
+      negated = true;
+      line = line.slice(1);
+    }
+
+    line = line.trim();
+    if (!line) continue;
+
+    const directoryOnly = line.endsWith('/');
+    const withoutDirFlag = directoryOnly ? line.slice(0, -1) : line;
+    const anchored = withoutDirFlag.startsWith('/');
+    const withoutAnchor = anchored ? withoutDirFlag.slice(1) : withoutDirFlag;
+    const pattern = withoutAnchor.trim();
+    if (!pattern) continue;
+
+    const hasSlash = pattern.includes('/');
+    const effectiveHasSlash = hasSlash || anchored;
+    const fragment = wildcardToRegexFragment(pattern);
+
+    const regexSource = effectiveHasSlash
+      ? (directoryOnly ? `^${fragment}/` : `^${fragment}(?:/|$)`)
+      : (directoryOnly ? `(?:^|/)${fragment}/` : `(?:^|/)${fragment}(?:/|$)`);
+
+    rules.push({
+      sourceDir,
+      negated,
+      regex: new RegExp(regexSource),
+    });
+  }
+
+  return rules;
 };
 
 const isMultiPageData = (data: PageData | MultiPageData): data is MultiPageData => {
@@ -222,6 +438,10 @@ export class ProjectFilesystemAdapter implements ContentAdapter {
   private readonly loadStrategy: 'auto' | 'page-json' | 'project-files';
   private readonly defaults: { title: string; itemId?: number };
   private readonly saveOptions: Required<ProjectFilesystemSaveOptions>;
+  private readonly respectGitignore: boolean;
+  private readonly permissionDefaultAction: ProjectFilesystemPermissionAction;
+  private readonly onPermissionRequest?: ProjectFilesystemPermissionsOptions['onRequest'];
+  private readonly permissionRules: ProjectFilesystemPermissionRule[];
 
   private snapshot: EditorContentSnapshot;
   private resolvedPaths: PathResolution;
@@ -245,6 +465,11 @@ export class ProjectFilesystemAdapter implements ContentAdapter {
       writeCss: options.save?.writeCss ?? true,
       writeComponentScripts: options.save?.writeComponentScripts ?? true,
     };
+    this.respectGitignore = options.respectGitignore ?? true;
+
+    this.permissionDefaultAction = options.permissions?.defaultAction ?? 'allow';
+    this.onPermissionRequest = options.permissions?.onRequest;
+    this.permissionRules = [...(options.permissions?.rules ?? [])];
 
     this.snapshot = {
       data: JsonContentAdapter.createDefaultPageData(),
@@ -259,8 +484,171 @@ export class ProjectFilesystemAdapter implements ContentAdapter {
     };
   }
 
+  private evaluatePermission(
+    permission: ProjectFilesystemPermission,
+    path: string
+  ): ProjectFilesystemPermissionAction {
+    for (let i = this.permissionRules.length - 1; i >= 0; i -= 1) {
+      const rule = this.permissionRules[i];
+      if (!rule) continue;
+
+      const permissionMatches =
+        rule.permission === '*' ||
+        rule.permission === permission;
+
+      if (!permissionMatches) continue;
+      if (!wildcardMatches(rule.pattern, path)) continue;
+
+      return rule.action;
+    }
+
+    if (this.onPermissionRequest) {
+      return this.permissionDefaultAction;
+    }
+
+    if (this.permissionDefaultAction === 'ask') return 'allow';
+    return this.permissionDefaultAction;
+  }
+
+  private async authorize(input: {
+    permission: ProjectFilesystemPermission;
+    paths: string[];
+    metadata?: Record<string, unknown>;
+    always?: string[];
+  }): Promise<void> {
+    const paths = input.paths
+      .map((path) => normalizePath(path))
+      .filter((path) => path.length > 0);
+
+    if (paths.length === 0) return;
+
+    const denied: string[] = [];
+    const ask: string[] = [];
+
+    for (const path of paths) {
+      const action = this.evaluatePermission(input.permission, path);
+      if (action === 'deny') {
+        denied.push(path);
+        continue;
+      }
+      if (action === 'ask') {
+        ask.push(path);
+      }
+    }
+
+    if (denied.length > 0) {
+      throw new Error(
+        `ProjectFilesystemAdapter permission denied for ${input.permission}: ${denied.join(', ')}`
+      );
+    }
+
+    if (ask.length === 0) return;
+    if (!this.onPermissionRequest) {
+      throw new Error(
+        `ProjectFilesystemAdapter requires permissions.onRequest for ${input.permission}: ${ask.join(', ')}`
+      );
+    }
+
+    const reply = await this.onPermissionRequest({
+      permission: input.permission,
+      paths: ask,
+      metadata: input.metadata ?? {},
+    });
+
+    if (reply === 'reject') {
+      throw new Error(
+        `ProjectFilesystemAdapter permission rejected for ${input.permission}: ${ask.join(', ')}`
+      );
+    }
+
+    if (reply === 'always') {
+      const alwaysPatterns = (input.always ?? ask)
+        .map((pattern) => normalizePath(pattern))
+        .filter((pattern) => pattern.length > 0);
+
+      alwaysPatterns.forEach((pattern) => {
+        this.permissionRules.push({
+          permission: input.permission,
+          pattern,
+          action: 'allow',
+        });
+      });
+    }
+  }
+
+  private async resolvePathWithPermissions(input: {
+    rawPath: string;
+    permission: Extract<ProjectFilesystemPermission, 'read' | 'edit'>;
+    metadata?: Record<string, unknown>;
+  }): Promise<string> {
+    const normalized = collapsePathSegments(input.rawPath);
+    if (!normalized) {
+      throw new Error('Path cannot be empty');
+    }
+
+    if (normalized.includes('\0')) {
+      throw new Error('Path contains invalid null character');
+    }
+
+    const external = pathEscapesProject(normalized);
+    if (external) {
+      const glob = parentGlob(normalized);
+      await this.authorize({
+        permission: 'external_directory',
+        paths: [glob],
+        always: [glob],
+        metadata: {
+          rawPath: input.rawPath,
+          path: normalized,
+          ...input.metadata,
+        },
+      });
+    }
+
+    await this.authorize({
+      permission: input.permission,
+      paths: [normalized],
+      always: ['*'],
+      metadata: {
+        rawPath: input.rawPath,
+        path: normalized,
+        external,
+        ...input.metadata,
+      },
+    });
+
+    return normalized;
+  }
+
+  private async readSourceFile(path: string, metadata?: Record<string, unknown>): Promise<string | null> {
+    const normalizedPath = await this.resolvePathWithPermissions({
+      rawPath: path,
+      permission: 'read',
+      metadata,
+    });
+
+    return this.fs.readFile(normalizedPath);
+  }
+
+  private async writeSourceFile(path: string, content: string, metadata?: Record<string, unknown>): Promise<void> {
+    const normalizedPath = await this.resolvePathWithPermissions({
+      rawPath: path,
+      permission: 'edit',
+      metadata,
+    });
+
+    await this.fs.writeFile(normalizedPath, content);
+  }
+
   async load(): Promise<EditorContentSnapshot> {
-    const files = await this.listFiles();
+    await this.authorize({
+      permission: 'list',
+      paths: ['*'],
+      always: ['*'],
+      metadata: { source: 'load' },
+    });
+
+    const files = await this.listFilesInternal({ respectGitignore: false });
     this.resolvedPaths = this.resolvePaths(files);
 
     let data: PageData | MultiPageData;
@@ -306,19 +694,31 @@ export class ProjectFilesystemAdapter implements ContentAdapter {
     const nextCssPath = this.resolvedPaths.cssPath ?? this.cssPath;
 
     if (this.saveOptions.writePageJson) {
-      await this.fs.writeFile(nextPageJsonPath, JSON.stringify(data, null, 2));
+      await this.writeSourceFile(nextPageJsonPath, JSON.stringify(data, null, 2), {
+        source: 'save',
+        target: 'page-json',
+      });
     }
 
     if (this.saveOptions.writeCss) {
-      await this.fs.writeFile(nextCssPath, activePage.body.css ?? '');
+      await this.writeSourceFile(nextCssPath, activePage.body.css ?? '', {
+        source: 'save',
+        target: 'css',
+      });
     }
 
     if (this.saveOptions.writeHtml) {
-      const existingHtml = await this.fs.readFile(nextHtmlPath);
+      const existingHtml = await this.readSourceFile(nextHtmlPath, {
+        source: 'save',
+        target: 'html',
+      });
       const currentHtml = new Page(deepClone(activePage)).getHTML();
       const bodyMarkup = extractBodyMarkup(currentHtml);
       const htmlDoc = replaceBodyMarkup(existingHtml ?? '', bodyMarkup, nextCssPath, activePage.title || this.defaults.title);
-      await this.fs.writeFile(nextHtmlPath, htmlDoc);
+      await this.writeSourceFile(nextHtmlPath, htmlDoc, {
+        source: 'save',
+        target: 'html',
+      });
     }
 
     if (this.saveOptions.writeComponentScripts) {
@@ -327,7 +727,10 @@ export class ProjectFilesystemAdapter implements ContentAdapter {
 
       const writeScriptPaths = Object.keys(scripts).sort((a, b) => a.localeCompare(b));
       for (const path of writeScriptPaths) {
-        await this.fs.writeFile(path, scripts[path] ?? '');
+        await this.writeSourceFile(path, scripts[path] ?? '', {
+          source: 'save',
+          target: 'component-script',
+        });
       }
     }
 
@@ -335,8 +738,19 @@ export class ProjectFilesystemAdapter implements ContentAdapter {
   }
 
   async listFiles(): Promise<ContentAdapterFile[]> {
+    await this.authorize({
+      permission: 'list',
+      paths: ['*'],
+      always: ['*'],
+      metadata: { source: 'listFiles' },
+    });
+
+    return this.listFilesInternal({ respectGitignore: this.respectGitignore });
+  }
+
+  private async listFilesInternal(options: { respectGitignore: boolean }): Promise<ContentAdapterFile[]> {
     const listed = await this.fs.listFiles();
-    return listed
+    const mapped = listed
       .map((entry) => {
         if (typeof entry === 'string') {
           const path = normalizePath(entry);
@@ -354,14 +768,68 @@ export class ProjectFilesystemAdapter implements ContentAdapter {
         } as ContentAdapterFile;
       })
       .sort((a, b) => a.path.localeCompare(b.path));
+
+    if (!options.respectGitignore) {
+      return mapped;
+    }
+
+    return this.filterWithGitignoreRules(mapped);
+  }
+
+  private async filterWithGitignoreRules(files: ContentAdapterFile[]): Promise<ContentAdapterFile[]> {
+    const gitignorePaths = files
+      .map((file) => file.path)
+      .filter((path) => path === '.gitignore' || path.endsWith('/.gitignore'))
+      .sort((a, b) => {
+        const depthDelta = depthOfPath(a) - depthOfPath(b);
+        if (depthDelta !== 0) return depthDelta;
+        return a.localeCompare(b);
+      });
+
+    if (gitignorePaths.length === 0) {
+      return files;
+    }
+
+    const rules: GitignoreRule[] = [];
+    for (const gitignorePath of gitignorePaths) {
+      const content = await this.fs.readFile(gitignorePath);
+      if (content === null) continue;
+
+      const lastSlash = gitignorePath.lastIndexOf('/');
+      const sourceDir = lastSlash >= 0 ? gitignorePath.slice(0, lastSlash) : '';
+      rules.push(...compileGitignoreRules(sourceDir, content));
+    }
+
+    if (rules.length === 0) {
+      return files;
+    }
+
+    return files.filter((file) => {
+      let ignored = false;
+
+      for (const rule of rules) {
+        const relativePath = relativeToDirectory(file.path, rule.sourceDir);
+        if (relativePath === null || relativePath === '') continue;
+
+        if (rule.regex.test(relativePath)) {
+          ignored = !rule.negated;
+        }
+      }
+
+      return !ignored;
+    });
   }
 
   async readFile(path: string): Promise<string | null> {
-    return this.fs.readFile(normalizePath(path));
+    return this.readSourceFile(path, { source: 'readFile' });
   }
 
   async writeFile(path: string, content: string): Promise<void> {
-    const normalizedPath = normalizePath(path);
+    const normalizedPath = await this.resolvePathWithPermissions({
+      rawPath: path,
+      permission: 'edit',
+      metadata: { source: 'writeFile' },
+    });
     await this.fs.writeFile(normalizedPath, content);
 
     const data = parsePayload(this.snapshot.data);

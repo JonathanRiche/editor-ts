@@ -84,6 +84,15 @@ const adapter = new ProjectFilesystemAdapter({
     writeFile: async (path, content) => myFsWrite(path, content),
   },
   loadStrategy: 'auto', // 'auto' | 'page-json' | 'project-files'
+  permissions: {
+    rules: [
+      { permission: 'edit', pattern: 'dist/*', action: 'deny' },
+      { permission: 'edit', pattern: '*', action: 'ask' },
+    ],
+    onRequest: async ({ permission, paths }) => {
+      return window.confirm(`Allow ${permission} on ${paths.join(', ')}?`) ? 'once' : 'reject'
+    },
+  },
   save: {
     writeHtml: true,
     writeCss: true,

@@ -105,6 +105,12 @@ export type {
   ProjectFilesystemFileEntry,
   ProjectFilesystemProvider,
   ProjectFilesystemSaveOptions,
+  ProjectFilesystemPermission,
+  ProjectFilesystemPermissionAction,
+  ProjectFilesystemPermissionReply,
+  ProjectFilesystemPermissionRule,
+  ProjectFilesystemPermissionRequest,
+  ProjectFilesystemPermissionsOptions,
   ProjectFilesystemAdapterOptions,
 } from './src/core/ProjectFilesystemAdapter';
 

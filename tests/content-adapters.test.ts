@@ -179,6 +179,149 @@ describe('content adapters', () => {
     expect(page.body.css).toBe('main { color: blue; }');
   });
 
+  it('ProjectFilesystemAdapter listFiles respects .gitignore patterns', async () => {
+    const { provider } = createMemoryFs({
+      '.gitignore': [
+        'dist',
+        'node_modules',
+        '*.log',
+        '!important.log',
+        'src/generated/',
+        'apps/web/build',
+      ].join('\n'),
+      'index.html': '<!DOCTYPE html><html><body><main>hello</main></body></html>',
+      'styles.css': 'main { color: blue; }',
+      'src/main.ts': 'export const main = true;',
+      'dist/app.js': 'console.log("ignore");',
+      'node_modules/pkg/index.js': 'console.log("ignore module");',
+      'packages/ui/node_modules/widget/index.js': 'console.log("ignore nested module");',
+      'debug.log': 'ignore me',
+      'important.log': 'keep me',
+      'src/generated/file.ts': 'ignore generated',
+      'apps/web/build/main.js': 'ignore build output',
+      'apps/web/build-info.txt': 'keep this file',
+    });
+
+    const adapter = new ProjectFilesystemAdapter({
+      fs: provider,
+      loadStrategy: 'project-files',
+    });
+
+    const files = await adapter.listFiles();
+    const paths = files.map((file) => file.path);
+
+    expect(paths).toContain('.gitignore');
+    expect(paths).toContain('index.html');
+    expect(paths).toContain('styles.css');
+    expect(paths).toContain('src/main.ts');
+    expect(paths).toContain('important.log');
+    expect(paths).toContain('apps/web/build-info.txt');
+
+    expect(paths).not.toContain('dist/app.js');
+    expect(paths).not.toContain('node_modules/pkg/index.js');
+    expect(paths).not.toContain('packages/ui/node_modules/widget/index.js');
+    expect(paths).not.toContain('debug.log');
+    expect(paths).not.toContain('src/generated/file.ts');
+    expect(paths).not.toContain('apps/web/build/main.js');
+  });
+
+  it('ProjectFilesystemAdapter load ignores .gitignore filtering for source detection', async () => {
+    const { provider } = createMemoryFs({
+      '.gitignore': 'index.html',
+      'index.html': '<!DOCTYPE html><html><head><title>Hidden Source</title></head><body><main id="root">hidden</main></body></html>',
+      'styles.css': 'main { color: blue; }',
+    });
+
+    const adapter = new ProjectFilesystemAdapter({
+      fs: provider,
+      loadStrategy: 'project-files',
+    });
+
+    const listed = await adapter.listFiles();
+    expect(listed.map((file) => file.path)).not.toContain('index.html');
+
+    const snapshot = await adapter.load();
+    const page = getActivePage(snapshot.data);
+    expect(page.title).toBe('Hidden Source');
+    expect(page.body.html).toBe('<main id="root">hidden</main>');
+  });
+
+  it('ProjectFilesystemAdapter denies blocked edit permissions', async () => {
+    const { provider } = createMemoryFs({
+      'styles.css': 'body { color: black; }',
+    });
+
+    const adapter = new ProjectFilesystemAdapter({
+      fs: provider,
+      permissions: {
+        rules: [
+          { permission: 'edit', pattern: 'styles.css', action: 'deny' },
+        ],
+      },
+    });
+
+    await expect(adapter.writeFile('styles.css', 'body { color: red; }')).rejects.toThrow(
+      'permission denied'
+    );
+  });
+
+  it('ProjectFilesystemAdapter supports ask->always permission escalation', async () => {
+    const { provider } = createMemoryFs({
+      'styles.css': 'body { color: black; }',
+    });
+
+    let requestCount = 0;
+
+    const adapter = new ProjectFilesystemAdapter({
+      fs: provider,
+      permissions: {
+        defaultAction: 'allow',
+        rules: [
+          { permission: 'read', pattern: 'styles.css', action: 'ask' },
+        ],
+        onRequest: async () => {
+          requestCount += 1;
+          return 'always' as const;
+        },
+      },
+    });
+
+    const first = await adapter.readFile('styles.css');
+    const second = await adapter.readFile('styles.css');
+
+    expect(first).toContain('black');
+    expect(second).toContain('black');
+    expect(requestCount).toBe(1);
+  });
+
+  it('ProjectFilesystemAdapter requests external_directory for escaping paths', async () => {
+    const { provider } = createMemoryFs({
+      '../secret.txt': 'outside project root',
+    });
+
+    const requestedPermissions: string[] = [];
+
+    const adapter = new ProjectFilesystemAdapter({
+      fs: provider,
+      permissions: {
+        defaultAction: 'allow',
+        rules: [
+          { permission: 'external_directory', pattern: '*', action: 'ask' },
+          { permission: 'read', pattern: '*', action: 'allow' },
+        ],
+        onRequest: async (request) => {
+          requestedPermissions.push(request.permission);
+          return 'once' as const;
+        },
+      },
+    });
+
+    const content = await adapter.readFile('../secret.txt');
+
+    expect(content).toBe('outside project root');
+    expect(requestedPermissions).toEqual(['external_directory']);
+  });
+
   it('ProjectFilesystemAdapter save writes html/css/component scripts', async () => {
     const { provider, files } = createMemoryFs({
       'index.html': '<!DOCTYPE html><html><head><title>Old</title></head><body><div>old</div></body></html>',

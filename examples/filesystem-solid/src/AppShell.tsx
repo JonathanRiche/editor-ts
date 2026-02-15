@@ -1,3 +1,8 @@
+import type {
+  ProjectFilesystemPermissionReply,
+  ProjectFilesystemPermissionRequest,
+} from '../../../src/core/ProjectFilesystemAdapter';
+
 type FsMode = 'browser-folder' | 'server-routes';
 
 type AppShellProps = {
@@ -7,12 +12,14 @@ type AppShellProps = {
   mode: FsMode;
   apiBaseUrl: string;
   projectRoot: string;
+  permissionRequest: ProjectFilesystemPermissionRequest | null;
   onModeChange: (mode: FsMode) => void;
   onApiBaseUrlChange: (value: string) => void;
   onProjectRootChange: (value: string) => void;
   onPickProject: () => void;
   onConnectServerRoutes: () => void;
   onReloadProject: () => void;
+  onPermissionReply: (reply: ProjectFilesystemPermissionReply) => void;
 };
 
 export default function AppShell(props: AppShellProps) {
@@ -100,6 +107,50 @@ export default function AppShell(props: AppShellProps) {
             <span class={`dot ${props.hasProject ? 'ok' : 'idle'}`} />
             <span>{props.statusText}</span>
           </div>
+
+          <div class={`permission-panel ${props.permissionRequest ? 'active' : ''}`}>
+            <strong>Permissions</strong>
+            {props.permissionRequest ? (
+              <>
+                <div class="permission-details">
+                  <div>
+                    <span class="permission-key">Action</span>
+                    <span class="permission-value">{props.permissionRequest.permission}</span>
+                  </div>
+                  <div>
+                    <span class="permission-key">Targets</span>
+                    <span class="permission-value">{props.permissionRequest.paths.join(', ')}</span>
+                  </div>
+                </div>
+                <div class="permission-actions">
+                  <button
+                    type="button"
+                    class="permission-btn deny"
+                    onClick={() => props.onPermissionReply('reject')}
+                  >
+                    Deny
+                  </button>
+                  <button
+                    type="button"
+                    class="permission-btn always"
+                    onClick={() => props.onPermissionReply('always')}
+                  >
+                    Allow Always
+                  </button>
+                  <button
+                    type="button"
+                    class="permission-btn once"
+                    onClick={() => props.onPermissionReply('once')}
+                  >
+                    Allow Once
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p class="permission-idle">No pending permission requests.</p>
+            )}
+          </div>
+
           {!props.fsSupported && (
             <p class="warning">
               Browser-folder mode requires File System Access API.
