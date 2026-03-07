@@ -629,19 +629,46 @@ export function init(config: InitConfig): EditorTsEditor {
 
     let server: { url: string; close(): void } | null = null;
     let clientPromise: Promise<import('@opencode-ai/sdk').OpencodeClient> | null = null;
+    let activeBaseUrl: string | null = null;
+
+    const resolveConfiguredAiBaseUrl = (): string => {
+      const rawBaseUrl = (aiBaseUrlInput?.value || aiConfig.baseUrl || aiProxiedBaseUrl).trim();
+      if (rawBaseUrl.startsWith('http://') || rawBaseUrl.startsWith('https://')) {
+        return rawBaseUrl.replace(/\/+$/, '');
+      }
+
+      return new URL(rawBaseUrl.startsWith('/') ? rawBaseUrl : `/${rawBaseUrl}`, window.location.origin)
+        .toString()
+        .replace(/\/+$/, '');
+    };
+
+    const getAiStorageKeys = () => {
+      const namespace = encodeURIComponent(resolveConfiguredAiBaseUrl());
+      return {
+        sessions: `ai_sessions:${namespace}`,
+        current: `ai_session_current:${namespace}`,
+        legacySessions: 'ai_sessions',
+        legacyCurrent: 'ai_session_current',
+      };
+    };
+
+    const invalidateAiClient = () => {
+      if (externalClient || mode !== 'client') return;
+      clientPromise = null;
+      activeBaseUrl = null;
+      currentSessionId = null;
+    };
 
     const loadSdk = async (): Promise<typeof import('@opencode-ai/sdk')> => {
       return import('@opencode-ai/sdk');
     };
 
-    const aiSessionStorageKey = 'ai_sessions';
-    const aiSessionCurrentKey = 'ai_session_current';
-
     let currentSessionId: string | null = null;
 
     const loadSessionIndex = async (): Promise<{ current: string | null; sessions: Array<{ id: string; title?: string }> }> => {
-      const rawSessions = await storage.loadPage(aiSessionStorageKey);
-      const rawCurrent = await storage.loadPage(aiSessionCurrentKey);
+      const keys = getAiStorageKeys();
+      const rawSessions = await storage.loadPage(keys.sessions) ?? await storage.loadPage(keys.legacySessions);
+      const rawCurrent = await storage.loadPage(keys.current) ?? await storage.loadPage(keys.legacyCurrent);
 
       let sessions: Array<{ id: string; title?: string }> = [];
       if (rawSessions) {
@@ -671,8 +698,9 @@ export function init(config: InitConfig): EditorTsEditor {
     };
 
     const saveSessionIndex = async (next: { current: string | null; sessions: Array<{ id: string; title?: string }> }) => {
-      await storage.savePage(aiSessionStorageKey, JSON.stringify(next.sessions, null, 2));
-      await storage.savePage(aiSessionCurrentKey, JSON.stringify(next.current));
+      const keys = getAiStorageKeys();
+      await storage.savePage(keys.sessions, JSON.stringify(next.sessions, null, 2));
+      await storage.savePage(keys.current, JSON.stringify(next.current));
     };
 
     const appendAiChatLog = (label: string, text: string) => {
@@ -810,13 +838,22 @@ export function init(config: InitConfig): EditorTsEditor {
       provider: 'opencode',
       mode,
       getClient: async () => {
+        if (!externalClient && mode === 'client') {
+          const requestedBaseUrl = resolveConfiguredAiBaseUrl();
+          if (activeBaseUrl !== requestedBaseUrl) {
+            clientPromise = null;
+            activeBaseUrl = requestedBaseUrl;
+          }
+        }
+
         if (!clientPromise) {
           if (externalClient) {
             clientPromise = Promise.resolve(externalClient);
           } else {
             clientPromise = loadSdk().then(async (sdk) => {
               if (mode === 'client') {
-                const baseUrl = aiBaseUrlInput?.value || aiConfig.baseUrl || aiProxiedBaseUrl;
+                const baseUrl = resolveConfiguredAiBaseUrl();
+                activeBaseUrl = baseUrl;
                 if (!baseUrl) {
                   throw new Error("EditorTs: aiProvider.baseUrl is required when mode is 'client'");
                 }
@@ -868,7 +905,11 @@ export function init(config: InitConfig): EditorTsEditor {
         return clientPromise;
       },
       getUrl: () => {
-        if (mode === 'client') return aiConfig.baseUrl ?? externalServer?.url ?? null;
+        if (mode === 'client') {
+          if (activeBaseUrl) return activeBaseUrl;
+          if (aiBaseUrlInput?.value?.trim()) return resolveConfiguredAiBaseUrl();
+          return aiConfig.baseUrl ?? externalServer?.url ?? null;
+        }
         return server?.url ?? externalServer?.url ?? null;
       },
       sessions: {
@@ -1018,7 +1059,9 @@ export function init(config: InitConfig): EditorTsEditor {
       const autoApply = aiChatConfig?.autoApply !== false;
       const streamEnabled = aiChatConfig?.stream?.enabled ?? aiConfig.stream?.enabled === true;
 
-      if (aiChatLinkAnchor) {
+      const refreshAiChatLink = () => {
+        if (!aiChatLinkAnchor) return;
+
         const path = aiChatConfig?.link?.path ?? '/chats';
 
         const baseUrl = ai?.getUrl() ?? aiBaseUrlInput?.value ?? aiConfig.baseUrl ?? aiProxiedBaseUrl;
@@ -1030,7 +1073,25 @@ export function init(config: InitConfig): EditorTsEditor {
         aiChatLinkAnchor.href = nextUrl.toString();
         aiChatLinkAnchor.target = '_blank';
         aiChatLinkAnchor.rel = 'noopener noreferrer';
+      };
+
+      if (aiBaseUrlInput && !aiBaseUrlInput.value.trim()) {
+        aiBaseUrlInput.value = aiConfig.baseUrl ?? aiProxiedBaseUrl;
       }
+
+      if (aiBaseUrlInput) {
+        aiBaseUrlInput.addEventListener('input', () => {
+          invalidateAiClient();
+          if (aiHealthStatus) {
+            aiHealthStatus.textContent = '';
+          }
+          void refreshAiSessionSelect();
+          void refreshAiModelSelect();
+          refreshAiChatLink();
+        });
+      }
+
+      refreshAiChatLink();
 
       if (aiHealthButton && aiHealthStatus) {
         aiHealthButton.addEventListener('click', async () => {

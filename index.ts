@@ -29,6 +29,7 @@ export { ToolbarManager } from './src/core/ToolbarManager';
 export { LayerManager } from './src/core/LayerManager';
 export { JsonContentAdapter } from './src/core/JsonContentAdapter';
 export { ProjectFilesystemAdapter } from './src/core/ProjectFilesystemAdapter';
+export { createHttpProjectProvider } from './src/core/HttpProjectProvider';
 export { StorageManager, LocalStorageAdapter, RemoteStorageAdapter, SqlocalStorageAdapter, type SqlocalClient } from './src/core/StorageManager';
 export { syncFrontendWithServer } from './src/server/sync';
 export { init } from './src/core/init';
@@ -113,6 +114,7 @@ export type {
   ProjectFilesystemPermissionsOptions,
   ProjectFilesystemAdapterOptions,
 } from './src/core/ProjectFilesystemAdapter';
+export type { HttpProjectProviderConfig, HttpProjectProviderHeaders } from './src/core/HttpProjectProvider';
 
 // Server exports
 export {

@@ -85,3 +85,10 @@ Started: Thu Jan 15 10:10:39 PM EST 2026
 - **Learnings for future iterations:**
   - AI chat external link is built in `src/core/init.ts` from AI provider config.
 ---
+
+## 2026-03-06 22:46 - 2025-12-19-supertab-ch9
+- Updated the sidebar heading text to reflect the Local AI verification label.
+- Files changed: `index.html`, `progress.txt`.
+- **Learnings for future iterations:**
+  - No new reusable patterns discovered.
+---

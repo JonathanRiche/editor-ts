@@ -25,7 +25,7 @@ const aiPasswordInput = document.getElementById('ai-password') as HTMLInputEleme
 
 
 const componentsData: PageData = {
-  title: "Components example",
+  title: "Hosted review shell",
   item_id: 0,
   body: {
     assets: [],
@@ -33,26 +33,97 @@ const componentsData: PageData = {
       {
         type: "box",
         attributes: {
-          id: "box-1",
+          id: "solid-root"
         },
         components: [
-          { type: "text", content: "Hello World!", attributes: { id: "text-1" } },
-          { type: 'hero', attributes: { id: 'hero-1' } }
+          {
+            type: "text",
+            tagName: "h1",
+            attributes: {
+              id: "solid-headline"
+            },
+            content: "Local AI Verified"
+          },
+          {
+            type: "text",
+            tagName: "p",
+            attributes: {
+              id: "solid-body"
+            },
+            content: "This demo keeps hosted review simple, then lets you attach a local folder and a local OpenCode server when you want real project edits."
+          },
+          {
+            type: "hero",
+            tagName: "section",
+            attributes: {
+              id: "hero-1",
+              class: "hero"
+            },
+            components: [
+              {
+                type: "text",
+                tagName: "h1",
+                attributes: {
+                  id: "hero-title-1772854841977"
+                },
+                content: "Hero Title"
+              },
+              {
+                type: "text",
+                tagName: "p",
+                attributes: {
+                  id: "hero-subtitle-1772854841977"
+                },
+                content: "Hero subtitle text"
+              }
+            ]
+          }
         ]
       }
     ],
     styles: [
       {
         selectors: [
-          { name: "box-1" }
+          {
+            name: "solid-root"
+          }
         ],
         style: {
-          "min-height": "200px",
-          "background-color": "white",
-          "font-family": "sans-serif",
-          "font-size": "16px",
-          "padding": "1rem",
+          "min-height": "240px",
+          "background-color": "#fffdf7",
+          "font-family": "Georgia, serif",
+          "color": "#1f2937",
+          "padding": "2rem",
           "margin": "0",
+          "display": "flex",
+          "flex-direction": "column",
+          "gap": "1rem"
+        }
+      },
+      {
+        selectors: [
+          {
+            name: "solid-headline"
+          }
+        ],
+        style: {
+          "font-size": "clamp(2rem, 5vw, 3.5rem)",
+          "line-height": "1.05",
+          "margin": "0",
+          "color": "#111827"
+        }
+      },
+      {
+        selectors: [
+          {
+            name: "solid-body"
+          }
+        ],
+        style: {
+          "max-width": "44rem",
+          "font-size": "1.05rem",
+          "line-height": "1.6",
+          "margin": "0"
         }
       }
     ]
@@ -63,32 +134,52 @@ const multiPageData = {
   pages: [
     componentsData,
     {
-      title: 'Second page',
+      title: "Connected workflow",
       item_id: 1,
       body: {
         assets: [],
         components: [
           {
-            type: 'box',
-            attributes: { id: 'page2-root' },
+            type: "box",
+            attributes: {
+              id: "workflow-root"
+            },
             components: [
-              { type: 'text', tagName: 'h2', attributes: { id: 'page2-title' }, content: 'Second page title' },
-              { type: 'text', attributes: { id: 'page2-body' }, content: 'This is another page.' },
-            ],
-          },
+              {
+                type: "text",
+                tagName: "h2",
+                attributes: {
+                  id: "workflow-title"
+                },
+                content: "Recommended user flow"
+              },
+              {
+                type: "text",
+                attributes: {
+                  id: "workflow-body"
+                },
+                content: "1. Open the hosted app. 2. Connect a Chromium folder. 3. Run a local OpenCode server with CORS enabled. 4. Ask AI to update real files."
+              }
+            ]
+          }
         ],
         styles: [
           {
-            selectors: [{ name: 'page2-root' }],
+            selectors: [
+              {
+                name: "workflow-root"
+              }
+            ],
             style: {
-              'min-height': '200px',
-              'padding': '2rem',
-              'background-color': '#f5f5f5',
-            },
-          },
-        ],
-      },
-    },
+              "min-height": "220px",
+              "padding": "2rem",
+              "background-color": "#eef6ff",
+              "color": "#0f172a"
+            }
+          }
+        ]
+      }
+    }
   ],
   activePageIndex: 0,
 };

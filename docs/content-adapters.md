@@ -46,7 +46,41 @@ All adapters exchange data through `EditorContentSnapshot`:
   - `auto`: uses project files when present, otherwise `page.json`
 - Supports save controls for html/css/component scripts/page.json.
 - Supports runtime file permissions (`list`, `read`, `edit`, `external_directory`) via
-  `permissions.rules` + optional `permissions.onRequest` callback.
+`permissions.rules` + optional `permissions.onRequest` callback.
+
+### HTTP-backed project files
+
+If your project files live behind your own HTTP API, use `createHttpProjectProvider()` with `ProjectFilesystemAdapter`.
+
+```ts
+import {
+  createHttpProjectProvider,
+  ProjectFilesystemAdapter,
+} from 'editorts'
+
+const fs = createHttpProjectProvider({
+  baseUrl: 'https://api.example.com/project',
+  headers: {
+    Authorization: 'Bearer <token>',
+  },
+})
+
+const adapter = new ProjectFilesystemAdapter({
+  fs,
+  loadStrategy: 'auto',
+  save: {
+    writeHtml: true,
+    writeCss: true,
+    writeComponentScripts: true,
+  },
+})
+```
+
+Default HTTP contract:
+
+- `GET /files` -> `{ files: Array<string | { path, readOnly?, language? }> }`
+- `GET /files/:path` -> `{ content: string | null }` (or raw text)
+- `PUT /files/:path` with `{ content }`
 
 Example:
 

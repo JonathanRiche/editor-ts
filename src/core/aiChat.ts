@@ -301,6 +301,7 @@ export const requestAiReplacements = async (args: {
       path: { id: sessionId },
       body: {
         ...(model ? { model } : {}),
+        tools: { '*': false },
         system,
         parts: [
           { type: 'text', text: snapshot },
@@ -435,6 +436,7 @@ export const requestAiReplacements = async (args: {
     path: { id: sessionId },
     body: {
       ...(model ? { model } : {}),
+      tools: { '*': false },
       system,
       parts: [
         { type: 'text', text: snapshot },

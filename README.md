@@ -109,6 +109,46 @@ const editor = init({
 
 See `docs/content-adapters.md` for architecture details and migration guidance.
 
+#### Remote project files over HTTP
+
+If your hosted app needs to read and write project files through your own API (database, bucket, repo bridge, etc), pair `ProjectFilesystemAdapter` with `createHttpProjectProvider`.
+
+```ts
+import {
+  init,
+  createHttpProjectProvider,
+  ProjectFilesystemAdapter,
+} from 'editorts'
+
+const fs = createHttpProjectProvider({
+  baseUrl: 'https://api.example.com/project',
+  headers: async () => ({
+    Authorization: `Bearer ${await getToken()}`,
+  }),
+})
+
+const editor = init({
+  iframeId: 'preview-iframe',
+  content: {
+    adapter: new ProjectFilesystemAdapter({
+      fs,
+      loadStrategy: 'auto',
+      save: {
+        writeHtml: true,
+        writeCss: true,
+        writeComponentScripts: true,
+      },
+    }),
+  },
+})
+```
+
+Default HTTP contract:
+
+- `GET /files` -> `{ files: Array<string | { path, readOnly?, language? }> }`
+- `GET /files/:path` -> `{ content: string | null }` (or raw text)
+- `PUT /files/:path` with `{ content }`
+
 ### Storage adapters
 
 Local storage is the default, but we recommend SQLocal for persistent, browser-native SQLite storage. SQLocal requires cross-origin isolation headers, so the easiest way is to use the Vite examples in `examples/localsql` or `examples/solid`.
@@ -325,6 +365,14 @@ const editor = init({
 // Later
 const client = await editor.ai?.getClient()
 ```
+
+For hosted apps that connect to a user-local OpenCode server, run the server with CORS enabled for your app origin:
+
+```bash
+opencode serve --port 4096 --cors https://your-app.example.com
+```
+
+For the full hosted + local-files workflow, recommend Chromium browsers because folder access depends on the File System Access API.
 
 ## Events
 

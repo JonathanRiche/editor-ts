@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { createHttpProjectProvider } from '../src/core/HttpProjectProvider';
 import { JsonContentAdapter } from '../src/core/JsonContentAdapter';
 import {
   ProjectFilesystemAdapter,
@@ -366,5 +367,55 @@ describe('content adapters', () => {
     const html = files.get('index.html') ?? '';
     expect(html).toContain('<body>');
     expect(html).toContain('hero');
+  });
+
+  it('createHttpProjectProvider reads and writes through the default HTTP contract', async () => {
+    const requests: Array<{ url: string; method: string; body: string | null }> = [];
+    const mockFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      requests.push({
+        url,
+        method: init?.method ?? 'GET',
+        body: typeof init?.body === 'string' ? init.body : null,
+      });
+
+      if (url.endsWith('/files')) {
+        return new Response(JSON.stringify({
+          files: [
+            'index.html',
+            { path: 'styles.css', readOnly: true, language: 'css' },
+          ],
+        }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (url.endsWith('/files/src/App.tsx')) {
+        return new Response(JSON.stringify({ content: 'export const App = () => null;' }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+
+    const provider = createHttpProjectProvider({
+      baseUrl: 'https://example.com/api/project',
+      fetch: mockFetch,
+    });
+
+    const files = await provider.listFiles();
+    const content = await provider.readFile('src/App.tsx');
+    await provider.writeFile('src/App.tsx', 'export const App = () => <main />;');
+
+    expect(files).toEqual([
+      'index.html',
+      { path: 'styles.css', readOnly: true, language: 'css' },
+    ]);
+    expect(content).toBe('export const App = () => null;');
+    expect(requests[0]?.url).toBe('https://example.com/api/project/files');
+    expect(requests[1]?.url).toBe('https://example.com/api/project/files/src/App.tsx');
+    expect(requests[2]?.method).toBe('PUT');
+    expect(requests[2]?.body).toBe(JSON.stringify({ content: 'export const App = () => <main />;' }));
   });
 });
