@@ -5,5 +5,12 @@
 		"nodejs_compat"
 	],
 	// "compatibility_date": "2025-04-03",
+	// "d1_databases": [
+	// 	{
+	// 		"binding": "EDITOR_TS_REMOTE_DB",
+	// 		"database_name": "editorts-remote-demo",
+	// 		"database_id": "replace-with-your-d1-database-id"
+	// 	}
+	// ],
 	"main": "./src/server.ts"
 }

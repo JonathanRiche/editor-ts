@@ -109,6 +109,10 @@ textarea {
   gap: 0.65rem;
 }
 
+.connection-actions > button {
+  flex: 1 1 10rem;
+}
+
 .primary-btn,
 .secondary-btn,
 .tabs button,
@@ -186,6 +190,11 @@ textarea {
 .status-dot.live {
   background: #0f9f74;
   box-shadow: 0 0 0 0.2rem rgba(15, 159, 116, 0.15);
+}
+
+.status-dot.remote {
+  background: #2563eb;
+  box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.14);
 }
 
 .field {

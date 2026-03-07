@@ -3,6 +3,7 @@ import { SQLocal } from 'sqlocal';
 import {
   JsonContentAdapter,
   ProjectFilesystemAdapter,
+  createHttpProjectProvider,
   createCustomComponentDefinition,
   init,
   type Component,
@@ -35,6 +36,7 @@ type DirectoryPickerHost = {
 };
 
 const DEMO_STORAGE_KEY = 'solid-hosted-review';
+const REMOTE_WORKSPACE_URL = '/api/project';
 const AI_BASE_URL_STORAGE_KEY = 'editorts:solid:ai-base-url';
 const DEFAULT_AI_BASE_URL = 'http://127.0.0.1:4096';
 
@@ -54,7 +56,7 @@ const landingPage: PageData = {
             type: 'text',
             tagName: 'h1',
             attributes: { id: 'solid-headline' },
-            content: 'Local AI Verified',
+            content: 'Review in the cloud. Edit with local AI.',
           },
           {
             type: 'text',
@@ -265,7 +267,7 @@ export default function App() {
   let sqlocalClient: SQLocal | null = null;
 
   const [fsSupported, setFsSupported] = createSignal(false);
-  const [workspaceMode, setWorkspaceMode] = createSignal<'demo' | 'folder'>('demo');
+  const [workspaceMode, setWorkspaceMode] = createSignal<'demo' | 'remote' | 'folder'>('demo');
   const [folderName, setFolderName] = createSignal<string | null>(null);
   const [statusText, setStatusText] = createSignal('Loading hosted review workspace...');
   const [aiBaseUrl, setAiBaseUrl] = createSignal(DEFAULT_AI_BASE_URL);
@@ -425,7 +427,7 @@ export default function App() {
 
   const initializeWorkspace = async (args: {
     adapter: ContentAdapter;
-    mode: 'demo' | 'folder';
+    mode: 'demo' | 'remote' | 'folder';
     status: string;
     folderName?: string | null;
     loadFromAdapter?: boolean;
@@ -463,6 +465,30 @@ export default function App() {
       mode: 'demo',
       status: 'Hosted review workspace ready. Edits persist locally with SQLocal.',
       restoreReviewSnapshot: true,
+    });
+  };
+
+  const initializeRemoteWorkspace = async (): Promise<void> => {
+    setStatusText('Connecting to the same-origin remote workspace...');
+
+    const fs = createHttpProjectProvider({
+      baseUrl: new URL(REMOTE_WORKSPACE_URL, window.location.origin).toString(),
+    });
+
+    await initializeWorkspace({
+      adapter: new ProjectFilesystemAdapter({
+        fs,
+        loadStrategy: 'page-json',
+        save: {
+          writePageJson: true,
+          writeHtml: false,
+          writeCss: false,
+          writeComponentScripts: false,
+        },
+      }),
+      mode: 'remote',
+      loadFromAdapter: true,
+      status: 'Remote workspace connected. Files now round-trip through the hosted app API and can persist to Cloudflare D1.',
     });
   };
 
@@ -540,6 +566,9 @@ export default function App() {
       onAiBaseUrlChange={handleAiBaseUrlChange}
       onConnectFolder={() => {
         void connectFolder();
+      }}
+      onUseRemoteWorkspace={() => {
+        void initializeRemoteWorkspace();
       }}
       onUseDemoWorkspace={() => {
         void initializeDemoWorkspace();

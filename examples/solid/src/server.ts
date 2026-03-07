@@ -2,19 +2,30 @@ import { Hono } from 'hono';
 import { generateHydrationScript, renderToString } from 'solid-js/web';
 
 import App from './App';
-const app = new Hono();
+import { handleRemoteProjectRequest, type RemoteProjectEnv } from './remoteProject';
+
+const app = new Hono<{ Bindings: RemoteProjectEnv }>();
+
+app.all('/api/project/files', async (c) => {
+  const response = await handleRemoteProjectRequest(c.req.raw, c.env);
+  return response ?? new Response('Not found', { status: 404 });
+});
+
+app.all('/api/project/files/*', async (c) => {
+  const response = await handleRemoteProjectRequest(c.req.raw, c.env);
+  return response ?? new Response('Not found', { status: 404 });
+});
 
 app.get('/', () => {
   const html = renderToString(() => App());
 
-  console.log('App', App);
   return new Response(
     `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>EditorTs Solid + SQLocal</title>
+    <title>EditorTs Solid Hosted Demo</title>
     ${generateHydrationScript()}
     <script type="module" src="/src/client.tsx"></script>
   </head>
@@ -29,8 +40,5 @@ app.get('/', () => {
     },
   );
 });
+
 export default app;
-// app.listen(3000);
-
-// console.log(`Solid SSR demo running at http://${app.server?.hostname}:${app.server?.port}`);/
-

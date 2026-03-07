@@ -292,6 +292,14 @@ export const requestAiReplacements = async (args: {
     derivedPaths,
     readOnlyPaths,
   });
+  const requestText = [
+    system,
+    '',
+    snapshot,
+    '',
+    'REQUEST:',
+    prompt,
+  ].join('\n');
 
   const model = selectedModel ?? await chooseChatModel(client);
 
@@ -302,10 +310,8 @@ export const requestAiReplacements = async (args: {
       body: {
         ...(model ? { model } : {}),
         tools: { '*': false },
-        system,
         parts: [
-          { type: 'text', text: snapshot },
-          { type: 'text', text: `\nREQUEST:\n${prompt}` },
+          { type: 'text', text: requestText },
         ],
       },
     });
@@ -437,10 +443,8 @@ export const requestAiReplacements = async (args: {
     body: {
       ...(model ? { model } : {}),
       tools: { '*': false },
-      system,
       parts: [
-        { type: 'text', text: snapshot },
-        { type: 'text', text: `\nREQUEST:\n${prompt}` },
+        { type: 'text', text: requestText },
       ],
     },
   });

@@ -1,16 +1,18 @@
 type AppShellProps = {
   fsSupported: boolean;
-  workspaceMode: 'demo' | 'folder';
+  workspaceMode: 'demo' | 'remote' | 'folder';
   folderName: string | null;
   statusText: string;
   aiBaseUrl: string;
   onAiBaseUrlChange: (value: string) => void;
   onConnectFolder: () => void;
+  onUseRemoteWorkspace: () => void;
   onUseDemoWorkspace: () => void;
 };
 
 export default function AppShell(props: AppShellProps) {
   const isFolderMode = () => props.workspaceMode === 'folder';
+  const isRemoteMode = () => props.workspaceMode === 'remote';
 
   return (
     <div class="shell">
@@ -29,7 +31,15 @@ export default function AppShell(props: AppShellProps) {
             <button
               type="button"
               class="secondary-btn"
-              disabled={!isFolderMode()}
+              disabled={isRemoteMode()}
+              onClick={props.onUseRemoteWorkspace}
+            >
+              Use Remote Workspace
+            </button>
+            <button
+              type="button"
+              class="secondary-btn"
+              disabled={props.workspaceMode === 'demo'}
               onClick={props.onUseDemoWorkspace}
             >
               Use Demo Workspace
@@ -38,8 +48,8 @@ export default function AppShell(props: AppShellProps) {
 
           <div class="status-stack">
             <div class="status-chip">
-              <span class={`status-dot ${isFolderMode() ? 'live' : 'demo'}`} />
-              <span>{isFolderMode() ? `Folder connected${props.folderName ? `: ${props.folderName}` : ''}` : 'Demo workspace (SQLocal persisted)'}</span>
+              <span class={`status-dot ${isFolderMode() ? 'live' : isRemoteMode() ? 'remote' : 'demo'}`} />
+              <span>{isFolderMode() ? `Folder connected${props.folderName ? `: ${props.folderName}` : ''}` : isRemoteMode() ? 'Remote workspace (same-origin API)' : 'Demo workspace (SQLocal persisted)'}</span>
             </div>
             <p class="status-text">{props.statusText}</p>
           </div>
