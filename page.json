@@ -1,0 +1,108 @@
+{
+  "pages": [
+    {
+      "title": "Browser Eval Test",
+      "item_id": 0,
+      "body": {
+        "assets": [],
+        "components": "[{\"type\":\"box\",\"attributes\":{\"id\":\"solid-root\"},\"components\":[{\"type\":\"text\",\"tagName\":\"h1\",\"attributes\":{\"id\":\"solid-headline\"},\"content\":\"Local AI Verified.\"},{\"type\":\"text\",\"tagName\":\"p\",\"attributes\":{\"id\":\"solid-body\"},\"content\":\"This demo keeps hosted review simple, then lets you attach a local folder and a local OpenCode server when you want real project edits.\"},{\"type\":\"hero\",\"tagName\":\"section\",\"attributes\":{\"id\":\"hero-1\",\"class\":\"hero\"},\"components\":[{\"type\":\"text\",\"tagName\":\"h1\",\"attributes\":{\"id\":\"hero-title-1772854658084\"},\"content\":\"Hero Title\"},{\"type\":\"text\",\"tagName\":\"p\",\"attributes\":{\"id\":\"hero-subtitle-1772854658084\"},\"content\":\"Hero subtitle text\"}]}]}]",
+        "styles": [
+          {
+            "selectors": [
+              {
+                "name": "solid-root"
+              }
+            ],
+            "style": {
+              "min-height": "240px",
+              "background-color": "#fffdf7",
+              "font-family": "Georgia, serif",
+              "color": "#1f2937",
+              "padding": "2rem",
+              "margin": "0",
+              "display": "flex",
+              "flex-direction": "column",
+              "gap": "1rem"
+            }
+          },
+          {
+            "selectors": [
+              {
+                "name": "solid-headline"
+              }
+            ],
+            "style": {
+              "font-size": "clamp(2rem, 5vw, 3.5rem)",
+              "line-height": "1.05",
+              "margin": "0",
+              "color": "#111827"
+            }
+          },
+          {
+            "selectors": [
+              {
+                "name": "solid-body"
+              }
+            ],
+            "style": {
+              "max-width": "44rem",
+              "font-size": "1.05rem",
+              "line-height": "1.6",
+              "margin": "0"
+            }
+          }
+        ],
+        "html": "<body><div id=\"solid-root\"><h1 id=\"solid-headline\">Local AI Verified.</h1><p id=\"solid-body\">This demo keeps hosted review simple, then lets you attach a local folder and a local OpenCode server when you want real project edits.</p><section id=\"hero-1\" class=\"hero\"><h1 id=\"hero-title-1772854658084\">Hero Title</h1><p id=\"hero-subtitle-1772854658084\">Hero subtitle text</p></section></div></body>",
+        "css": "#solid-root{min-height:240px;background-color:#fffdf7;font-family:Georgia, serif;color:#1f2937;padding:2rem;margin:0;display:flex;flex-direction:column;gap:1rem;}#solid-headline{font-size:clamp(2rem, 5vw, 3.5rem);line-height:1.05;margin:0;color:#111827;}#solid-body{max-width:44rem;font-size:1.05rem;line-height:1.6;margin:0;}"
+      }
+    },
+    {
+      "title": "Connected workflow",
+      "item_id": 1,
+      "body": {
+        "assets": [],
+        "components": [
+          {
+            "type": "box",
+            "attributes": {
+              "id": "workflow-root"
+            },
+            "components": [
+              {
+                "type": "text",
+                "tagName": "h2",
+                "attributes": {
+                  "id": "workflow-title"
+                },
+                "content": "Recommended user flow"
+              },
+              {
+                "type": "text",
+                "attributes": {
+                  "id": "workflow-body"
+                },
+                "content": "1. Open the hosted app. 2. Connect a Chromium folder. 3. Run a local OpenCode server with CORS enabled. 4. Ask AI to update real files."
+              }
+            ]
+          }
+        ],
+        "styles": [
+          {
+            "selectors": [
+              {
+                "name": "workflow-root"
+              }
+            ],
+            "style": {
+              "min-height": "220px",
+              "padding": "2rem",
+              "background-color": "#eef6ff",
+              "color": "#0f172a"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "activePageIndex": 0
+}
