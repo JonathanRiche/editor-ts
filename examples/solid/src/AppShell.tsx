@@ -18,8 +18,10 @@ export default function AppShell(props: AppShellProps) {
     <div class="shell">
       <aside class="sidebar">
         <section class="hero-card">
-          <p class="eyebrow">Hosted Review Shell</p>
-          <h1>EditorTs Solid + Local OpenCode</h1>
+          <div class="hero-heading">
+            <p class="eyebrow">Hosted Review Shell</p>
+            <h1 class="hero-title">EditorTs Solid + Local OpenCode</h1>
+          </div>
           <p class="hero-copy">
             Review the editor in the cloud, then connect your own Chromium browser folder and local OpenCode server for real project edits.
           </p>

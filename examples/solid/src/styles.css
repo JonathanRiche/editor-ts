@@ -29,6 +29,18 @@ body {
   color: var(--text-main);
 }
 
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at top left, rgba(202, 138, 4, 0.08), transparent 24%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.12) 0, rgba(255, 255, 255, 0.12) 1px, transparent 1px, transparent 48px),
+    linear-gradient(rgba(255, 255, 255, 0.1) 0, rgba(255, 255, 255, 0.1) 1px, transparent 1px, transparent 48px);
+  opacity: 0.35;
+}
+
 button,
 input,
 select,
@@ -64,7 +76,11 @@ textarea {
 }
 
 .hero-card {
-  padding: 1.25rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.94), rgba(255, 255, 255, 0.92));
 }
 
 .card {
@@ -74,18 +90,31 @@ textarea {
   gap: 0.75rem;
 }
 
+.card > strong,
+.card-heading strong {
+  font-size: 1.05rem;
+  line-height: 1.1;
+  color: var(--brand-ink);
+}
+
 .eyebrow {
-  margin: 0 0 0.5rem;
+  margin: 0;
   font-size: 0.76rem;
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--brand-accent-strong);
 }
 
-.hero-card h1 {
+.hero-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.hero-title {
   margin: 0;
-  font-size: clamp(1.9rem, 4vw, 2.7rem);
-  line-height: 0.96;
+  font-size: clamp(1.55rem, 3vw, 2rem);
+  line-height: 1.02;
   color: var(--brand-ink);
 }
 
@@ -97,6 +126,11 @@ textarea {
   font-family: 'Trebuchet MS', 'Gill Sans', sans-serif;
   line-height: 1.55;
   color: var(--text-muted);
+}
+
+.hero-copy,
+.support-note {
+  font-size: 0.98rem;
 }
 
 .connection-actions,
@@ -125,6 +159,18 @@ textarea {
   transition: transform 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
+.primary-btn:focus-visible,
+.secondary-btn:focus-visible,
+.tabs button:focus-visible,
+.code-tabs button:focus-visible,
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible {
+  outline: none;
+  border-color: rgba(23, 50, 77, 0.45);
+  box-shadow: 0 0 0 0.2rem rgba(23, 50, 77, 0.1);
+}
+
 .primary-btn:hover,
 .secondary-btn:hover,
 .tabs button:hover,
@@ -145,6 +191,13 @@ textarea {
   color: var(--text-main);
 }
 
+.tabs button[aria-pressed='true'],
+.code-tabs button[aria-pressed='true'] {
+  background: linear-gradient(135deg, #17324d, #284a6b);
+  color: #fff9ef;
+  border-color: rgba(23, 50, 77, 0.72);
+}
+
 .secondary-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -156,10 +209,13 @@ textarea {
 }
 
 .status-stack {
-  margin-top: 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  padding: 0.8rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .status-chip {
@@ -240,18 +296,22 @@ textarea {
   font-size: 0.84rem;
 }
 
+.card-heading a:hover {
+  text-decoration: underline;
+}
+
 .card-heading.compact {
   align-items: center;
 }
 
 .ai-card {
-  background: linear-gradient(180deg, rgba(255, 249, 235, 0.95), rgba(255, 255, 255, 0.94));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 250, 252, 0.92));
 }
 
 .ai-chat-panel {
   border-radius: var(--radius-lg);
   border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(248, 250, 252, 0.84);
   padding: 0.9rem;
   display: flex;
   flex-direction: column;
@@ -357,8 +417,8 @@ html[data-editorts-view="code"] .preview-frame {
     padding: 0.85rem;
   }
 
-  .hero-card h1 {
-    font-size: 2rem;
+  .hero-title {
+    font-size: 1.75rem;
   }
 
   .preview-frame,
