@@ -80,34 +80,64 @@ function buildWysiwygCss(): string {
       left: 0;
       transform: translateY(calc(-100% - 8px));
       z-index: 10000;
-      background: white;
-      border: 2px solid var(--color-editor-light-text, #212C3E);
-      border-radius: 6px;
-      padding: 0.4rem;
+      background: rgba(15, 20, 30, 0.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 3px;
       display: flex;
-      gap: 0.3rem;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
-      z-index: 9999;
+      align-items: center;
+      gap: 1px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.35), 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .editorts-toolbar-sep {
+      width: 1px;
+      height: 18px;
+      background: rgba(255, 255, 255, 0.1);
+      margin: 0 2px;
+      flex-shrink: 0;
     }
     .toolbar-action {
-      background: white;
-      border: 1px solid var(--color-primary-border, #e5e7eb);
-      padding: 0.5rem 0.75rem;
-      border-radius: 4px;
+      appearance: none;
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 10px;
       cursor: pointer;
-      font-size: 0.85rem;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       white-space: nowrap;
-      font-family: var(--font-main);
-      transition: all 0.2s;
+      color: rgba(255, 255, 255, 0.72);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: background 100ms ease, color 100ms ease;
+      line-height: 1;
     }
     .toolbar-action:hover {
-      background: var(--color-editor-light-bg, #EDF0F5);
-      border-color: var(--color-editor-light-text, #212C3E);
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.95);
+    }
+    .toolbar-action:active {
+      background: rgba(255, 255, 255, 0.15);
+    }
+    .toolbar-action .editorts-tb-icon {
+      font-size: 13px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .toolbar-action .editorts-tb-label {
+      font-size: 11px;
+      letter-spacing: 0.01em;
+    }
+    .toolbar-action.danger {
+      color: rgba(255, 255, 255, 0.5);
     }
     .toolbar-action.danger:hover {
-      background: #fee;
-      border-color: #ef4444;
-      color: #ef4444;
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
     }
     /* Text editing mode */
     .editorts-editing {
@@ -440,10 +470,23 @@ function iframeWysiwygScript() {
     toolbar.className = 'editorts-context-toolbar';
 
     const enabledActions = toolbarConfig.actions.filter((a) => a.enabled);
-    enabledActions.forEach((action) => {
+    const nonDanger = enabledActions.filter((a) => !a.danger);
+    const dangerActions = enabledActions.filter((a) => a.danger);
+
+    const appendAction = (action: { id: string; icon: string; label: string; danger?: boolean }) => {
       const btn = document.createElement('button');
       btn.className = 'toolbar-action' + (action.danger ? ' danger' : '');
-      btn.textContent = action.icon + ' ' + action.label;
+
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'editorts-tb-icon';
+      iconSpan.textContent = action.icon;
+      btn.appendChild(iconSpan);
+
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'editorts-tb-label';
+      labelSpan.textContent = action.label;
+      btn.appendChild(labelSpan);
+
       btn.onclick = () => {
         window.parent.postMessage(
           {
@@ -455,7 +498,17 @@ function iframeWysiwygScript() {
         );
       };
       toolbar.appendChild(btn);
-    });
+    };
+
+    nonDanger.forEach(appendAction);
+
+    if (dangerActions.length > 0 && nonDanger.length > 0) {
+      const sep = document.createElement('div');
+      sep.className = 'editorts-toolbar-sep';
+      toolbar.appendChild(sep);
+    }
+
+    dangerActions.forEach(appendAction);
 
     el.appendChild(toolbar);
 

@@ -2233,6 +2233,167 @@ export function init(config: InitConfig): EditorTsEditor {
     }
   });
 
+  // Inject base styles for selected-info panel (once per document, like LayerManager)
+  if (selectedInfoContainer && !document.getElementById('editorts-si-styles')) {
+    const siStyle = document.createElement('style');
+    siStyle.id = 'editorts-si-styles';
+    siStyle.textContent = `
+      .editorts-si-root {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 13px;
+      }
+      .editorts-si-identity {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.35rem 0;
+      }
+      .editorts-si-tag {
+        display: inline-block;
+        padding: 0.15rem 0.45rem;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        background: rgba(59, 130, 246, 0.12);
+        color: #3b82f6;
+      }
+      .editorts-si-id {
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: #374151;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .editorts-si-group {
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .editorts-si-group[open] > .editorts-si-group-title {
+        border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+      }
+      .editorts-si-group-title {
+        display: block;
+        padding: 0.4rem 0.55rem;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #6b7280;
+        cursor: pointer;
+        user-select: none;
+        list-style: none;
+        background: rgba(0, 0, 0, 0.02);
+      }
+      .editorts-si-group-title::-webkit-details-marker { display: none; }
+      .editorts-si-group-title::before {
+        content: '\\25B8';
+        display: inline-block;
+        margin-right: 0.35rem;
+        font-size: 0.6rem;
+        transition: transform 120ms ease;
+      }
+      .editorts-si-group[open] > .editorts-si-group-title::before {
+        transform: rotate(90deg);
+      }
+      .editorts-si-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1px;
+        background: rgba(0, 0, 0, 0.04);
+      }
+      .editorts-si-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        background: white;
+        padding: 0.35rem 0.5rem;
+      }
+      .editorts-si-field span {
+        font-size: 0.65rem;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #9ca3af;
+      }
+      .editorts-si-field input {
+        border: none;
+        background: transparent;
+        padding: 0.15rem 0;
+        font-size: 0.8rem;
+        color: #111827;
+        outline: none;
+        width: 100%;
+      }
+      .editorts-si-field input::placeholder {
+        color: #d1d5db;
+      }
+      .editorts-si-field input:focus {
+        color: #1d4ed8;
+      }
+      .editorts-si-actions {
+        display: flex;
+        gap: 0.35rem;
+      }
+      .editorts-si-btn {
+        appearance: none;
+        border: 1px solid rgba(0, 0, 0, 0.12);
+        border-radius: 4px;
+        padding: 0.4rem 0.75rem;
+        font-size: 0.72rem;
+        font-weight: 500;
+        cursor: pointer;
+        background: white;
+        color: #374151;
+        transition: background 100ms ease, border-color 100ms ease;
+      }
+      .editorts-si-btn:hover {
+        background: #f9fafb;
+        border-color: rgba(0, 0, 0, 0.2);
+      }
+      .editorts-si-btn-primary {
+        background: #2563eb;
+        color: white;
+        border-color: #2563eb;
+      }
+      .editorts-si-btn-primary:hover {
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+      }
+      .editorts-si-btn-block {
+        width: 100%;
+        margin-top: 0.35rem;
+      }
+      .editorts-si-textarea {
+        width: 100%;
+        min-height: 5rem;
+        resize: vertical;
+        border: none;
+        background: white;
+        padding: 0.5rem;
+        font-size: 0.82rem;
+        color: #111827;
+        outline: none;
+      }
+      .editorts-si-input-full {
+        width: 100%;
+        border: none;
+        background: white;
+        padding: 0.4rem 0.5rem;
+        font-size: 0.82rem;
+        color: #111827;
+        outline: none;
+      }
+    `;
+    document.head.appendChild(siStyle);
+  }
+
   function renderSelectedInfo(component: Component, elementId: string, tagName: string) {
     if (!selectedInfoContainer) return;
 
@@ -2249,106 +2410,119 @@ export function init(config: InitConfig): EditorTsEditor {
       (selectedElement?.tagName.toLowerCase() === 'img');
 
     selectedInfoContainer.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:0.75rem;">
-        <div>
-          <div><strong>ID:</strong> ${elementId}</div>
-          <div><strong>Tag:</strong> ${tagName}</div>
+      <div class="editorts-si-root">
+        <div class="editorts-si-identity">
+          <span class="editorts-si-tag">${tagName}</span>
+          <span class="editorts-si-id">#${elementId}</span>
         </div>
 
-        <div>
-          <div style="font-weight:600; margin-bottom:0.25rem;">Style</div>
-          <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Margin top
-              <input data-editorts-style="margin-top" type="text" placeholder="e.g. 16px" />
+        <details class="editorts-si-group" open>
+          <summary class="editorts-si-group-title">Spacing</summary>
+          <div class="editorts-si-grid">
+            <label class="editorts-si-field">
+              <span>Margin T</span>
+              <input data-editorts-style="margin-top" type="text" placeholder="16px" />
             </label>
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Margin bottom
-              <input data-editorts-style="margin-bottom" type="text" placeholder="e.g. 16px" />
+            <label class="editorts-si-field">
+              <span>Margin B</span>
+              <input data-editorts-style="margin-bottom" type="text" placeholder="16px" />
             </label>
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Padding top
-              <input data-editorts-style="padding-top" type="text" placeholder="e.g. 24px" />
+            <label class="editorts-si-field">
+              <span>Padding T</span>
+              <input data-editorts-style="padding-top" type="text" placeholder="24px" />
             </label>
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Padding bottom
-              <input data-editorts-style="padding-bottom" type="text" placeholder="e.g. 24px" />
-            </label>
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Width
-              <input data-editorts-style="width" type="text" placeholder="e.g. 100%" />
-            </label>
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Height
-              <input data-editorts-style="height" type="text" placeholder="e.g. 300px" />
-            </label>
-
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Color
-              <input data-editorts-style="color" type="text" placeholder="e.g. #111" />
-            </label>
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Background
-              <input data-editorts-style="background-color" type="text" placeholder="e.g. #f5f5f5" />
-            </label>
-
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Border
-              <input data-editorts-style="border" type="text" placeholder="e.g. 1px solid #ddd" />
-            </label>
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Border radius
-              <input data-editorts-style="border-radius" type="text" placeholder="e.g. 12px" />
-            </label>
-
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Display
-              <input data-editorts-style="display" type="text" placeholder="e.g. block" />
-            </label>
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Gap
-              <input data-editorts-style="gap" type="text" placeholder="e.g. 12px" />
-            </label>
-
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Font size
-              <input data-editorts-style="font-size" type="text" placeholder="e.g. 18px" />
-            </label>
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Font weight
-              <input data-editorts-style="font-weight" type="text" placeholder="e.g. 600" />
-            </label>
-
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Text align
-              <input data-editorts-style="text-align" type="text" placeholder="e.g. center" />
-            </label>
-            <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem;">
-              Transition
-              <input data-editorts-style="transition" type="text" placeholder="e.g. all 150ms ease" />
+            <label class="editorts-si-field">
+              <span>Padding B</span>
+              <input data-editorts-style="padding-bottom" type="text" placeholder="24px" />
             </label>
           </div>
+        </details>
 
-          <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
-            <button data-editorts-action="apply-style">Apply</button>
-            <button data-editorts-action="clear-style" type="button">Clear</button>
+        <details class="editorts-si-group" open>
+          <summary class="editorts-si-group-title">Dimensions &amp; Layout</summary>
+          <div class="editorts-si-grid">
+            <label class="editorts-si-field">
+              <span>Width</span>
+              <input data-editorts-style="width" type="text" placeholder="100%" />
+            </label>
+            <label class="editorts-si-field">
+              <span>Height</span>
+              <input data-editorts-style="height" type="text" placeholder="300px" />
+            </label>
+            <label class="editorts-si-field">
+              <span>Display</span>
+              <input data-editorts-style="display" type="text" placeholder="flex" />
+            </label>
+            <label class="editorts-si-field">
+              <span>Gap</span>
+              <input data-editorts-style="gap" type="text" placeholder="12px" />
+            </label>
           </div>
+        </details>
+
+        <details class="editorts-si-group" open>
+          <summary class="editorts-si-group-title">Typography</summary>
+          <div class="editorts-si-grid">
+            <label class="editorts-si-field">
+              <span>Color</span>
+              <input data-editorts-style="color" type="text" placeholder="#111" />
+            </label>
+            <label class="editorts-si-field">
+              <span>Size</span>
+              <input data-editorts-style="font-size" type="text" placeholder="1rem" />
+            </label>
+            <label class="editorts-si-field">
+              <span>Weight</span>
+              <input data-editorts-style="font-weight" type="text" placeholder="600" />
+            </label>
+            <label class="editorts-si-field">
+              <span>Align</span>
+              <input data-editorts-style="text-align" type="text" placeholder="center" />
+            </label>
+          </div>
+        </details>
+
+        <details class="editorts-si-group">
+          <summary class="editorts-si-group-title">Decoration</summary>
+          <div class="editorts-si-grid">
+            <label class="editorts-si-field">
+              <span>Background</span>
+              <input data-editorts-style="background-color" type="text" placeholder="#f5f5f5" />
+            </label>
+            <label class="editorts-si-field">
+              <span>Border</span>
+              <input data-editorts-style="border" type="text" placeholder="1px solid #ddd" />
+            </label>
+            <label class="editorts-si-field">
+              <span>Radius</span>
+              <input data-editorts-style="border-radius" type="text" placeholder="12px" />
+            </label>
+            <label class="editorts-si-field">
+              <span>Transition</span>
+              <input data-editorts-style="transition" type="text" placeholder="all 150ms" />
+            </label>
+          </div>
+        </details>
+
+        <div class="editorts-si-actions">
+          <button data-editorts-action="apply-style" class="editorts-si-btn editorts-si-btn-primary">Apply</button>
+          <button data-editorts-action="clear-style" type="button" class="editorts-si-btn">Clear</button>
         </div>
 
         ${canEditText ? `
-          <div>
-            <div style="font-weight:600; margin-bottom:0.25rem;">Text</div>
-            <textarea data-editorts-field="text-content" style="width:100%; min-height:6rem;"></textarea>
-            <button data-editorts-action="apply-text" style="margin-top:0.25rem;">Apply</button>
-          </div>
+          <details class="editorts-si-group" open>
+            <summary class="editorts-si-group-title">Text</summary>
+            <textarea data-editorts-field="text-content" class="editorts-si-textarea"></textarea>
+            <button data-editorts-action="apply-text" class="editorts-si-btn editorts-si-btn-primary editorts-si-btn-block">Apply text</button>
+          </details>
         ` : ''}
 
         ${canEditImageSrc ? `
-          <div>
-            <div style="font-weight:600; margin-bottom:0.25rem;">Image URL</div>
-            <input data-editorts-field="image-src" type="text" style="width:100%;" />
-            <button data-editorts-action="apply-image-src" style="margin-top:0.25rem;">Apply</button>
-          </div>
+          <details class="editorts-si-group" open>
+            <summary class="editorts-si-group-title">Image URL</summary>
+            <input data-editorts-field="image-src" type="text" class="editorts-si-input-full" />
+            <button data-editorts-action="apply-image-src" class="editorts-si-btn editorts-si-btn-primary editorts-si-btn-block">Apply URL</button>
+          </details>
         ` : ''}
       </div>
     `;

@@ -20,149 +20,156 @@ export default function AppShell(props: AppShellProps) {
   return (
     <div class="shell">
       <aside class="sidebar">
-        <section class="hero-card">
-          <div class="hero-heading">
-            <p class="eyebrow">Hosted Review Shell</p>
-            <h1 class="hero-title">EditorTs Solid + Local OpenCode</h1>
-          </div>
-          <p class="hero-copy">
-            Review the editor in the cloud, then connect your own Chromium browser folder and local OpenCode server for real project edits.
-          </p>
-
-          <div class="connection-actions">
-            <button type="button" class="primary-btn" onClick={props.onConnectFolder}>
-              {isFolderMode() ? 'Reconnect Folder' : 'Connect Folder'}
-            </button>
-            <button
-              type="button"
-              class="secondary-btn"
-              disabled={isRemoteMode()}
-              onClick={props.onUseRemoteWorkspace}
-            >
-              Use Remote Workspace
-            </button>
-            <button
-              type="button"
-              class="secondary-btn"
-              disabled={props.workspaceMode === 'demo'}
-              onClick={props.onUseDemoWorkspace}
-            >
-              Use Demo Workspace
-            </button>
-          </div>
-
-          <div class="status-stack">
-            <div class="status-chip">
-              <span class={`status-dot ${isFolderMode() ? 'live' : isRemoteMode() ? 'remote' : 'demo'}`} />
-              <span>{isFolderMode() ? `Folder connected${props.folderName ? `: ${props.folderName}` : ''}` : isRemoteMode() ? 'Remote workspace (same-origin API)' : 'Demo workspace (SQLocal persisted)'}</span>
+        {/* Fixed header area */}
+        <div class="sidebar-header">
+          <section class="hero-card">
+            <div class="hero-heading">
+              <p class="eyebrow">Hosted Review Shell</p>
+              <h1 class="hero-title">EditorTs Solid + Local OpenCode</h1>
             </div>
-            <p class="status-text">{props.statusText}</p>
-          </div>
+            <p class="hero-copy">
+              Review the editor in the cloud, then connect your own Chromium browser folder and local OpenCode server for real project edits.
+            </p>
 
-          <p class="support-note">
-            Full local-files workflow requires Chromium because it depends on the File System Access API.
-            {!props.fsSupported ? ' This browser does not expose folder picking.' : ''}
-          </p>
-        </section>
+            <div class="connection-actions">
+              <button type="button" class="primary-btn" onClick={props.onConnectFolder}>
+                {isFolderMode() ? 'Reconnect Folder' : 'Connect Folder'}
+              </button>
+              <button
+                type="button"
+                class="secondary-btn"
+                disabled={isRemoteMode()}
+                onClick={props.onUseRemoteWorkspace}
+              >
+                Use Remote Workspace
+              </button>
+              <button
+                type="button"
+                class="secondary-btn"
+                disabled={props.workspaceMode === 'demo'}
+                onClick={props.onUseDemoWorkspace}
+              >
+                Use Demo Workspace
+              </button>
+            </div>
 
+            <div class="status-stack">
+              <div class="status-chip">
+                <span class={`status-dot ${isFolderMode() ? 'live' : isRemoteMode() ? 'remote' : 'demo'}`} />
+                <span>{isFolderMode() ? `Folder connected${props.folderName ? `: ${props.folderName}` : ''}` : isRemoteMode() ? 'Remote workspace (same-origin API)' : 'Demo workspace (SQLocal persisted)'}</span>
+              </div>
+              <p class="status-text">{props.statusText}</p>
+            </div>
+
+            <p class="support-note">
+              Full local-files workflow requires Chromium because it depends on the File System Access API.
+              {!props.fsSupported ? ' This browser does not expose folder picking.' : ''}
+            </p>
+          </section>
+        </div>
+
+        {/* Tab navigation -- fixed below header */}
         <nav class="sidebar-nav" aria-label="Sidebar sections">
           <button type="button" class="sidebar-tab" aria-pressed={activeSidebarTab() === 'workspace'} onClick={() => setActiveSidebarTab('workspace')}>Workspace</button>
           <button type="button" class="sidebar-tab" aria-pressed={activeSidebarTab() === 'ai'} onClick={() => setActiveSidebarTab('ai')}>AI</button>
           <button type="button" class="sidebar-tab" aria-pressed={activeSidebarTab() === 'structure'} onClick={() => setActiveSidebarTab('structure')}>Structure</button>
         </nav>
 
-        <div class="sidebar-panels">
-          <div class="sidebar-panel" hidden={activeSidebarTab() !== 'workspace'}>
-            <section class="card">
-              <strong>Pages</strong>
-              <div id="pages-container" />
-            </section>
+        {/* Independently scrollable panel area */}
+        <div class="sidebar-scrollable">
+          <div class="sidebar-panels">
+            <div class="sidebar-panel" hidden={activeSidebarTab() !== 'workspace'}>
+              <section class="card">
+                <strong>Pages</strong>
+                <div id="pages-container" />
+              </section>
 
-            <section class="card">
-              <strong>Selected</strong>
-              <div id="selected-info" />
-            </section>
+              <section class="card">
+                <strong>Selected</strong>
+                <div id="selected-info" />
+              </section>
 
-            <section class="card">
-              <strong>Stats</strong>
-              <div id="stats-container" />
-            </section>
-          </div>
+              <section class="card">
+                <strong>Stats</strong>
+                <div id="stats-container" />
+              </section>
+            </div>
 
-          <div class="sidebar-panel" hidden={activeSidebarTab() !== 'ai'}>
-            <section class="card ai-card">
-              <div class="card-heading">
-                <strong>Local OpenCode</strong>
-                <a id="ai-chat-link" href="#" target="_blank" rel="noopener noreferrer">Open chats</a>
-              </div>
-
-              <label class="field">
-                <span>OpenCode base URL</span>
-                <input
-                  id="ai-base-url"
-                  type="text"
-                  value={props.aiBaseUrl}
-                  onInput={(event) => props.onAiBaseUrlChange(event.currentTarget.value)}
-                  placeholder="http://127.0.0.1:4096"
-                />
-              </label>
-
-              <p class="helper-copy">
-                Run `opencode serve --port 4096 --cors https://your-app.example.com` on the same machine as your browser.
-              </p>
-
-              <div class="ai-health-row">
-                <button id="ai-health-btn" type="button" class="secondary-btn">Check health</button>
-                <button id="ai-session-new" type="button" class="secondary-btn">New session</button>
-              </div>
-
-              <pre id="ai-health-status" class="status-pre" />
-
-              <div
-                id="ai-chat-root"
-                data-editorts-ai-chat-root
-                class="ai-chat-panel"
-              >
-                <div class="card-heading compact">
-                  <strong>AI chat</strong>
-                  <button id="ai-chat-expand" type="button" class="secondary-btn icon-btn" aria-expanded="false">Expand</button>
+            <div class="sidebar-panel" hidden={activeSidebarTab() !== 'ai'}>
+              <section class="card ai-card">
+                <div class="card-heading">
+                  <strong>Local OpenCode</strong>
+                  <a id="ai-chat-link" href="#" target="_blank" rel="noopener noreferrer">Open chats</a>
                 </div>
 
                 <label class="field">
-                  <span>Session</span>
-                  <select id="ai-session-select" />
+                  <span>OpenCode base URL</span>
+                  <input
+                    id="ai-base-url"
+                    type="text"
+                    value={props.aiBaseUrl}
+                    onInput={(event) => props.onAiBaseUrlChange(event.currentTarget.value)}
+                    placeholder="http://127.0.0.1:4096"
+                  />
                 </label>
 
-                <label class="field">
-                  <span>Model</span>
-                  <select id="ai-model-select" />
-                </label>
+                <p class="helper-copy">
+                  Run `opencode serve --port 4096 --cors https://your-app.example.com` on the same machine as your browser.
+                </p>
 
-                <label class="field">
-                  <span>Prompt</span>
-                  <textarea id="ai-chat-input" placeholder="Ask OpenCode to refactor the hero, tweak CSS, or update project files..." />
-                </label>
-
-                <div class="ai-actions">
-                  <button id="ai-chat-send" type="button" class="primary-btn">Send & Apply</button>
-                  <button id="ai-chat-apply" type="button" class="secondary-btn" disabled>Apply last reply</button>
+                <div class="ai-health-row">
+                  <button id="ai-health-btn" type="button" class="secondary-btn">Check health</button>
+                  <button id="ai-session-new" type="button" class="secondary-btn">New session</button>
                 </div>
 
-                <pre id="ai-chat-log" class="chat-log" />
-              </div>
-            </section>
-          </div>
+                <pre id="ai-health-status" class="status-pre" />
 
-          <div class="sidebar-panel" hidden={activeSidebarTab() !== 'structure'}>
-            <section class="card">
-              <strong>Layers</strong>
-              <div id="layers-container" />
-            </section>
+                <div
+                  id="ai-chat-root"
+                  data-editorts-ai-chat-root
+                  class="ai-chat-panel"
+                >
+                  <div class="card-heading compact">
+                    <strong>AI chat</strong>
+                    <button id="ai-chat-expand" type="button" class="secondary-btn icon-btn" aria-expanded="false">Expand</button>
+                  </div>
 
-            <section class="card">
-              <strong>Components</strong>
-              <div id="component-palette" />
-            </section>
+                  <label class="field">
+                    <span>Session</span>
+                    <select id="ai-session-select" />
+                  </label>
+
+                  <label class="field">
+                    <span>Model</span>
+                    <select id="ai-model-select" />
+                  </label>
+
+                  <label class="field">
+                    <span>Prompt</span>
+                    <textarea id="ai-chat-input" placeholder="Ask OpenCode to refactor the hero, tweak CSS, or update project files..." />
+                  </label>
+
+                  <div class="ai-actions">
+                    <button id="ai-chat-send" type="button" class="primary-btn">Send & Apply</button>
+                    <button id="ai-chat-apply" type="button" class="secondary-btn" disabled>Apply last reply</button>
+                  </div>
+
+                  <pre id="ai-chat-log" class="chat-log" />
+                </div>
+              </section>
+            </div>
+
+            <div class="sidebar-panel" hidden={activeSidebarTab() !== 'structure'}>
+              <section class="card">
+                <strong>Layers</strong>
+                <div id="layers-container" />
+              </section>
+
+              <section class="card">
+                <strong>Components</strong>
+                <div id="component-palette" />
+              </section>
+            </div>
           </div>
         </div>
       </aside>
@@ -199,19 +206,19 @@ export default function AppShell(props: AppShellProps) {
         role="dialog"
         aria-modal="true"
         aria-hidden="true"
-        style="display:none; position:fixed; inset:0; background: rgba(6,11,20,0.4); align-items:flex-start; justify-content:center; padding-top:12vh; z-index:1200;"
+        style="display:none; position:fixed; inset:0; background: rgba(6,8,14,0.65); align-items:flex-start; justify-content:center; padding-top:12vh; z-index:1200; backdrop-filter: blur(4px);"
       >
-        <div style="background:white; border-radius:16px; width:min(520px, 92vw); box-shadow: 0 18px 45px rgba(15,23,42,0.18); padding:1rem; display:flex; flex-direction:column; gap:0.5rem;">
+        <div style="background:#171f2a; border:1px solid rgba(245,230,200,0.1); border-radius:8px; width:min(520px, 92vw); box-shadow: 0 18px 45px rgba(0,0,0,0.4); padding:1rem; display:flex; flex-direction:column; gap:0.5rem;">
           <div style="display:flex; align-items:center; justify-content:space-between;">
             <div>
-              <div id="command-palette-title" style="font-weight:600;">Command Palette</div>
-              <div style="font-size:0.75rem; opacity:0.6;">Add a component or run a command.</div>
+              <div id="command-palette-title" style="font-family:'JetBrains Mono',monospace; font-weight:600; font-size:0.82rem; color:#e8dcc8;">Command Palette</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:#6b6050;">Add a component or run a command.</div>
             </div>
-            <button id="command-palette-close" type="button">x</button>
+            <button id="command-palette-close" type="button" style="background:transparent; border:1px solid rgba(245,230,200,0.1); border-radius:4px; color:#9a8e7a; padding:0.3rem 0.6rem; cursor:pointer;">x</button>
           </div>
-          <input id="command-palette-input" type="text" placeholder="Search components..." aria-labelledby="command-palette-title" style="width:100%; padding:0.75rem; border:1px solid rgba(15,23,42,0.12); border-radius:10px;" />
-          <div id="command-palette-results" role="listbox" style="display:flex; flex-direction:column; gap:0.35rem; max-height:320px; overflow:auto;"></div>
-          <div id="command-palette-hint" style="font-size:0.75rem; opacity:0.6;">Press Enter to add to selected or to the page root.</div>
+          <input id="command-palette-input" type="text" placeholder="Search components..." aria-labelledby="command-palette-title" style="width:100%; padding:0.6rem 0.7rem; border:1px solid rgba(245,230,200,0.1); border-radius:4px; background:rgba(12,16,24,0.6); color:#e8dcc8; font-family:'JetBrains Mono',monospace; font-size:0.82rem;" />
+          <div id="command-palette-results" role="listbox" style="display:flex; flex-direction:column; gap:0.25rem; max-height:320px; overflow:auto;"></div>
+          <div id="command-palette-hint" style="font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:#6b6050;">Press Enter to add to selected or to the page root.</div>
         </div>
       </div>
     </div>
