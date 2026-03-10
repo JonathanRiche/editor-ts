@@ -238,6 +238,9 @@ export function init(config: InitConfig): EditorTsEditor {
   const aiChatLog = shouldEnableAiChatUi && aiChatConfig?.logId
     ? (document.getElementById(aiChatConfig.logId) as HTMLElement | null)
     : null;
+  const aiChatStatus = shouldEnableAiChatUi && aiChatConfig?.statusId
+    ? (document.getElementById(aiChatConfig.statusId) as HTMLElement | null)
+    : null;
 
   const aiChatLinkAnchor = shouldEnableAiChatUi && aiChatConfig?.link?.enabled !== false && aiChatConfig?.link?.anchorId
     ? (document.getElementById(aiChatConfig.link.anchorId) as HTMLAnchorElement | null)
@@ -245,6 +248,9 @@ export function init(config: InitConfig): EditorTsEditor {
 
   const aiSessionSelect = shouldEnableAiChatUi && aiChatConfig?.sessionSelectId
     ? (document.getElementById(aiChatConfig.sessionSelectId) as HTMLSelectElement | null)
+    : null;
+  const aiSessionList = shouldEnableAiChatUi && aiChatConfig?.sessionListId
+    ? (document.getElementById(aiChatConfig.sessionListId) as HTMLElement | null)
     : null;
   const aiModelSelect = shouldEnableAiChatUi && aiChatConfig?.modelSelectId
     ? (document.getElementById(aiChatConfig.modelSelectId) as HTMLSelectElement | null)
@@ -713,6 +719,21 @@ export function init(config: InitConfig): EditorTsEditor {
       aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${delta}`;
     };
 
+    const setAiChatPending = (pending: boolean) => {
+      if (!aiChatLog) return;
+      if (pending) {
+        aiChatLog.setAttribute('data-pending', 'true');
+      } else {
+        aiChatLog.removeAttribute('data-pending');
+      }
+    };
+
+    const setAiChatStatus = (state: 'idle' | 'loading' | 'streaming' | 'success' | 'error', text: string) => {
+      if (!aiChatStatus) return;
+      aiChatStatus.dataset.state = state;
+      aiChatStatus.textContent = text;
+    };
+
     const collectFallbackComponentScripts = (): Record<string, string> => {
       const scripts: Record<string, string> = {};
 
@@ -781,7 +802,7 @@ export function init(config: InitConfig): EditorTsEditor {
     };
 
     const refreshAiSessionSelect = async () => {
-      if (!aiSessionSelect || !ai) return;
+      if ((!aiSessionSelect && !aiSessionList) || !ai) return;
 
       if (currentSessionId === null) {
         const index = await loadSessionIndex();
@@ -791,16 +812,40 @@ export function init(config: InitConfig): EditorTsEditor {
       const sessions = await ai.sessions.list();
       const current = ai.sessions.current();
 
-      aiSessionSelect.innerHTML = '';
+      if (aiSessionSelect) {
+        aiSessionSelect.innerHTML = '';
+      }
+
+      if (aiSessionList) {
+        aiSessionList.innerHTML = '';
+      }
 
       const addOption = (id: string, label: string) => {
-        const opt = document.createElement('option');
-        opt.value = id;
-        opt.textContent = label;
-        if (id === current) {
-          opt.selected = true;
+        if (aiSessionSelect) {
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = label;
+          if (id === current) {
+            opt.selected = true;
+          }
+          aiSessionSelect.appendChild(opt);
         }
-        aiSessionSelect.appendChild(opt);
+
+        if (aiSessionList) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'editorts-ai-session-item';
+          if (id === current || (!id && !current)) {
+            button.classList.add('editorts-ai-session-item-active');
+          }
+          button.textContent = label;
+          button.addEventListener('click', async () => {
+            if (!ai) return;
+            await ai.sessions.setCurrent(id.length ? id : null);
+            await refreshAiSessionSelect();
+          });
+          aiSessionList.appendChild(button);
+        }
       };
 
       addOption('', '(auto)');
@@ -1092,6 +1137,7 @@ export function init(config: InitConfig): EditorTsEditor {
       }
 
       refreshAiChatLink();
+      setAiChatStatus('idle', 'Ready');
 
       if (aiHealthButton && aiHealthStatus) {
         aiHealthButton.addEventListener('click', async () => {
@@ -1101,13 +1147,16 @@ export function init(config: InitConfig): EditorTsEditor {
           }
 
           aiHealthStatus.textContent = 'Checking...';
+          setAiChatStatus('loading', 'Checking AI connection...');
 
           try {
             const client = await ai.getClient();
             const result = await client.config.get();
             aiHealthStatus.textContent = JSON.stringify(result.data ?? result, null, 2);
+            setAiChatStatus('success', 'AI connection ready');
           } catch (err: unknown) {
             aiHealthStatus.textContent = err instanceof Error ? err.message : String(err);
+            setAiChatStatus('error', 'AI connection failed');
           }
         });
       }
@@ -1149,8 +1198,10 @@ export function init(config: InitConfig): EditorTsEditor {
             appendAiChatLog('apply', `Applied ${lastAiReplacements.length} replacement(s).`);
             lastAiReplacements = null;
             aiChatApplyButton.toggleAttribute('disabled', true);
+            setAiChatStatus('success', 'Applied last reply');
           } catch (err: unknown) {
             appendAiChatLog('error', err instanceof Error ? err.message : String(err));
+            setAiChatStatus('error', 'Apply failed');
           }
         });
       }
@@ -1166,14 +1217,19 @@ export function init(config: InitConfig): EditorTsEditor {
           if (!prompt) return;
 
           appendAiChatLog('user', prompt);
+          setAiChatPending(true);
           aiChatSendButton.toggleAttribute('disabled', true);
+          const previousSendLabel = aiChatSendButton.textContent;
+          aiChatSendButton.textContent = 'Thinking...';
+          setAiChatStatus('loading', 'Waiting for OpenCode reply...');
 
           try {
-            const selectedSessionId = aiSessionSelect?.value?.trim() || undefined;
+            const selectedSessionId = aiSessionSelect?.value?.trim() || ai.sessions.current() || undefined;
 
             let streamedText = '';
             if (streamEnabled && aiChatLog) {
               aiChatLog.textContent = `${aiChatLog.textContent ?? ''}assistant: `;
+              setAiChatStatus('streaming', 'Streaming response...');
             }
 
             const selectedModelValue = aiModelSelect?.value?.trim() || '';
@@ -1188,7 +1244,9 @@ export function init(config: InitConfig): EditorTsEditor {
               onStream: streamEnabled
                 ? (delta) => {
                   streamedText += delta;
+                  setAiChatPending(false);
                   appendAiChatStreamDelta(delta);
+                  setAiChatStatus('streaming', 'Streaming response...');
                 }
                 : undefined,
             });
@@ -1197,38 +1255,51 @@ export function init(config: InitConfig): EditorTsEditor {
             if (streamEnabled && aiChatLog) {
               aiChatLog.textContent = `${aiChatLog.textContent ?? ''}\n\n`;
               if (!streamedText.trim()) {
+                setAiChatPending(false);
                 appendAiChatLog('assistant', result.rawText);
               }
             } else {
+              setAiChatPending(false);
               appendAiChatLog('assistant', result.rawText);
             }
+
+            await refreshAiSessionSelect();
 
             if (result.replacements.length === 0) {
               lastAiReplacements = null;
               aiChatApplyButton?.toggleAttribute('disabled', true);
+              setAiChatStatus('success', 'Reply ready');
               return;
             }
 
             if (!autoApply) {
               lastAiReplacements = result.replacements;
               aiChatApplyButton?.toggleAttribute('disabled', false);
+              setAiChatStatus('success', 'Reply ready - review before apply');
               return;
             }
 
             try {
+              setAiChatStatus('loading', 'Applying AI changes...');
               await ai.apply(result.replacements);
               appendAiChatLog('apply', `Applied ${result.replacements.length} replacement(s).`);
               lastAiReplacements = null;
               aiChatApplyButton?.toggleAttribute('disabled', true);
+              setAiChatStatus('success', `Applied ${result.replacements.length} change${result.replacements.length === 1 ? '' : 's'}`);
             } catch (err: unknown) {
               lastAiReplacements = result.replacements;
               aiChatApplyButton?.toggleAttribute('disabled', false);
               appendAiChatLog('error', err instanceof Error ? err.message : String(err));
+              setAiChatStatus('error', 'Reply ready - apply failed');
             }
           } catch (err: unknown) {
+            setAiChatPending(false);
             appendAiChatLog('error', err instanceof Error ? err.message : String(err));
+            setAiChatStatus('error', err instanceof Error ? err.message : String(err));
           } finally {
+            setAiChatPending(false);
             aiChatSendButton.toggleAttribute('disabled', false);
+            aiChatSendButton.textContent = previousSendLabel;
           }
         });
       }
@@ -2340,6 +2411,12 @@ export function init(config: InitConfig): EditorTsEditor {
       .editorts-si-actions {
         display: flex;
         gap: 0.35rem;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .editorts-si-note {
+        font-size: 0.68rem;
+        color: #6b7280;
       }
       .editorts-si-btn {
         appearance: none;
@@ -2505,7 +2582,7 @@ export function init(config: InitConfig): EditorTsEditor {
         </details>
 
         <div class="editorts-si-actions">
-          <button data-editorts-action="apply-style" class="editorts-si-btn editorts-si-btn-primary">Apply</button>
+          <span class="editorts-si-note">Style changes apply when you leave a field.</span>
           <button data-editorts-action="clear-style" type="button" class="editorts-si-btn">Clear</button>
         </div>
 
@@ -2560,50 +2637,84 @@ export function init(config: InitConfig): EditorTsEditor {
 
     styleProps.forEach(populateStyleField);
 
-    const applyStyleButton = selectedInfoContainer.querySelector('[data-editorts-action="apply-style"]') as HTMLButtonElement | null;
-    if (applyStyleButton) {
-      applyStyleButton.addEventListener('click', async () => {
-        const properties: Record<string, string> = {};
-        const readProp = (prop: string) => {
-          const input = selectedInfoContainer.querySelector(`[data-editorts-style="${prop}"]`) as HTMLInputElement | null;
-          const value = input?.value.trim();
-          if (value) properties[prop] = value;
-        };
+    const collectManagedStyleProperties = (): Record<string, string> => {
+      const properties: Record<string, string> = {};
 
-        styleProps.forEach(readProp);
-
-        if (Object.keys(properties).length === 0) return;
-
-        const updated = page.styles.updateStyle(selector, properties);
-        if (!updated) {
-          page.styles.addStyle({
-            selectors: [{ name: selector }],
-            style: { ...properties },
-          });
-        }
-
-        page.styles.sync();
-        const nextCss = page.getCSS() ?? '';
-
-        if (workspace) {
-          await workspace.fs.writeFile('styles.css', nextCss, { isModelContentChange: true });
-          await workspace.fs.writeFile('page.json', save(), { isModelContentChange: true });
-        }
-
-        const styleEl =
-          (iframe.contentDocument?.querySelector('head style[data-editorts="page-css"]') as HTMLStyleElement | null)
-          ?? (iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null);
-        if (styleEl) styleEl.textContent = nextCss;
-
-        await commitSnapshot({ source: 'user', message: 'edit style' });
-
-        styleProps.forEach(populateStyleField);
-
-        void ensureCssEditorReady();
-        void ensureJsonEditorReady();
-        refreshLayers();
+      styleProps.forEach((prop) => {
+        const input = selectedInfoContainer.querySelector(`[data-editorts-style="${prop}"]`) as HTMLInputElement | null;
+        const value = input?.value.trim();
+        if (value) properties[prop] = value;
       });
-    }
+
+      return properties;
+    };
+
+    const syncSelectedStyleFields = async () => {
+      const properties = collectManagedStyleProperties();
+      const currentProperties = page.styles.getStyleProperties(selector);
+      const managedCurrent = Object.fromEntries(
+        styleProps
+          .map((prop) => [prop, typeof currentProperties?.[prop] === 'string' ? String(currentProperties[prop]) : ''])
+          .filter((entry) => entry[1] !== ''),
+      );
+
+      if (JSON.stringify(managedCurrent) === JSON.stringify(properties)) {
+        return;
+      }
+
+      if (currentProperties) {
+        styleProps.forEach((prop) => {
+          delete currentProperties[prop];
+        });
+
+        Object.assign(currentProperties, properties);
+
+        if (Object.keys(currentProperties).length === 0) {
+          page.styles.removeBySelector(selector);
+        }
+      } else if (Object.keys(properties).length > 0) {
+        page.styles.addStyle({
+          selectors: [{ name: selector }],
+          style: { ...properties },
+        });
+      }
+
+      page.styles.sync();
+      const nextCss = page.getCSS() ?? '';
+
+      if (workspace) {
+        await workspace.fs.writeFile('styles.css', nextCss, { isModelContentChange: true });
+        await workspace.fs.writeFile('page.json', save(), { isModelContentChange: true });
+      }
+
+      const styleEl =
+        (iframe.contentDocument?.querySelector('head style[data-editorts="page-css"]') as HTMLStyleElement | null)
+        ?? (iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null);
+      if (styleEl) styleEl.textContent = nextCss;
+
+      await commitSnapshot({ source: 'user', message: 'edit style' });
+
+      styleProps.forEach(populateStyleField);
+
+      void ensureCssEditorReady();
+      void ensureJsonEditorReady();
+      refreshLayers();
+    };
+
+    styleProps.forEach((prop) => {
+      const input = selectedInfoContainer.querySelector(`[data-editorts-style="${prop}"]`) as HTMLInputElement | null;
+      if (!input) return;
+
+      input.addEventListener('blur', () => {
+        void syncSelectedStyleFields();
+      });
+
+      input.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        input.blur();
+      });
+    });
 
     const clearStyleButton = selectedInfoContainer.querySelector('[data-editorts-action="clear-style"]') as HTMLButtonElement | null;
     if (clearStyleButton) {

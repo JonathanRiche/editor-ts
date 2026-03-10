@@ -485,8 +485,14 @@ export interface InitConfig {
       /** Chat log container id. */
       logId?: string;
 
+      /** Optional status indicator container id. */
+      statusId?: string;
+
       /** Optional sessions dropdown id. */
       sessionSelectId?: string;
+
+      /** Optional session history list container id. */
+      sessionListId?: string;
 
       /** Optional model selector dropdown id. */
       modelSelectId?: string;

@@ -423,6 +423,19 @@ textarea {
   border-color: var(--accent);
 }
 
+.tabs[data-main-tab='chat'] #tab-chat {
+  background: var(--accent);
+  color: var(--bg-void);
+  border-color: var(--accent);
+}
+
+.tabs[data-main-tab='chat'] #tab-editor[aria-pressed='true'],
+.tabs[data-main-tab='chat'] #tab-code[aria-pressed='true'] {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border-color: var(--line-soft);
+}
+
 .tabs button[aria-pressed='true'] + button,
 .code-tabs button[aria-pressed='true'] + button {
   border-left: 1px solid var(--accent);
@@ -543,6 +556,176 @@ textarea {
   max-height: none;
 }
 
+.chat-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.chat-history,
+.chat-stage,
+.workspace-stage {
+  min-height: 0;
+}
+
+.chat-history {
+  padding: 0.75rem;
+}
+
+.chat-session-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.editorts-ai-session-item {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  padding: 0.65rem 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.editorts-ai-session-item:hover {
+  border-color: var(--line-mid);
+  color: var(--text-primary);
+}
+
+.editorts-ai-session-item-active {
+  border-color: rgba(212, 160, 48, 0.3);
+  background: var(--accent-dim);
+  color: var(--text-bright);
+}
+
+.chat-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.chat-toolbar-card {
+  padding: 0.75rem;
+}
+
+.chat-toolbar-actions,
+.chat-toolbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.chat-model-field {
+  min-width: 14rem;
+}
+
+.chat-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.2rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.chat-status::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--text-muted);
+  box-shadow: 0 0 0 0 rgba(212, 160, 48, 0);
+}
+
+.chat-status[data-state='loading'],
+.chat-status[data-state='streaming'] {
+  color: var(--text-bright);
+}
+
+.chat-status[data-state='loading']::before,
+.chat-status[data-state='streaming']::before {
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(212, 160, 48, 0.35);
+  animation: editorts-chat-pulse 1.2s infinite;
+}
+
+.chat-status[data-state='success']::before {
+  background: var(--status-live);
+}
+
+.chat-status[data-state='error']::before {
+  background: #ef4444;
+}
+
+.chat-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0.75rem;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+}
+
+.chat-log-main {
+  min-height: 0;
+  max-height: none;
+  height: 100%;
+}
+
+.chat-log[data-pending='true']::after {
+  content: '\Aassistant is thinking...';
+  display: block;
+  white-space: pre-wrap;
+  color: var(--text-muted);
+  animation: editorts-chat-placeholder 1.2s steps(3, end) infinite;
+}
+
+.chat-compose {
+  padding: 0.75rem;
+}
+
+@keyframes editorts-chat-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(212, 160, 48, 0.35);
+  }
+  70% {
+    box-shadow: 0 0 0 0.4rem rgba(212, 160, 48, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(212, 160, 48, 0);
+  }
+}
+
+@keyframes editorts-chat-placeholder {
+  0% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+
 /* ---------- pre / logs ---------- */
 
 .status-pre,
@@ -583,6 +766,14 @@ textarea {
   background: var(--bg-void);
 }
 
+.workspace-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
 .preview-frame {
   width: 100%;
   flex: 1 1 auto;
@@ -621,6 +812,11 @@ html[data-editorts-view="code"] .preview-frame {
   display: none;
 }
 
+.chat-workspace[hidden],
+.workspace-stage[hidden] {
+  display: none;
+}
+
 /* ---------- command palette overlay ---------- */
 
 #command-palette {
@@ -645,6 +841,10 @@ html[data-editorts-view="code"] .preview-frame {
   .content {
     min-height: 50vh;
     overflow: visible;
+  }
+
+  .chat-workspace {
+    grid-template-columns: 1fr;
   }
 }
 

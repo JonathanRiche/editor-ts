@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal, onCleanup, onMount } from 'solid-js';
 
 type AppShellProps = {
   fsSupported: boolean;
@@ -16,6 +16,25 @@ export default function AppShell(props: AppShellProps) {
   const isFolderMode = () => props.workspaceMode === 'folder';
   const isRemoteMode = () => props.workspaceMode === 'remote';
   const [activeSidebarTab, setActiveSidebarTab] = createSignal<'workspace' | 'ai' | 'structure'>('workspace');
+  const [activeMainTab, setActiveMainTab] = createSignal<'chat' | 'editor' | 'code'>('chat');
+  let observer: MutationObserver | undefined;
+
+  onMount(() => {
+    const root = document.documentElement;
+    const syncMainTab = () => {
+      const next = root.getAttribute('data-editorts-view');
+      if (next === 'editor' || next === 'code') {
+        setActiveMainTab(next);
+      }
+    };
+
+    observer = new MutationObserver(syncMainTab);
+    observer.observe(root, { attributes: true, attributeFilter: ['data-editorts-view'] });
+  });
+
+  onCleanup(() => {
+    observer?.disconnect();
+  });
 
   return (
     <div class="shell">
@@ -98,7 +117,7 @@ export default function AppShell(props: AppShellProps) {
             <div class="sidebar-panel" hidden={activeSidebarTab() !== 'ai'}>
               <section class="card ai-card">
                 <div class="card-heading">
-                  <strong>Local OpenCode</strong>
+                  <strong>AI connection</strong>
                   <a id="ai-chat-link" href="#" target="_blank" rel="noopener noreferrer">Open chats</a>
                 </div>
 
@@ -119,43 +138,10 @@ export default function AppShell(props: AppShellProps) {
 
                 <div class="ai-health-row">
                   <button id="ai-health-btn" type="button" class="secondary-btn">Check health</button>
-                  <button id="ai-session-new" type="button" class="secondary-btn">New session</button>
                 </div>
 
                 <pre id="ai-health-status" class="status-pre" />
-
-                <div
-                  id="ai-chat-root"
-                  data-editorts-ai-chat-root
-                  class="ai-chat-panel"
-                >
-                  <div class="card-heading compact">
-                    <strong>AI chat</strong>
-                    <button id="ai-chat-expand" type="button" class="secondary-btn icon-btn" aria-expanded="false">Expand</button>
-                  </div>
-
-                  <label class="field">
-                    <span>Session</span>
-                    <select id="ai-session-select" />
-                  </label>
-
-                  <label class="field">
-                    <span>Model</span>
-                    <select id="ai-model-select" />
-                  </label>
-
-                  <label class="field">
-                    <span>Prompt</span>
-                    <textarea id="ai-chat-input" placeholder="Ask OpenCode to refactor the hero, tweak CSS, or update project files..." />
-                  </label>
-
-                  <div class="ai-actions">
-                    <button id="ai-chat-send" type="button" class="primary-btn">Send & Apply</button>
-                    <button id="ai-chat-apply" type="button" class="secondary-btn" disabled>Apply last reply</button>
-                  </div>
-
-                  <pre id="ai-chat-log" class="chat-log" />
-                </div>
+                <p class="helper-copy">Use the main Chat tab for session history and the full conversation workspace.</p>
               </section>
             </div>
 
@@ -175,29 +161,80 @@ export default function AppShell(props: AppShellProps) {
       </aside>
 
       <main class="content">
-        <div class="tabs">
-          <button id="tab-editor" type="button">Editor</button>
-          <button id="tab-code" type="button">Code</button>
+        <div class="tabs" data-main-tab={activeMainTab()}>
+          <button id="tab-chat" type="button" aria-pressed={activeMainTab() === 'chat'} onClick={() => setActiveMainTab('chat')}>Chat</button>
+          <button id="tab-editor" type="button" onClick={() => setActiveMainTab('editor')}>Editor</button>
+          <button id="tab-code" type="button" onClick={() => setActiveMainTab('code')}>Code</button>
         </div>
 
-        <iframe id="preview-iframe" class="preview-frame" title="Editor preview" />
+        <section class="chat-workspace" hidden={activeMainTab() !== 'chat'}>
+          <aside class="chat-history card">
+            <div class="card-heading">
+              <strong>Session history</strong>
+              <button id="ai-session-new" type="button" class="secondary-btn">New</button>
+            </div>
+            <div id="ai-session-list" class="chat-session-list" />
+          </aside>
 
-        <div class="code-tabs">
-          <button id="code-tab-files" type="button">Files</button>
-          <button id="code-tab-viewer" type="button">View</button>
-          <button id="code-tab-js" type="button">JS</button>
-          <button id="code-tab-css" type="button">CSS</button>
-          <button id="code-tab-json" type="button">JSON</button>
-          <button id="code-tab-jsx" type="button">JSX</button>
-        </div>
+          <div class="chat-stage">
+            <div class="card chat-toolbar-card">
+              <div class="card-heading">
+                <strong>OpenCode chat</strong>
+                <div class="chat-toolbar-actions">
+                  <button id="ai-chat-apply" type="button" class="secondary-btn" disabled>Apply last reply</button>
+                </div>
+              </div>
 
-        <div class="code-panels">
-          <div id="files-viewer-container" />
-          <div id="viewer-editor-container" />
-          <div id="js-editor-container" />
-          <div id="css-editor-container" />
-          <div id="json-editor-container" />
-          <div id="jsx-editor-container" />
+              <div class="chat-toolbar-meta">
+                <label class="field chat-model-field">
+                  <span>Model</span>
+                  <select id="ai-model-select" />
+                </label>
+                <div id="ai-chat-status" class="chat-status" data-state="idle" aria-live="polite">Ready</div>
+              </div>
+            </div>
+
+            <div
+              id="ai-chat-root"
+              data-editorts-ai-chat-root
+              class="ai-chat-panel chat-panel"
+            >
+              <pre id="ai-chat-log" class="chat-log chat-log-main" />
+
+              <div class="chat-compose card">
+                <label class="field">
+                  <span>Prompt</span>
+                  <textarea id="ai-chat-input" placeholder="Ask OpenCode to refactor the hero, tune CSS, or update project files..." />
+                </label>
+
+                <div class="ai-actions">
+                  <button id="ai-chat-send" type="button" class="primary-btn">Send & Apply</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="workspace-stage" hidden={activeMainTab() === 'chat'}>
+          <iframe id="preview-iframe" class="preview-frame" title="Editor preview" />
+
+          <div class="code-tabs">
+            <button id="code-tab-files" type="button">Files</button>
+            <button id="code-tab-viewer" type="button">View</button>
+            <button id="code-tab-js" type="button">JS</button>
+            <button id="code-tab-css" type="button">CSS</button>
+            <button id="code-tab-json" type="button">JSON</button>
+            <button id="code-tab-jsx" type="button">JSX</button>
+          </div>
+
+          <div class="code-panels">
+            <div id="files-viewer-container" />
+            <div id="viewer-editor-container" />
+            <div id="js-editor-container" />
+            <div id="css-editor-container" />
+            <div id="json-editor-container" />
+            <div id="jsx-editor-container" />
+          </div>
         </div>
       </main>
 
