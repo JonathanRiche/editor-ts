@@ -95,8 +95,15 @@ const extractJsonFromText = (text: string): string | null => {
 };
 
 const decodeBase64ToString = (b64: string): string => {
+  const normalized = b64
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+
   // Browser-safe base64 decode
-  const binary = atob(b64);
+  const binary = atob(padded);
   const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
   return new TextDecoder('utf-8').decode(bytes);
 };
@@ -116,7 +123,11 @@ export const parseAiChatResponse = (assistantText: string, sessionId: string): E
     if (!path) continue;
 
     if (typeof item?.content_b64 === 'string') {
-      replacements.push({ path, content: decodeBase64ToString(item.content_b64) });
+      try {
+        replacements.push({ path, content: decodeBase64ToString(item.content_b64) });
+      } catch {
+        replacements.push({ path, content: item.content_b64 });
+      }
       continue;
     }
 
@@ -304,7 +315,9 @@ export const requestAiReplacements = async (args: {
   const model = selectedModel ?? await chooseChatModel(client);
 
   if (stream && typeof onStream === 'function') {
-    // Fire-and-forget the prompt (async), then listen to SSE for message part deltas.
+    // Subscribe before sending so we do not miss early assistant deltas.
+    const events = await client.event.subscribe();
+
     const sendResult = await client.session.promptAsync({
       path: { id: sessionId },
       body: {
@@ -320,10 +333,9 @@ export const requestAiReplacements = async (args: {
       throw new Error(`Prompt failed: ${String(sendResult.error)}`);
     }
 
-    const events = await client.event.subscribe();
-
     let assembled = '';
     let targetSessionId: string | null = null;
+    let targetMessageId: string | null = null;
     let doneMessageId: string | null = null;
 
     const isMessage = (value: unknown): value is Message => {
@@ -350,14 +362,19 @@ export const requestAiReplacements = async (args: {
       // Bound the streaming loop so we don't hang forever if the connection dies.
       const timeoutMs = 90_000;
       const timeoutAt = Date.now() + timeoutMs;
+      let timedOut = false;
 
       for await (const payload of events.stream) {
         if (Date.now() > timeoutAt) {
-          throw new Error('Streaming timed out waiting for assistant response.');
+          timedOut = true;
+          break;
         }
 
         const globalEvent = payload as unknown;
-        const eventPayload = (globalEvent as { payload?: unknown }).payload;
+        const wrappedPayload = (globalEvent as { payload?: unknown }).payload;
+        const eventPayload = wrappedPayload && typeof wrappedPayload === 'object'
+          ? wrappedPayload
+          : globalEvent;
         if (!eventPayload || typeof eventPayload !== 'object') continue;
 
         if (isEventMessageUpdated(eventPayload)) {
@@ -369,6 +386,7 @@ export const requestAiReplacements = async (args: {
           // Track the first assistant message for this session that has a completion.
           if (msg.role === 'assistant' && typeof msg.sessionID === 'string' && msg.sessionID === sessionId) {
             targetSessionId = msg.sessionID;
+            targetMessageId = msg.id;
 
             // We only know we're done once the assistant message has completed.
             const completed = (msg as { time?: { completed?: number } }).time?.completed;
@@ -388,12 +406,13 @@ export const requestAiReplacements = async (args: {
 
           const rawSessionId = (part as { sessionID?: unknown }).sessionID;
           const partSessionId = typeof rawSessionId === 'string' ? rawSessionId : null;
+          const rawMessageId = (part as { messageID?: unknown }).messageID;
+          const partMessageId = typeof rawMessageId === 'string' ? rawMessageId : null;
 
-          if (!targetSessionId) {
-            targetSessionId = partSessionId ?? sessionId;
-          }
-
+          // Ignore deltas until we've identified the assistant message for this session.
+          if (!targetMessageId) continue;
           if (targetSessionId && partSessionId && partSessionId !== targetSessionId) continue;
+          if (partMessageId !== targetMessageId) continue;
 
           const delta = typeof properties.delta === 'string' ? properties.delta : null;
           if (delta && delta.length > 0) {
@@ -414,8 +433,9 @@ export const requestAiReplacements = async (args: {
       }
 
       // If we didn't gather anything via deltas, fetch full message parts as fallback.
-      if (!assembled.trim() && doneMessageId) {
-        const message = await client.session.message({ path: { id: sessionId, messageID: doneMessageId } });
+      const fallbackMessageId = doneMessageId ?? targetMessageId;
+      if (!assembled.trim() && fallbackMessageId) {
+        const message = await client.session.message({ path: { id: sessionId, messageID: fallbackMessageId } });
         if (!message.data) {
           throw new Error(`Failed to fetch message: ${String(message.error)}`);
         }
@@ -424,6 +444,10 @@ export const requestAiReplacements = async (args: {
           .filter((p) => p.type === 'text')
           .map((p) => (p.type === 'text' ? p.text ?? '' : ''))
           .join('');
+      }
+
+      if (!assembled.trim() && timedOut) {
+        throw new Error('Streaming timed out waiting for assistant response.');
       }
 
       return assembled;
