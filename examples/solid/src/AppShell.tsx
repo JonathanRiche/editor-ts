@@ -1,3 +1,5 @@
+import { createSignal } from 'solid-js';
+
 type AppShellProps = {
   fsSupported: boolean;
   workspaceMode: 'demo' | 'remote' | 'folder';
@@ -13,6 +15,7 @@ type AppShellProps = {
 export default function AppShell(props: AppShellProps) {
   const isFolderMode = () => props.workspaceMode === 'folder';
   const isRemoteMode = () => props.workspaceMode === 'remote';
+  const [activeSidebarTab, setActiveSidebarTab] = createSignal<'workspace' | 'ai' | 'structure'>('workspace');
 
   return (
     <div class="shell">
@@ -62,92 +65,106 @@ export default function AppShell(props: AppShellProps) {
           </p>
         </section>
 
-        <section class="card ai-card">
-          <div class="card-heading">
-            <strong>Local OpenCode</strong>
-            <a id="ai-chat-link" href="#" target="_blank" rel="noopener noreferrer">Open chats</a>
+        <nav class="sidebar-nav" aria-label="Sidebar sections">
+          <button type="button" class="sidebar-tab" aria-pressed={activeSidebarTab() === 'workspace'} onClick={() => setActiveSidebarTab('workspace')}>Workspace</button>
+          <button type="button" class="sidebar-tab" aria-pressed={activeSidebarTab() === 'ai'} onClick={() => setActiveSidebarTab('ai')}>AI</button>
+          <button type="button" class="sidebar-tab" aria-pressed={activeSidebarTab() === 'structure'} onClick={() => setActiveSidebarTab('structure')}>Structure</button>
+        </nav>
+
+        <div class="sidebar-panels">
+          <div class="sidebar-panel" hidden={activeSidebarTab() !== 'workspace'}>
+            <section class="card">
+              <strong>Pages</strong>
+              <div id="pages-container" />
+            </section>
+
+            <section class="card">
+              <strong>Selected</strong>
+              <div id="selected-info" />
+            </section>
+
+            <section class="card">
+              <strong>Stats</strong>
+              <div id="stats-container" />
+            </section>
           </div>
 
-          <label class="field">
-            <span>OpenCode base URL</span>
-            <input
-              id="ai-base-url"
-              type="text"
-              value={props.aiBaseUrl}
-              onInput={(event) => props.onAiBaseUrlChange(event.currentTarget.value)}
-              placeholder="http://127.0.0.1:4096"
-            />
-          </label>
+          <div class="sidebar-panel" hidden={activeSidebarTab() !== 'ai'}>
+            <section class="card ai-card">
+              <div class="card-heading">
+                <strong>Local OpenCode</strong>
+                <a id="ai-chat-link" href="#" target="_blank" rel="noopener noreferrer">Open chats</a>
+              </div>
 
-          <p class="helper-copy">
-            Run `opencode serve --port 4096 --cors https://your-app.example.com` on the same machine as your browser.
-          </p>
+              <label class="field">
+                <span>OpenCode base URL</span>
+                <input
+                  id="ai-base-url"
+                  type="text"
+                  value={props.aiBaseUrl}
+                  onInput={(event) => props.onAiBaseUrlChange(event.currentTarget.value)}
+                  placeholder="http://127.0.0.1:4096"
+                />
+              </label>
 
-          <div class="ai-health-row">
-            <button id="ai-health-btn" type="button" class="secondary-btn">Check health</button>
-            <button id="ai-session-new" type="button" class="secondary-btn">New session</button>
+              <p class="helper-copy">
+                Run `opencode serve --port 4096 --cors https://your-app.example.com` on the same machine as your browser.
+              </p>
+
+              <div class="ai-health-row">
+                <button id="ai-health-btn" type="button" class="secondary-btn">Check health</button>
+                <button id="ai-session-new" type="button" class="secondary-btn">New session</button>
+              </div>
+
+              <pre id="ai-health-status" class="status-pre" />
+
+              <div
+                id="ai-chat-root"
+                data-editorts-ai-chat-root
+                class="ai-chat-panel"
+              >
+                <div class="card-heading compact">
+                  <strong>AI chat</strong>
+                  <button id="ai-chat-expand" type="button" class="secondary-btn icon-btn" aria-expanded="false">Expand</button>
+                </div>
+
+                <label class="field">
+                  <span>Session</span>
+                  <select id="ai-session-select" />
+                </label>
+
+                <label class="field">
+                  <span>Model</span>
+                  <select id="ai-model-select" />
+                </label>
+
+                <label class="field">
+                  <span>Prompt</span>
+                  <textarea id="ai-chat-input" placeholder="Ask OpenCode to refactor the hero, tweak CSS, or update project files..." />
+                </label>
+
+                <div class="ai-actions">
+                  <button id="ai-chat-send" type="button" class="primary-btn">Send & Apply</button>
+                  <button id="ai-chat-apply" type="button" class="secondary-btn" disabled>Apply last reply</button>
+                </div>
+
+                <pre id="ai-chat-log" class="chat-log" />
+              </div>
+            </section>
           </div>
 
-          <pre id="ai-health-status" class="status-pre" />
+          <div class="sidebar-panel" hidden={activeSidebarTab() !== 'structure'}>
+            <section class="card">
+              <strong>Layers</strong>
+              <div id="layers-container" />
+            </section>
 
-          <div
-            id="ai-chat-root"
-            data-editorts-ai-chat-root
-            class="ai-chat-panel"
-          >
-            <div class="card-heading compact">
-              <strong>AI chat</strong>
-              <button id="ai-chat-expand" type="button" class="secondary-btn icon-btn" aria-expanded="false">Expand</button>
-            </div>
-
-            <label class="field">
-              <span>Session</span>
-              <select id="ai-session-select" />
-            </label>
-
-            <label class="field">
-              <span>Model</span>
-              <select id="ai-model-select" />
-            </label>
-
-            <label class="field">
-              <span>Prompt</span>
-              <textarea id="ai-chat-input" placeholder="Ask OpenCode to refactor the hero, tweak CSS, or update project files..." />
-            </label>
-
-            <div class="ai-actions">
-              <button id="ai-chat-send" type="button" class="primary-btn">Send & Apply</button>
-              <button id="ai-chat-apply" type="button" class="secondary-btn" disabled>Apply last reply</button>
-            </div>
-
-            <pre id="ai-chat-log" class="chat-log" />
+            <section class="card">
+              <strong>Components</strong>
+              <div id="component-palette" />
+            </section>
           </div>
-        </section>
-
-        <section class="card">
-          <strong>Stats</strong>
-          <div id="stats-container" />
-        </section>
-
-        <section class="card">
-          <strong>Layers</strong>
-          <div id="layers-container" />
-        </section>
-
-        <section class="card">
-          <strong>Selected</strong>
-          <div id="selected-info" />
-        </section>
-
-        <section class="card">
-          <strong>Pages</strong>
-          <div id="pages-container" />
-        </section>
-
-        <section class="card">
-          <strong>Components</strong>
-          <div id="component-palette" />
-        </section>
+        </div>
       </aside>
 
       <main class="content">
