@@ -804,11 +804,6 @@ export function init(config: InitConfig): EditorTsEditor {
     const refreshAiSessionSelect = async () => {
       if ((!aiSessionSelect && !aiSessionList) || !ai) return;
 
-      if (currentSessionId === null) {
-        const index = await loadSessionIndex();
-        currentSessionId = index.current;
-      }
-
       const sessions = await ai.sessions.list();
       const current = ai.sessions.current();
 
@@ -1031,11 +1026,6 @@ export function init(config: InitConfig): EditorTsEditor {
         const client = await ai!.getClient();
 
         const workspaceSnapshot = await buildAiWorkspaceFiles();
-
-        if (currentSessionId === null) {
-          const index = await loadSessionIndex();
-          currentSessionId = index.current;
-        }
 
         const sessionId = options?.sessionId ?? currentSessionId;
 

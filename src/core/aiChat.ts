@@ -1,4 +1,4 @@
-import type { OpencodeClient, Part, Event, Message, TextPart } from '@opencode-ai/sdk';
+import type { OpencodeClient, Part, Message } from '@opencode-ai/sdk';
 import type { Page } from './Page';
 import type { EditorTsAiChatReplacement, EditorTsAiChatResult } from '../types';
 
@@ -118,21 +118,39 @@ export const parseAiChatResponse = (assistantText: string, sessionId: string): E
   const rawReplacements = Array.isArray(parsed.replacements) ? parsed.replacements : [];
 
   const replacements: EditorTsAiChatReplacement[] = [];
+  const isValidReplacementContent = (path: string, content: string): boolean => {
+    if (path === 'page.json') {
+      try {
+        JSON.parse(content);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
   for (const item of rawReplacements) {
     const path = typeof item?.path === 'string' ? item.path : null;
     if (!path) continue;
 
     if (typeof item?.content_b64 === 'string') {
       try {
-        replacements.push({ path, content: decodeBase64ToString(item.content_b64) });
+        const content = decodeBase64ToString(item.content_b64);
+        if (isValidReplacementContent(path, content)) {
+          replacements.push({ path, content });
+        }
       } catch {
-        replacements.push({ path, content: item.content_b64 });
+        // Ignore malformed base64 payloads.
       }
       continue;
     }
 
     if (typeof item?.content === 'string') {
-      replacements.push({ path, content: item.content });
+      if (isValidReplacementContent(path, item.content)) {
+        replacements.push({ path, content: item.content });
+      }
       continue;
     }
   }
@@ -315,12 +333,10 @@ export const requestAiReplacements = async (args: {
   const model = selectedModel ?? await chooseChatModel(client);
 
   if (stream && typeof onStream === 'function') {
-    // Subscribe before sending so we do not miss early assistant deltas.
-    const events = await client.event.subscribe();
-
     const sendResult = await client.session.promptAsync({
       path: { id: sessionId },
       body: {
+        agent: 'build',
         ...(model ? { model } : {}),
         tools: { '*': false },
         parts: [
@@ -334,123 +350,72 @@ export const requestAiReplacements = async (args: {
     }
 
     let assembled = '';
-    let targetSessionId: string | null = null;
-    let targetMessageId: string | null = null;
-    let doneMessageId: string | null = null;
 
-    const isMessage = (value: unknown): value is Message => {
-      if (!value || typeof value !== 'object') return false;
-      return typeof (value as { id?: unknown }).id === 'string' && typeof (value as { role?: unknown }).role === 'string';
-    };
+    const sleep = async (ms: number) => new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
 
-    const isTextPart = (value: unknown): value is TextPart => {
-      if (!value || typeof value !== 'object') return false;
-      return (value as { type?: unknown }).type === 'text' && typeof (value as { text?: unknown }).text === 'string';
-    };
+    const readLatestAssistantMessage = async (): Promise<{
+      id: string;
+      text: string;
+      completed: boolean;
+    } | null> => {
+      const messages = await client.session.messages({ path: { id: sessionId }, query: { limit: 20 } });
+      const entries = Array.isArray(messages.data)
+        ? (messages.data as Array<{ info: Message; parts: Part[] }>)
+        : [];
 
-    const isEventMessageUpdated = (value: unknown): value is Extract<Event, { type: 'message.updated' }> => {
-      if (!value || typeof value !== 'object') return false;
-      return (value as { type?: unknown }).type === 'message.updated';
-    };
+      const assistants = entries
+        .filter((entry) => entry.info.role === 'assistant' && entry.info.sessionID === sessionId)
+        .sort((a, b) => {
+          const left = typeof a.info.time?.created === 'number' ? a.info.time.created : 0;
+          const right = typeof b.info.time?.created === 'number' ? b.info.time.created : 0;
+          return right - left;
+        });
 
-    const isEventMessagePartUpdated = (value: unknown): value is Extract<Event, { type: 'message.part.updated' }> => {
-      if (!value || typeof value !== 'object') return false;
-      return (value as { type?: unknown }).type === 'message.part.updated';
+      const latest = assistants[0];
+      if (!latest) return null;
+
+      const text = latest.parts
+        .filter((part) => part.type === 'text')
+        .map((part) => (part.type === 'text' ? part.text ?? '' : ''))
+        .join('');
+
+      return {
+        id: latest.info.id,
+        text,
+        completed: typeof (latest.info.time as { completed?: unknown } | undefined)?.completed === 'number',
+      };
     };
 
     const waitForResult = async (): Promise<string> => {
-      // Bound the streaming loop so we don't hang forever if the connection dies.
       const timeoutMs = 90_000;
       const timeoutAt = Date.now() + timeoutMs;
-      let timedOut = false;
 
-      for await (const payload of events.stream) {
-        if (Date.now() > timeoutAt) {
-          timedOut = true;
-          break;
-        }
-
-        const globalEvent = payload as unknown;
-        const wrappedPayload = (globalEvent as { payload?: unknown }).payload;
-        const eventPayload = wrappedPayload && typeof wrappedPayload === 'object'
-          ? wrappedPayload
-          : globalEvent;
-        if (!eventPayload || typeof eventPayload !== 'object') continue;
-
-        if (isEventMessageUpdated(eventPayload)) {
-          const info = (eventPayload as { properties?: unknown }).properties as { info?: unknown } | undefined;
-          if (!info || !isMessage(info.info)) continue;
-
-          const msg = info.info;
-
-          // Track the first assistant message for this session that has a completion.
-          if (msg.role === 'assistant' && typeof msg.sessionID === 'string' && msg.sessionID === sessionId) {
-            targetSessionId = msg.sessionID;
-            targetMessageId = msg.id;
-
-            // We only know we're done once the assistant message has completed.
-            const completed = (msg as { time?: { completed?: number } }).time?.completed;
-            if (typeof completed === 'number') {
-              doneMessageId = msg.id;
-              break;
-            }
-          }
-        }
-
-        if (isEventMessagePartUpdated(eventPayload)) {
-          const properties = (eventPayload as { properties?: unknown }).properties as { part?: unknown; delta?: unknown } | undefined;
-          if (!properties) continue;
-
-          const part = properties.part;
-          if (!isTextPart(part)) continue;
-
-          const rawSessionId = (part as { sessionID?: unknown }).sessionID;
-          const partSessionId = typeof rawSessionId === 'string' ? rawSessionId : null;
-          const rawMessageId = (part as { messageID?: unknown }).messageID;
-          const partMessageId = typeof rawMessageId === 'string' ? rawMessageId : null;
-
-          // Ignore deltas until we've identified the assistant message for this session.
-          if (!targetMessageId) continue;
-          if (targetSessionId && partSessionId && partSessionId !== targetSessionId) continue;
-          if (partMessageId !== targetMessageId) continue;
-
-          const delta = typeof properties.delta === 'string' ? properties.delta : null;
-          if (delta && delta.length > 0) {
-            assembled += delta;
-            onStream(delta);
-            continue;
-          }
-
-          // Some servers may send the full text instead of delta.
-          if (typeof part.text === 'string' && part.text.length > assembled.length) {
-            const next = part.text.slice(assembled.length);
-            assembled = part.text;
+      while (Date.now() <= timeoutAt) {
+        const latest = await readLatestAssistantMessage();
+        if (latest) {
+          if (latest.text.length > assembled.length) {
+            const next = latest.text.slice(assembled.length);
+            assembled = latest.text;
             if (next.length > 0) {
               onStream(next);
             }
           }
+
+          if (latest.completed && assembled.trim()) {
+            return assembled;
+          }
         }
+
+        await sleep(1000);
       }
 
-      // If we didn't gather anything via deltas, fetch full message parts as fallback.
-      const fallbackMessageId = doneMessageId ?? targetMessageId;
-      if (!assembled.trim() && fallbackMessageId) {
-        const message = await client.session.message({ path: { id: sessionId, messageID: fallbackMessageId } });
-        if (!message.data) {
-          throw new Error(`Failed to fetch message: ${String(message.error)}`);
-        }
-        const parts = Array.isArray(message.data.parts) ? (message.data.parts as Part[]) : [];
-        assembled = parts
-          .filter((p) => p.type === 'text')
-          .map((p) => (p.type === 'text' ? p.text ?? '' : ''))
-          .join('');
+      if (assembled.trim()) {
+        return assembled;
       }
 
-      if (!assembled.trim() && timedOut) {
-        throw new Error('Streaming timed out waiting for assistant response.');
-      }
-
-      return assembled;
+      throw new Error('Streaming timed out waiting for assistant response.');
     };
 
     const assistantText = await waitForResult();
@@ -465,6 +430,7 @@ export const requestAiReplacements = async (args: {
   const result = await client.session.prompt({
     path: { id: sessionId },
     body: {
+      agent: 'build',
       ...(model ? { model } : {}),
       tools: { '*': false },
       parts: [
