@@ -372,6 +372,8 @@ For hosted apps that connect to a user-local OpenCode server, run the server wit
 opencode serve --port 4096 --cors https://your-app.example.com
 ```
 
+EditorTs uses the OpenCode SDK's fetch + event-stream subscription model for streaming chat output. It does not open a direct WebSocket for AI chat.
+
 For the full hosted + local-files workflow, recommend Chromium browsers because folder access depends on the File System Access API.
 
 ## Events

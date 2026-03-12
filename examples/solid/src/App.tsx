@@ -395,6 +395,7 @@ export default function App() {
           sessionListId: 'ai-session-list',
           modelSelectId: 'ai-model-select',
           sessionNewButtonId: 'ai-session-new',
+          sessionResetButtonId: 'ai-session-reset',
           healthButtonId: 'ai-health-btn',
           healthStatusId: 'ai-health-status',
           baseUrlInputId: 'ai-base-url',

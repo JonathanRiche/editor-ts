@@ -44,6 +44,34 @@ describe('aiChat helpers', () => {
     expect(parsed.replacements[1]?.path).toBe('styles.css');
   });
 
+  it('skips malformed base64 replacements but keeps valid ones', () => {
+    const content = {
+      replacements: [
+        { path: 'page.json', content_b64: '==' },
+        { path: 'styles.css', content: 'body { color: red; }' },
+      ],
+    };
+
+    const parsed = parseAiChatResponse(JSON.stringify(content), 'session-2');
+
+    expect(parsed.replacements).toEqual([{ path: 'styles.css', content: 'body { color: red; }' }]);
+    expect(parsed.warnings).toContain('Skipped malformed base64 replacement for page.json.');
+  });
+
+  it('skips invalid page json replacements while keeping valid css', () => {
+    const content = {
+      replacements: [
+        { path: 'page.json', content: '==' },
+        { path: 'styles.css', content: 'body { color: blue; }' },
+      ],
+    };
+
+    const parsed = parseAiChatResponse(JSON.stringify(content), 'session-3');
+
+    expect(parsed.replacements).toEqual([{ path: 'styles.css', content: 'body { color: blue; }' }]);
+    expect(parsed.warnings).toContain('Skipped invalid JSON replacement for page.json.');
+  });
+
   it('builds system prompt and snapshot', () => {
     const prompt = buildAiChatSystemPrompt();
     const snapshot = buildAiChatSnapshot('{"title":"AI"}', 'body { }', { 'components/hero.js': 'console.log(1);' });

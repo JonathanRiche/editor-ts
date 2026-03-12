@@ -70,6 +70,11 @@ Then in the app:
 - send a prompt in the AI panel
 - confirm the reply applies changes to the current workspace
 
+Notes:
+
+- EditorTs currently uses fetch + server-sent event style streaming through the OpenCode SDK, not a WebSocket chat transport.
+- If local testing gets into a weird state, use the `Reset` button in the chat history rail or restart the Vite dev server.
+
 ## Cloudflare deployment
 
 Build:

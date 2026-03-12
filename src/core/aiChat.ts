@@ -118,12 +118,14 @@ export const parseAiChatResponse = (assistantText: string, sessionId: string): E
   const rawReplacements = Array.isArray(parsed.replacements) ? parsed.replacements : [];
 
   const replacements: EditorTsAiChatReplacement[] = [];
+  const warnings: string[] = [];
   const isValidReplacementContent = (path: string, content: string): boolean => {
     if (path === 'page.json') {
       try {
         JSON.parse(content);
         return true;
       } catch {
+        warnings.push(`Skipped invalid JSON replacement for ${path}.`);
         return false;
       }
     }
@@ -142,7 +144,7 @@ export const parseAiChatResponse = (assistantText: string, sessionId: string): E
           replacements.push({ path, content });
         }
       } catch {
-        // Ignore malformed base64 payloads.
+        warnings.push(`Skipped malformed base64 replacement for ${path}.`);
       }
       continue;
     }
@@ -155,7 +157,7 @@ export const parseAiChatResponse = (assistantText: string, sessionId: string): E
     }
   }
 
-  return { replacements, rawText, sessionId };
+  return { replacements, rawText, sessionId, warnings };
 };
 
 export const buildAiChatSystemPrompt = (): string => {

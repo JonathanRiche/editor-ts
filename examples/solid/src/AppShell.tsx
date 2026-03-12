@@ -171,7 +171,10 @@ export default function AppShell(props: AppShellProps) {
           <aside class="chat-history card">
             <div class="card-heading">
               <strong>Session history</strong>
-              <button id="ai-session-new" type="button" class="secondary-btn">New</button>
+              <div class="chat-history-actions">
+                <button id="ai-session-new" type="button" class="secondary-btn">New</button>
+                <button id="ai-session-reset" type="button" class="secondary-btn">Reset</button>
+              </div>
             </div>
             <div id="ai-session-list" class="chat-session-list" />
           </aside>

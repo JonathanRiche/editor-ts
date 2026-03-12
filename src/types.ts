@@ -176,6 +176,7 @@ export type EditorTsAiChatSession = {
 export type EditorTsAiChatResult = {
   replacements: EditorTsAiChatReplacement[];
   rawText: string;
+  warnings?: string[];
 
   /** Session that produced this response (for reuse/persistence). */
   sessionId: string;
@@ -219,6 +220,7 @@ export interface EditorTsAiModule {
     setCurrent(sessionId: string | null): Promise<void>;
     list(): Promise<EditorTsAiChatSession[]>;
     create(title?: string): Promise<EditorTsAiChatSession>;
+    reset(): Promise<void>;
   };
 
   /** Optional model selector data. */
@@ -499,6 +501,9 @@ export interface InitConfig {
 
       /** Optional create-session button id. */
       sessionNewButtonId?: string;
+
+      /** Optional reset-session/chat-state button id. */
+      sessionResetButtonId?: string;
 
       /** Optional health-check button id. */
       healthButtonId?: string;

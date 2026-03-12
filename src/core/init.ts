@@ -258,6 +258,9 @@ export function init(config: InitConfig): EditorTsEditor {
   const aiSessionNewButton = shouldEnableAiChatUi && aiChatConfig?.sessionNewButtonId
     ? (document.getElementById(aiChatConfig.sessionNewButtonId) as HTMLButtonElement | null)
     : null;
+  const aiSessionResetButton = shouldEnableAiChatUi && aiChatConfig?.sessionResetButtonId
+    ? (document.getElementById(aiChatConfig.sessionResetButtonId) as HTMLButtonElement | null)
+    : null;
 
 
   const aiHealthButton = shouldEnableAiChatUi && aiChatConfig?.healthButtonId
@@ -980,6 +983,10 @@ export function init(config: InitConfig): EditorTsEditor {
 
           return created;
         },
+        reset: async () => {
+          currentSessionId = null;
+          await saveSessionIndex({ current: null, sessions: [] });
+        },
       },
       models: {
         list: async () => {
@@ -1172,6 +1179,25 @@ export function init(config: InitConfig): EditorTsEditor {
           const created = await ai.sessions.create('EditorTs Chat');
           await ai.sessions.setCurrent(created.id);
           await refreshAiSessionSelect();
+          if (aiChatLog) aiChatLog.textContent = '';
+          if (aiChatInput) aiChatInput.value = '';
+          lastAiReplacements = null;
+          aiChatApplyButton?.toggleAttribute('disabled', true);
+          setAiChatStatus('success', 'Started a fresh chat session');
+        });
+      }
+
+      if (aiSessionResetButton) {
+        aiSessionResetButton.addEventListener('click', async () => {
+          if (!ai) return;
+          await ai.sessions.reset();
+          await refreshAiSessionSelect();
+          if (aiChatLog) aiChatLog.textContent = '';
+          if (aiChatInput) aiChatInput.value = '';
+          if (aiHealthStatus) aiHealthStatus.textContent = '';
+          lastAiReplacements = null;
+          aiChatApplyButton?.toggleAttribute('disabled', true);
+          setAiChatStatus('idle', 'Chat state reset');
         });
       }
 
@@ -1254,6 +1280,12 @@ export function init(config: InitConfig): EditorTsEditor {
             }
 
             await refreshAiSessionSelect();
+
+            if (result.warnings && result.warnings.length > 0) {
+              result.warnings.forEach((warning) => {
+                appendAiChatLog('warning', warning);
+              });
+            }
 
             if (result.replacements.length === 0) {
               lastAiReplacements = null;
