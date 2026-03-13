@@ -57,6 +57,13 @@
     color: inherit;
   }
 
+  button,
+  select,
+  [role="button"],
+  a[href] {
+    cursor: pointer;
+  }
+
   body::before {
     content: '';
     position: fixed;
