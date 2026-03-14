@@ -15,6 +15,32 @@ import {
 } from '../../../index';
 import AppShell from './AppShell';
 
+type SupportedDiffLanguage =
+  | 'css'
+  | 'json'
+  | 'html'
+  | 'jsx'
+  | 'tsx'
+  | 'typescript'
+  | 'javascript'
+  | 'text'
+  | undefined;
+
+type DiffsModule = {
+  FileDiff: new (options?: {
+    diffStyle?: 'unified' | 'split';
+    overflow?: 'scroll' | 'wrap';
+    themeType?: 'system' | 'light' | 'dark';
+  }) => {
+    render(args: {
+      oldFile?: { name: string; contents: string; lang?: SupportedDiffLanguage };
+      newFile?: { name: string; contents: string; lang?: SupportedDiffLanguage };
+      containerWrapper?: HTMLElement;
+    }): void;
+    cleanUp(): void;
+  };
+};
+
 type FsFileHandle = {
   kind: 'file';
   getFile: () => Promise<File>;
@@ -39,6 +65,8 @@ const DEMO_STORAGE_KEY = 'solid-hosted-review';
 const REMOTE_WORKSPACE_URL = '/api/project';
 const AI_BASE_URL_STORAGE_KEY = 'editorts:solid:ai-base-url';
 const DEFAULT_AI_BASE_URL = 'http://127.0.0.1:4096';
+const AI_DIFF_VIEWER_ID = 'ai-diff-viewer';
+const AI_DIFF_SUMMARY_ID = 'ai-diff-summary';
 
 const landingPage: PageData = {
   title: 'Hosted review shell',
@@ -262,9 +290,25 @@ const loadStoredAiBaseUrl = (): string => {
   return stored && stored.length > 0 ? stored : DEFAULT_AI_BASE_URL;
 };
 
+const inferDiffLanguage = (path: string): SupportedDiffLanguage => {
+  const normalized = normalizePath(path).toLowerCase();
+
+  if (normalized.endsWith('.css')) return 'css';
+  if (normalized.endsWith('.json')) return 'json';
+  if (normalized.endsWith('.html')) return 'html';
+  if (normalized.endsWith('.jsx')) return 'jsx';
+  if (normalized.endsWith('.tsx')) return 'tsx';
+  if (normalized.endsWith('.ts')) return 'typescript';
+  if (normalized.endsWith('.js') || normalized.endsWith('.mjs') || normalized.endsWith('.cjs')) return 'javascript';
+
+  return 'text';
+};
+
 export default function App() {
   let editor: ReturnType<typeof init> | null = null;
   let sqlocalClient: SQLocal | null = null;
+  let diffInstances: Array<{ cleanUp(): void }> = [];
+  let diffsModulePromise: Promise<DiffsModule> | null = null;
 
   const [fsSupported, setFsSupported] = createSignal(false);
   const [workspaceMode, setWorkspaceMode] = createSignal<'demo' | 'remote' | 'folder'>('demo');
@@ -399,7 +443,7 @@ export default function App() {
           healthButtonId: 'ai-health-btn',
           healthStatusId: 'ai-health-status',
           baseUrlInputId: 'ai-base-url',
-          autoApply: true,
+          autoApply: false,
           stream: { enabled: true },
           link: {
             anchorId: 'ai-chat-link',
@@ -424,6 +468,142 @@ export default function App() {
     };
   };
 
+  const getDiffsModule = async (): Promise<DiffsModule> => {
+    diffsModulePromise ??= import('../node_modules/@pierre/diffs/dist/components/FileDiff.js') as Promise<DiffsModule>;
+    return diffsModulePromise;
+  };
+
+  const setAiDiffSummary = (text: string): void => {
+    const summary = document.getElementById(AI_DIFF_SUMMARY_ID);
+    if (summary) {
+      summary.textContent = text;
+    }
+  };
+
+  const clearRenderedDiffs = (): void => {
+    diffInstances.forEach((instance) => {
+      instance.cleanUp();
+    });
+    diffInstances = [];
+  };
+
+  const setAiDiffEmptyState = (message: string, summary = 'Awaiting AI changes'): void => {
+    const viewer = document.getElementById(AI_DIFF_VIEWER_ID);
+    if (!viewer) return;
+
+    clearRenderedDiffs();
+    viewer.innerHTML = '';
+
+    const empty = document.createElement('div');
+    empty.dataset.aiDiffEmpty = 'true';
+    empty.className = 'flex min-h-[200px] items-center justify-center rounded-sm border border-dashed border-line-soft bg-bg-input/40 px-4 text-center font-mono text-[11px] leading-relaxed text-text-muted';
+    empty.textContent = message;
+    viewer.appendChild(empty);
+    setAiDiffSummary(summary);
+  };
+
+  const renderAiDiffPreview = async (
+    instance: ReturnType<typeof init>,
+    replacements: Array<{ path: string; content: string }>,
+  ): Promise<void> => {
+    const viewer = document.getElementById(AI_DIFF_VIEWER_ID);
+    if (!viewer) return;
+
+    clearRenderedDiffs();
+    viewer.innerHTML = '';
+
+    if (replacements.length === 0) {
+      setAiDiffEmptyState('The last reply did not include editable file replacements.', 'No pending changes');
+      return;
+    }
+
+    const { FileDiff } = await getDiffsModule();
+
+    const resolved = await Promise.all(
+      replacements.map(async (replacement) => ({
+        path: replacement.path,
+        before: (await instance.content.adapter.readFile(replacement.path)) ?? '',
+        after: replacement.content,
+        lang: inferDiffLanguage(replacement.path),
+      })),
+    );
+
+    for (const file of resolved) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'ai-diff-file';
+      viewer.appendChild(wrapper);
+
+      const diff = new FileDiff({
+        diffStyle: 'unified',
+        overflow: 'wrap',
+        themeType: 'dark',
+      });
+
+      diff.render({
+        oldFile: {
+          name: file.path,
+          contents: file.before,
+          lang: file.lang,
+        },
+        newFile: {
+          name: file.path,
+          contents: file.after,
+          lang: file.lang,
+        },
+        containerWrapper: wrapper,
+      });
+
+      diffInstances.push(diff);
+    }
+
+    setAiDiffSummary(`${resolved.length} pending change${resolved.length === 1 ? '' : 's'}`);
+  };
+
+  const installAiDiffPreview = (instance: ReturnType<typeof init>): void => {
+    const ai = instance.ai;
+    if (!ai) {
+      setAiDiffEmptyState('AI is disabled for this workspace.', 'AI unavailable');
+      return;
+    }
+
+    const originalChat = ai.chat.bind(ai);
+    const originalApply = ai.apply.bind(ai);
+    const originalSetCurrent = ai.sessions.setCurrent.bind(ai.sessions);
+    const originalReset = ai.sessions.reset.bind(ai.sessions);
+
+    ai.chat = async (prompt, options) => {
+      const result = await originalChat(prompt, options);
+      await renderAiDiffPreview(instance, result.replacements);
+      return result;
+    };
+
+    ai.apply = async (replacements) => {
+      await originalApply(replacements);
+      setAiDiffEmptyState(
+        replacements.length > 0
+          ? `Applied ${replacements.length} change${replacements.length === 1 ? '' : 's'}. Generate another reply to preview the next patch.`
+          : 'Generate a reply with file replacements to inspect it here before applying.',
+        replacements.length > 0 ? 'Applied' : 'Awaiting AI changes',
+      );
+    };
+
+    ai.sessions.setCurrent = async (sessionId) => {
+      await originalSetCurrent(sessionId);
+      setAiDiffEmptyState(
+        'Select or generate a reply in this session to preview its file changes.',
+        sessionId ? 'Session loaded' : 'Awaiting AI changes',
+      );
+    };
+
+    ai.sessions.reset = async () => {
+      await originalReset();
+      setAiDiffEmptyState(
+        'Generate a reply with file replacements to inspect it here before applying.',
+        'Awaiting AI changes',
+      );
+    };
+  };
+
   const initializeWorkspace = async (args: {
     adapter: ContentAdapter;
     mode: 'demo' | 'remote' | 'folder';
@@ -433,11 +613,17 @@ export default function App() {
     restoreReviewSnapshot?: boolean;
   }): Promise<void> => {
     if (editor) {
+      clearRenderedDiffs();
       editor.destroy();
       editor = null;
     }
 
     editor = init(buildEditorConfig(args.adapter, { reviewMode: args.mode === 'demo' }));
+    installAiDiffPreview(editor);
+    setAiDiffEmptyState(
+      'Generate a reply with file replacements to inspect it here before applying.',
+      'Awaiting AI changes',
+    );
 
     if (args.restoreReviewSnapshot) {
       const loaded = await editor.loadFrom(DEMO_STORAGE_KEY);
@@ -552,6 +738,7 @@ export default function App() {
   });
 
   onCleanup(() => {
+    clearRenderedDiffs();
     editor?.destroy();
   });
 

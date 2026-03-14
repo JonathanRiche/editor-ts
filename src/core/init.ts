@@ -202,6 +202,25 @@ export function init(config: InitConfig): EditorTsEditor {
     eventListeners[event]?.forEach((callback) => callback(...(args as AnyEditorEventArgs)));
   };
 
+  const lifecycleAbortController = new AbortController();
+  const lifecycleSignal = lifecycleAbortController.signal;
+
+  const addManagedEventListener = (
+    target: EventTarget | null | undefined,
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions,
+  ): void => {
+    if (!target) return;
+
+    if (typeof options === 'boolean') {
+      target.addEventListener(type, listener, { capture: options, signal: lifecycleSignal });
+      return;
+    }
+
+    target.addEventListener(type, listener, { ...(options ?? {}), signal: lifecycleSignal });
+  };
+
   // Get optional UI containers
   const sidebarContainer = config.ui?.sidebar?.containerId
     ? document.getElementById(config.ui.sidebar.containerId)
@@ -459,7 +478,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
     if (viewTabs.editorButtonId) {
       if (editorButton) {
-        editorButton.addEventListener('click', () => setView?.('editor'));
+        addManagedEventListener(editorButton, 'click', () => setView?.('editor'));
       } else {
         console.warn(`EditorTs: editorButtonId element #${viewTabs.editorButtonId} not found`);
       }
@@ -467,7 +486,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
     if (viewTabs.codeButtonId) {
       if (codeButton) {
-        codeButton.addEventListener('click', () => setView?.('code'));
+        addManagedEventListener(codeButton, 'click', () => setView?.('code'));
       } else {
         console.warn(`EditorTs: codeButtonId element #${viewTabs.codeButtonId} not found`);
       }
@@ -481,7 +500,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
     if (codeTabs) {
       (Object.entries(codeTabButtons) as Array<[keyof typeof codeTabButtons, HTMLElement | null]>).forEach(([tab, btn]) => {
-        btn?.addEventListener('click', () => setCodeTab?.(tab));
+        addManagedEventListener(btn, 'click', () => setCodeTab?.(tab));
       });
 
       setCodeTab?.(codeTabs.defaultTab ?? 'js');
@@ -594,7 +613,7 @@ export function init(config: InitConfig): EditorTsEditor {
     const initial = aiChatConfig?.defaultExpanded === true;
     setAiChatExpanded(initial);
 
-    aiChatExpandButton.addEventListener('click', () => {
+    addManagedEventListener(aiChatExpandButton, 'click', () => {
       const root = aiChatRoot ?? (aiChatExpandButton.closest('[data-editorts-ai-chat-root]') as HTMLElement | null);
       const current = root?.dataset.editortsAiChatExpanded === 'true';
       setAiChatExpanded(!current);
@@ -706,6 +725,16 @@ export function init(config: InitConfig): EditorTsEditor {
       return { current, sessions };
     };
 
+    const ensureCurrentSessionLoaded = async (): Promise<string | null> => {
+      if (currentSessionId !== null) {
+        return currentSessionId;
+      }
+
+      const index = await loadSessionIndex();
+      currentSessionId = index.current;
+      return currentSessionId;
+    };
+
     const saveSessionIndex = async (next: { current: string | null; sessions: Array<{ id: string; title?: string }> }) => {
       const keys = getAiStorageKeys();
       await storage.savePage(keys.sessions, JSON.stringify(next.sessions, null, 2));
@@ -720,6 +749,67 @@ export function init(config: InitConfig): EditorTsEditor {
     const appendAiChatStreamDelta = (delta: string) => {
       if (!aiChatLog) return;
       aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${delta}`;
+    };
+
+    const extractTextFromParts = (parts: Array<{ type: string; text?: string }>): string => {
+      return parts
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text ?? '')
+        .join('');
+    };
+
+    const formatAiChatTranscript = (
+      messages: Array<{
+        info: { role: string };
+        parts: Array<{ type: string; text?: string }>;
+      }>
+    ): string => {
+      const blocks = messages.flatMap((entry) => {
+        const text = extractTextFromParts(entry.parts).trim();
+        if (!text) return [];
+        const label = entry.info.role === 'assistant' ? 'assistant' : 'user';
+        return [`${label}: ${text}`];
+      });
+
+      if (blocks.length === 0) return '';
+      return `${blocks.join('\n\n')}\n\n`;
+    };
+
+    const loadAiSessionTranscript = async (sessionId: string | null) => {
+      if (!aiChatLog) return;
+
+      if (!sessionId) {
+        aiChatLog.textContent = '';
+        return;
+      }
+
+      if (!ai) return;
+
+      try {
+        const client = await ai.getClient();
+        const result = await client.session.messages({
+          path: { id: sessionId },
+          query: { limit: 100 },
+        });
+
+        const messages = Array.isArray(result.data)
+          ? (result.data as Array<{
+            info: { role: string; time?: { created?: number } };
+            parts: Array<{ type: string; text?: string }>;
+          }>)
+          : [];
+
+        const ordered = messages.sort((a, b) => {
+          const left = typeof a.info.time?.created === 'number' ? a.info.time.created : 0;
+          const right = typeof b.info.time?.created === 'number' ? b.info.time.created : 0;
+          return left - right;
+        });
+
+        aiChatLog.textContent = formatAiChatTranscript(ordered);
+      } catch (err: unknown) {
+        aiChatLog.textContent = '';
+        appendAiChatLog('error', err instanceof Error ? err.message : String(err));
+      }
     };
 
     const setAiChatPending = (pending: boolean) => {
@@ -808,7 +898,7 @@ export function init(config: InitConfig): EditorTsEditor {
       if ((!aiSessionSelect && !aiSessionList) || !ai) return;
 
       const sessions = await ai.sessions.list();
-      const current = ai.sessions.current();
+      const current = await ensureCurrentSessionLoaded();
 
       if (aiSessionSelect) {
         aiSessionSelect.innerHTML = '';
@@ -841,6 +931,7 @@ export function init(config: InitConfig): EditorTsEditor {
             if (!ai) return;
             await ai.sessions.setCurrent(id.length ? id : null);
             await refreshAiSessionSelect();
+            await loadAiSessionTranscript(id.length ? id : null);
           });
           aiSessionList.appendChild(button);
         }
@@ -966,6 +1057,9 @@ export function init(config: InitConfig): EditorTsEditor {
         },
         list: async () => {
           const index = await loadSessionIndex();
+          if (currentSessionId === null && index.current) {
+            currentSessionId = index.current;
+          }
           return index.sessions;
         },
         create: async (title?: string) => {
@@ -1122,7 +1216,7 @@ export function init(config: InitConfig): EditorTsEditor {
       }
 
       if (aiBaseUrlInput) {
-        aiBaseUrlInput.addEventListener('input', () => {
+        addManagedEventListener(aiBaseUrlInput, 'input', () => {
           invalidateAiClient();
           if (aiHealthStatus) {
             aiHealthStatus.textContent = '';
@@ -1137,7 +1231,7 @@ export function init(config: InitConfig): EditorTsEditor {
       setAiChatStatus('idle', 'Ready');
 
       if (aiHealthButton && aiHealthStatus) {
-        aiHealthButton.addEventListener('click', async () => {
+        addManagedEventListener(aiHealthButton, 'click', async () => {
           if (!ai) {
             aiHealthStatus.textContent = 'AI provider is disabled.';
             return;
@@ -1158,14 +1252,17 @@ export function init(config: InitConfig): EditorTsEditor {
         });
       }
 
-      if (aiSessionSelect) {
+      if (aiSessionSelect || aiSessionList) {
         void refreshAiSessionSelect();
+      }
 
-        aiSessionSelect.addEventListener('change', async () => {
+      if (aiSessionSelect) {
+        addManagedEventListener(aiSessionSelect, 'change', async () => {
           if (!ai) return;
           const next = aiSessionSelect.value.trim();
           await ai.sessions.setCurrent(next.length ? next : null);
           await refreshAiSessionSelect();
+          await loadAiSessionTranscript(next.length ? next : null);
         });
       }
 
@@ -1173,8 +1270,15 @@ export function init(config: InitConfig): EditorTsEditor {
         void refreshAiModelSelect();
       }
 
+      void ensureCurrentSessionLoaded().then((sessionId) => {
+        if (sessionId) {
+          return loadAiSessionTranscript(sessionId);
+        }
+        return undefined;
+      });
+
       if (aiSessionNewButton) {
-        aiSessionNewButton.addEventListener('click', async () => {
+        addManagedEventListener(aiSessionNewButton, 'click', async () => {
           if (!ai) return;
           const created = await ai.sessions.create('EditorTs Chat');
           await ai.sessions.setCurrent(created.id);
@@ -1188,7 +1292,7 @@ export function init(config: InitConfig): EditorTsEditor {
       }
 
       if (aiSessionResetButton) {
-        aiSessionResetButton.addEventListener('click', async () => {
+        addManagedEventListener(aiSessionResetButton, 'click', async () => {
           if (!ai) return;
           await ai.sessions.reset();
           await refreshAiSessionSelect();
@@ -1202,7 +1306,7 @@ export function init(config: InitConfig): EditorTsEditor {
       }
 
       if (aiChatApplyButton) {
-        aiChatApplyButton.addEventListener('click', async () => {
+        addManagedEventListener(aiChatApplyButton, 'click', async () => {
           if (!lastAiReplacements || lastAiReplacements.length === 0) return;
           if (!ai) {
             appendAiChatLog('error', 'AI provider is disabled.');
@@ -1223,7 +1327,7 @@ export function init(config: InitConfig): EditorTsEditor {
       }
 
       if (aiChatSendButton && aiChatInput) {
-        aiChatSendButton.addEventListener('click', async () => {
+        addManagedEventListener(aiChatSendButton, 'click', async () => {
           if (!ai) {
             appendAiChatLog('error', 'AI provider is disabled.');
             return;
@@ -2045,7 +2149,7 @@ export function init(config: InitConfig): EditorTsEditor {
   // Wire Save/Export buttons
   if (shouldEnableFilesViewer && filesViewerContainer) {
     const btn = filesViewerContainer.querySelector('[data-editorts-action="refresh-files"]') as HTMLButtonElement | null;
-    btn?.addEventListener('click', async () => {
+    addManagedEventListener(btn, 'click', async () => {
       if (workspaceEnabled && !workspace) {
         try {
           const mod = await import('modern-monaco');
@@ -2061,13 +2165,13 @@ export function init(config: InitConfig): EditorTsEditor {
     });
 
     const filterInput = filesViewerContainer.querySelector('[data-editorts-field="files-filter"]') as HTMLInputElement | null;
-    filterInput?.addEventListener('input', () => {
+    addManagedEventListener(filterInput, 'input', () => {
       void renderFilesList();
     });
   }
   if (shouldEnableJsxEditor && jsxEditorContainer) {
     const btn = jsxEditorContainer.querySelector('[data-editorts-action="export-jsx"]') as HTMLButtonElement | null;
-    btn?.addEventListener('click', async () => {
+    addManagedEventListener(btn, 'click', async () => {
       await ensureJsxEditorReady();
       jsxEditor?.focus();
     });
@@ -2075,7 +2179,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
   if (shouldEnableCssEditor && cssEditorContainer) {
     const btn = cssEditorContainer.querySelector('[data-editorts-action="save-css"]') as HTMLButtonElement | null;
-    btn?.addEventListener('click', async () => {
+    addManagedEventListener(btn, 'click', async () => {
       await ensureCssEditorReady();
       if (!cssEditor) return;
 
@@ -2094,7 +2198,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
   if (shouldEnableJsEditor && jsEditorContainer) {
     const btn = jsEditorContainer.querySelector('[data-editorts-action="save-js"]') as HTMLButtonElement | null;
-    btn?.addEventListener('click', async () => {
+    addManagedEventListener(btn, 'click', async () => {
       if (!selectedComponentId) return;
       const component = page.components.findById(selectedComponentId);
       if (!component) return;
@@ -2118,7 +2222,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
   if (shouldEnableJsonEditor && jsonEditorContainer) {
     const btn = jsonEditorContainer.querySelector('[data-editorts-action="save-json"]') as HTMLButtonElement | null;
-    btn?.addEventListener('click', async () => {
+    addManagedEventListener(btn, 'click', async () => {
       await ensureJsonEditorReady();
       if (!jsonEditor) return;
 
@@ -2163,7 +2267,7 @@ export function init(config: InitConfig): EditorTsEditor {
   }
 
   // Handle messages from iframe
-  window.addEventListener('message', (event) => {
+  addManagedEventListener(window, 'message', (event) => {
     if (event.data.type === 'editorts:componentSelected') {
       const component = page.components.findById(event.data.id);
       if (component) {
@@ -3216,7 +3320,7 @@ export function init(config: InitConfig): EditorTsEditor {
       commandPaletteContainer.setAttribute('aria-hidden', 'true');
     }
 
-    commandPaletteInput?.addEventListener('input', () => {
+    addManagedEventListener(commandPaletteInput, 'input', () => {
       commandPaletteActiveIndex = 0;
       renderCommandPaletteResults();
     });
@@ -3236,7 +3340,7 @@ export function init(config: InitConfig): EditorTsEditor {
       closeCommandPalette();
     };
 
-    commandPaletteInput?.addEventListener('keydown', (event) => {
+    addManagedEventListener(commandPaletteInput, 'keydown', (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
         closeCommandPalette();
@@ -3272,7 +3376,7 @@ export function init(config: InitConfig): EditorTsEditor {
       }
     });
 
-    commandPaletteResults?.addEventListener('keydown', (event) => {
+    addManagedEventListener(commandPaletteResults, 'keydown', (event) => {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
         commandPaletteActiveIndex = Math.min(commandPaletteActiveIndex + 1, commandPaletteEntries.length - 1);
@@ -3294,15 +3398,15 @@ export function init(config: InitConfig): EditorTsEditor {
       }
     });
 
-    commandPaletteContainer?.addEventListener('click', (event) => {
+    addManagedEventListener(commandPaletteContainer, 'click', (event) => {
       if (event.target === commandPaletteContainer) {
         closeCommandPalette();
       }
     });
 
-    commandPaletteClose?.addEventListener('click', () => closeCommandPalette());
+    addManagedEventListener(commandPaletteClose, 'click', () => closeCommandPalette());
 
-    document.addEventListener('keydown', (event) => {
+    addManagedEventListener(document, 'keydown', (event) => {
       if (isCommandPaletteOpen && event.key === 'Escape') {
         event.preventDefault();
         closeCommandPalette();
@@ -3375,7 +3479,7 @@ export function init(config: InitConfig): EditorTsEditor {
   if (iframe.contentDocument) {
     keyboardShortcuts.bind(iframe.contentDocument);
   }
-  iframe.addEventListener('load', () => {
+  addManagedEventListener(iframe, 'load', () => {
     if (iframe.contentDocument) {
       keyboardShortcuts.bind(iframe.contentDocument);
     }
@@ -3578,6 +3682,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
   // Destroy editor
   function destroy() {
+    lifecycleAbortController.abort();
     iframe.srcdoc = '';
 
     jsEditor?.dispose();
@@ -3585,6 +3690,7 @@ export function init(config: InitConfig): EditorTsEditor {
     jsonEditor?.dispose();
     jsxEditor?.dispose();
 
+    keyboardShortcuts.unbind();
     void ai?.close();
 
     if (sidebarContainer) sidebarContainer.innerHTML = '';

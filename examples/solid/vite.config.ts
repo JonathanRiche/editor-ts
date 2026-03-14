@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fileURLToPath, URL } from 'node:url';
 
+import tailwindcss from '@tailwindcss/vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
 import sqlocal from 'sqlocal/vite';
 import { defineConfig, type Plugin } from 'vite';
@@ -73,11 +74,15 @@ const remoteProjectRoutes = (): Plugin => {
 
 export default defineConfig({
   plugins: [
+    tailwindcss(),
     cloudflare({ viteEnvironment: { name: 'ssr' } }),
     solid({ ssr: true }),
     sqlocal(),
     remoteProjectRoutes(),
   ],
+  server: {
+    port: 2022,
+  },
   resolve: {
     alias: [
       {

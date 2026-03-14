@@ -8,9 +8,11 @@ import {
   buildAiChatSystemPromptWithOptions,
   normalizeOpencodeModelId,
   parseAiChatResponse,
+  requestAiReplacements,
 } from '../src/core/aiChat';
 import { Page } from '../src/core/Page';
 import type { EditorTsAiChatReplacement, PageData } from '../src/types';
+import type { Message, OpencodeClient } from '@opencode-ai/sdk';
 
 describe('aiChat helpers', () => {
   const basePage: PageData = {
@@ -105,6 +107,131 @@ describe('aiChat helpers', () => {
   it('normalizes opencode model ids', () => {
     expect(normalizeOpencodeModelId('opencode', 'claude-sonnet-4-5-20250929')).toBe('claude-sonnet-4-5');
     expect(normalizeOpencodeModelId('other', 'model-x')).toBe('model-x');
+  });
+
+  it('streams assistant output from SDK events without polling session messages', async () => {
+    const sessionId = 'session-stream';
+    const messageId = 'message-stream';
+    const createdAt = Date.now();
+    const rawText = JSON.stringify({
+      replacements: [
+        { path: 'styles.css', content: 'body { color: red; }' },
+      ],
+    });
+    const deltas = ['{"replacements":[', '{"path":"styles.css","content":"body { color: red; }"}', ']}'];
+    const streamed: string[] = [];
+    let messageReads = 0;
+
+    const assistantMessage = (completed?: number): Message => ({
+      id: messageId,
+      sessionID: sessionId,
+      role: 'assistant',
+      time: completed ? { created: createdAt, completed } : { created: createdAt },
+      parentID: 'user-message-1',
+      modelID: 'claude-sonnet-4-5',
+      providerID: 'opencode',
+      mode: 'build',
+      path: {
+        cwd: '/tmp/project',
+        root: '/tmp/project',
+      },
+      cost: 0,
+      tokens: {
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: {
+          read: 0,
+          write: 0,
+        },
+      },
+    });
+
+    const client = {
+      event: {
+        subscribe: async () => ({
+          stream: (async function* () {
+            yield {
+              type: 'message.updated',
+              properties: {
+                info: assistantMessage(),
+              },
+            };
+
+            let currentText = '';
+            for (const [index, delta] of deltas.entries()) {
+              currentText += delta;
+              yield {
+                type: 'message.part.updated',
+                properties: {
+                  part: {
+                    id: `part-${index + 1}`,
+                    sessionID: sessionId,
+                    messageID: messageId,
+                    type: 'text',
+                    text: currentText,
+                  },
+                  delta,
+                },
+              };
+            }
+
+            yield {
+              type: 'message.updated',
+              properties: {
+                info: assistantMessage(createdAt + 500),
+              },
+            };
+          })(),
+        }),
+      },
+      session: {
+        promptAsync: async () => ({ error: undefined }),
+        messages: async () => {
+          messageReads += 1;
+          return {
+            data: [
+              {
+                info: assistantMessage(createdAt + 500),
+                parts: [
+                  {
+                    id: 'part-3',
+                    sessionID: sessionId,
+                    messageID: messageId,
+                    type: 'text',
+                    text: rawText,
+                  },
+                ],
+              },
+            ],
+          };
+        },
+      },
+    } as unknown as OpencodeClient;
+
+    const result = await requestAiReplacements({
+      client,
+      prompt: 'Make the CSS red.',
+      workspaceFiles: {
+        'styles.css': 'body { color: blue; }',
+      },
+      allowedPaths: ['styles.css'],
+      sessionId,
+      model: {
+        providerID: 'opencode',
+        modelID: 'claude-sonnet-4-5',
+      },
+      stream: true,
+      onStream: (delta) => {
+        streamed.push(delta);
+      },
+    });
+
+    expect(streamed.join('')).toBe(rawText);
+    expect(messageReads).toBe(1);
+    expect(result.replacements).toEqual([
+      { path: 'styles.css', content: 'body { color: red; }' },
+    ]);
   });
 
   it('applies replacements to storage handlers', async () => {

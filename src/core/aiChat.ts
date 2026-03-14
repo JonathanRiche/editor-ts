@@ -1,4 +1,4 @@
-import type { OpencodeClient, Part, Message } from '@opencode-ai/sdk';
+import type { OpencodeClient, Part, Message, Event } from '@opencode-ai/sdk';
 import type { Page } from './Page';
 import type { EditorTsAiChatReplacement, EditorTsAiChatResult } from '../types';
 
@@ -241,6 +241,78 @@ export const normalizeOpencodeModelId = (providerID: string, modelID: string): s
   return modelID;
 };
 
+const extractTextFromParts = (parts: Part[]): string => {
+  return parts
+    .filter((part) => part.type === 'text')
+    .map((part) => (part.type === 'text' ? part.text ?? '' : ''))
+    .join('');
+};
+
+const getMessageCreatedAt = (message: Message): number => {
+  return typeof message.time?.created === 'number' ? message.time.created : 0;
+};
+
+const isAssistantMessageForSession = (
+  message: Message,
+  sessionId: string,
+): message is Extract<Message, { role: 'assistant' }> => {
+  return message.role === 'assistant' && message.sessionID === sessionId;
+};
+
+const formatStreamError = (error: unknown): string => {
+  if (!error || typeof error !== 'object') {
+    return 'OpenCode stream failed.';
+  }
+
+  if ('data' in error && error.data && typeof error.data === 'object') {
+    const data = error.data;
+    if ('message' in data && typeof data.message === 'string' && data.message.trim()) {
+      return data.message;
+    }
+  }
+
+  if ('message' in error && typeof error.message === 'string' && error.message.trim()) {
+    return error.message;
+  }
+
+  if ('name' in error && typeof error.name === 'string' && error.name.trim()) {
+    return error.name;
+  }
+
+  return 'OpenCode stream failed.';
+};
+
+const readLatestAssistantMessage = async (args: {
+  client: OpencodeClient;
+  sessionId: string;
+  minCreatedAt: number;
+  messageId?: string | null;
+}): Promise<{ id: string; text: string; completed: boolean } | null> => {
+  const { client, sessionId, minCreatedAt, messageId } = args;
+
+  const messages = await client.session.messages({ path: { id: sessionId }, query: { limit: 50 } });
+  const entries = Array.isArray(messages.data)
+    ? (messages.data as Array<{ info: Message; parts: Part[] }>)
+    : [];
+
+  const assistants = entries
+    .filter((entry) => isAssistantMessageForSession(entry.info, sessionId))
+    .filter((entry) => getMessageCreatedAt(entry.info) >= minCreatedAt)
+    .sort((a, b) => getMessageCreatedAt(b.info) - getMessageCreatedAt(a.info));
+
+  const selected = messageId
+    ? assistants.find((entry) => entry.info.id === messageId) ?? assistants[0]
+    : assistants[0];
+
+  if (!selected) return null;
+
+  return {
+    id: selected.info.id,
+    text: extractTextFromParts(selected.parts),
+    completed: typeof selected.info.time?.completed === 'number',
+  };
+};
+
 export const chooseChatModel = async (client: OpencodeClient): Promise<{ providerID: string; modelID: string } | undefined> => {
   const configResult = await client.config.get();
   const configured = configResult.data?.model;
@@ -335,92 +407,159 @@ export const requestAiReplacements = async (args: {
   const model = selectedModel ?? await chooseChatModel(client);
 
   if (stream && typeof onStream === 'function') {
-    const sendResult = await client.session.promptAsync({
-      path: { id: sessionId },
-      body: {
-        agent: 'build',
-        ...(model ? { model } : {}),
-        tools: { '*': false },
-        parts: [
-          { type: 'text', text: requestText },
-        ],
-      },
-    });
-
-    if (sendResult.error) {
-      throw new Error(`Prompt failed: ${String(sendResult.error)}`);
-    }
-
+    const streamStartedAt = Date.now() - 1000;
+    const abortController = new AbortController();
+    const partTextById = new Map<string, string>();
     let assembled = '';
+    let assistantMessageId: string | null = null;
+    let timedOut = false;
+    let lastStreamFailure: unknown = null;
 
-    const sleep = async (ms: number) => new Promise<void>((resolve) => {
-      setTimeout(resolve, ms);
-    });
-
-    const readLatestAssistantMessage = async (): Promise<{
-      id: string;
-      text: string;
-      completed: boolean;
-    } | null> => {
-      const messages = await client.session.messages({ path: { id: sessionId }, query: { limit: 20 } });
-      const entries = Array.isArray(messages.data)
-        ? (messages.data as Array<{ info: Message; parts: Part[] }>)
-        : [];
-
-      const assistants = entries
-        .filter((entry) => entry.info.role === 'assistant' && entry.info.sessionID === sessionId)
-        .sort((a, b) => {
-          const left = typeof a.info.time?.created === 'number' ? a.info.time.created : 0;
-          const right = typeof b.info.time?.created === 'number' ? b.info.time.created : 0;
-          return right - left;
-        });
-
-      const latest = assistants[0];
-      if (!latest) return null;
-
-      const text = latest.parts
-        .filter((part) => part.type === 'text')
-        .map((part) => (part.type === 'text' ? part.text ?? '' : ''))
-        .join('');
-
-      return {
-        id: latest.info.id,
-        text,
-        completed: typeof (latest.info.time as { completed?: unknown } | undefined)?.completed === 'number',
-      };
+    const shouldTrackEventForMessage = (messageId: string): boolean => {
+      return assistantMessageId === null || assistantMessageId === messageId;
     };
 
-    const waitForResult = async (): Promise<string> => {
-      const timeoutMs = 90_000;
-      const timeoutAt = Date.now() + timeoutMs;
+    const resolveAssistantText = async (): Promise<string> => {
+      const latest = await readLatestAssistantMessage({
+        client,
+        sessionId,
+        minCreatedAt: streamStartedAt,
+        messageId: assistantMessageId,
+      });
 
-      while (Date.now() <= timeoutAt) {
-        const latest = await readLatestAssistantMessage();
-        if (latest) {
-          if (latest.text.length > assembled.length) {
-            const next = latest.text.slice(assembled.length);
-            assembled = latest.text;
-            if (next.length > 0) {
-              onStream(next);
-            }
-          }
-
-          if (latest.completed && assembled.trim()) {
-            return assembled;
-          }
-        }
-
-        await sleep(1000);
+      if (latest?.text.trim()) {
+        assistantMessageId = latest.id;
+        return latest.text;
       }
 
       if (assembled.trim()) {
         return assembled;
       }
 
-      throw new Error('Streaming timed out waiting for assistant response.');
+      return '';
     };
 
-    const assistantText = await waitForResult();
+    const streamPromise = (async (): Promise<string> => {
+      const subscription = await client.event.subscribe({
+        signal: abortController.signal,
+        onSseError: (error) => {
+          lastStreamFailure = error;
+        },
+      });
+
+      try {
+        for await (const event of subscription.stream as AsyncGenerator<Event, unknown, unknown>) {
+          if (abortController.signal.aborted) {
+            break;
+          }
+
+          if (event.type === 'message.updated') {
+            const message = event.properties.info;
+            if (!isAssistantMessageForSession(message, sessionId)) {
+              continue;
+            }
+            if (getMessageCreatedAt(message) < streamStartedAt) {
+              continue;
+            }
+
+            if (assistantMessageId === null || assistantMessageId === message.id) {
+              assistantMessageId = message.id;
+            }
+
+            if (message.error) {
+              throw new Error(formatStreamError(message.error));
+            }
+
+            if (assistantMessageId === message.id && typeof message.time?.completed === 'number') {
+              return await resolveAssistantText();
+            }
+
+            continue;
+          }
+
+          if (event.type === 'message.part.updated') {
+            const { part, delta } = event.properties;
+            if (part.sessionID !== sessionId || part.type !== 'text') {
+              continue;
+            }
+            if (!shouldTrackEventForMessage(part.messageID)) {
+              continue;
+            }
+
+            assistantMessageId = part.messageID;
+            const previousText = partTextById.get(part.id) ?? '';
+            const currentText = part.text ?? '';
+            partTextById.set(part.id, currentText);
+
+            const nextDelta = typeof delta === 'string'
+              ? delta
+              : currentText.startsWith(previousText)
+                ? currentText.slice(previousText.length)
+                : currentText;
+
+            if (nextDelta.length > 0) {
+              assembled += nextDelta;
+              onStream(nextDelta);
+            }
+
+            continue;
+          }
+
+          if (event.type === 'session.error' && event.properties.sessionID === sessionId) {
+            throw new Error(formatStreamError(event.properties.error));
+          }
+
+          if (event.type === 'session.idle' && event.properties.sessionID === sessionId && (assistantMessageId !== null || assembled.trim())) {
+            return await resolveAssistantText();
+          }
+        }
+      } finally {
+        abortController.abort();
+      }
+
+      return await resolveAssistantText();
+    })();
+
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      abortController.abort();
+    }, 90_000);
+
+    let assistantText = '';
+    try {
+      const sendResult = await client.session.promptAsync({
+        path: { id: sessionId },
+        body: {
+          agent: 'build',
+          ...(model ? { model } : {}),
+          tools: { '*': false },
+          parts: [
+            { type: 'text', text: requestText },
+          ],
+        },
+      });
+
+      if (sendResult.error) {
+        throw new Error(`Prompt failed: ${String(sendResult.error)}`);
+      }
+
+      assistantText = await streamPromise;
+    } catch (error: unknown) {
+      if (timedOut) {
+        const fallbackText = await resolveAssistantText();
+        if (fallbackText.trim()) {
+          assistantText = fallbackText;
+        } else {
+          const detail = lastStreamFailure ? ` ${formatStreamError(lastStreamFailure)}` : '';
+          throw new Error(`Streaming timed out waiting for assistant response.${detail}`);
+        }
+      } else {
+        throw error;
+      }
+    } finally {
+      clearTimeout(timeoutId);
+      abortController.abort();
+    }
 
     if (!assistantText.trim()) {
       throw new Error('No assistant text returned.');

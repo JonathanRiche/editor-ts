@@ -29,7 +29,7 @@
     "test:api": "bun test"
   },
   "devDependencies": {
-    "@opencode-ai/sdk": "^1.1.14",
+    "@opencode-ai/sdk": "^1.2.24",
     "@types/bun": "latest",
     "drizzle-orm": "^0.44.0",
     "modern-monaco": "^0.3.6",
@@ -38,7 +38,7 @@
   "peerDependencies": {
     "typescript": "^5",
     "modern-monaco": "^0.3.6",
-    "@opencode-ai/sdk": "^1.1.14",
+    "@opencode-ai/sdk": "^1.2.24",
     "sqlocal": "^0.16.0",
     "drizzle-orm": "^0.44.0"
   },

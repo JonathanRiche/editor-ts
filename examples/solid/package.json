@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:with-opencode": "bash ./scripts/dev-with-opencode.sh",
     "build": "vite build",
     "preview": "vite preview",
     "server": "bun run src/server.ts",
@@ -12,12 +13,15 @@
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.21.0",
+    "@pierre/diffs": "^1.0.11",
     "hono": "^4.11.4",
     "solid-js": "^1.9.0",
     "sqlocal": "^0.16.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
     "bun-types": "latest",
+    "tailwindcss": "^4.2.1",
     "typescript": "^5.7.2",
     "vite": "^7.3.1",
     "vite-plugin-solid": "^2.11.10",

@@ -23,7 +23,18 @@ bun install
 bun run dev
 ```
 
-Open `http://localhost:5173`.
+Open `http://localhost:2022`.
+
+To launch the Solid app and a local OpenCode server together:
+
+```bash
+bun run dev:with-opencode
+```
+
+That starts:
+
+- the Solid app on `http://127.0.0.1:2022`
+- OpenCode on `http://127.0.0.1:4096`
 
 ## Workspace modes
 
@@ -60,7 +71,7 @@ Open `http://localhost:5173`.
 Start OpenCode on the same machine as the browser:
 
 ```bash
-opencode serve --port 4096 --cors http://localhost:5173 --cors http://127.0.0.1:5173
+opencode serve --port 4096 --cors http://localhost:2022 --cors http://127.0.0.1:2022
 ```
 
 Then in the app:
