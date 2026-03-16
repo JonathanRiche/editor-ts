@@ -12,7 +12,8 @@ import { VersionControl } from './VersionControl';
 import { KeyboardShortcuts, createCommandPaletteShortcuts, createDefaultShortcuts, createEditorShortcuts, type ShortcutContext } from './KeyboardShortcuts';
 import { defaultComponentRegistry, mergeCustomComponentRegistry } from './CustomComponentRegistry';
 import { buildIframeCanvasSrcdocFromPage } from './iframeCanvas';
-import { applyAiReplacementsToFiles, normalizeOpencodeModelId, requestAiReplacements } from './aiChat';
+import { applyAiReplacementsToFiles, requestAiReplacements } from './aiChat';
+import { encodeAiModelSelectValue, formatAiModelOptionLabel, normalizeOpencodeModelId, parseAiModelRef, readProviderDefaultModels } from './aiModels';
 import type { InitConfig, EditorTsEditor, Component, PageData, MultiPageData, EditorTsAiModule, OpencodeAiProviderConfig, AiProviderMode, EditorTsEventMap, EditorTsEventName, PagesRenderProps, PagePayload, ContentAdapter } from '../types';
 
 /**
@@ -948,21 +949,24 @@ export function init(config: InitConfig): EditorTsEditor {
       if (!aiModelSelect || !ai) return;
 
       const models = await ai.models.list();
+      const previousValue = aiModelSelect.value;
       aiModelSelect.innerHTML = '';
 
-      const addModelOption = (modelID: string, label: string) => {
+      const addModelOption = (value: string, label: string) => {
         const opt = document.createElement('option');
-        opt.value = modelID;
+        opt.value = value;
         opt.textContent = label;
         aiModelSelect.appendChild(opt);
       };
 
       models.forEach((model) => {
-        addModelOption(model.modelID, model.modelID);
+        addModelOption(encodeAiModelSelectValue(model), formatAiModelOptionLabel(model));
       });
 
       if (models.length === 0) {
         addModelOption('', 'No models');
+      } else if (previousValue && Array.from(aiModelSelect.options).some((opt) => opt.value === previousValue)) {
+        aiModelSelect.value = previousValue;
       }
     };
 
@@ -1093,16 +1097,28 @@ export function init(config: InitConfig): EditorTsEditor {
             }
           };
 
-          addModel('opencode', 'gemini-3-pro');
-          addModel('opencode', 'claude-sonnet-4-5');
-          addModel('opencode', 'gpt-5.2-codex');
+          addModel('opencode', 'gpt-5.4');
+          addModel('opencode', 'claude-opus-4-6');
+          addModel('opencode', 'gemini-3.1-pro');
 
           try {
             const client = await ai!.getClient();
+            const configured = await client.config.get();
+            const configuredModel = typeof configured.data?.model === 'string'
+              ? parseAiModelRef(configured.data.model)
+              : undefined;
+            if (configuredModel) {
+              addModel(configuredModel.providerID, configuredModel.modelID);
+            }
+
             const providers = await client.config.providers();
-            const defaultModel = providers.data?.default?.opencode;
-            if (defaultModel) {
-              addModel('opencode', defaultModel);
+            const defaults = readProviderDefaultModels(providers.data?.default);
+            if (defaults.openai) {
+              addModel('openai', 'gpt-5.4');
+            }
+
+            for (const [providerID, modelID] of Object.entries(defaults)) {
+              addModel(providerID, modelID);
             }
           } catch {
             // ignore provider lookup failures
@@ -1353,9 +1369,7 @@ export function init(config: InitConfig): EditorTsEditor {
             }
 
             const selectedModelValue = aiModelSelect?.value?.trim() || '';
-            const model = selectedModelValue
-              ? { providerID: 'opencode', modelID: selectedModelValue }
-              : undefined;
+            const model = selectedModelValue ? parseAiModelRef(selectedModelValue) : undefined;
 
             const result = await ai.chat(prompt, {
               sessionId: selectedSessionId,

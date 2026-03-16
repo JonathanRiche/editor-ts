@@ -1,6 +1,9 @@
 import type { OpencodeClient, Part, Message, Event } from '@opencode-ai/sdk';
 import type { Page } from './Page';
 import type { EditorTsAiChatReplacement, EditorTsAiChatResult } from '../types';
+import { normalizeOpencodeModelId, parseAiModelRef } from './aiModels';
+
+export { normalizeOpencodeModelId } from './aiModels';
 
 type ParsedChatResponse = {
   replacements?: Array<{
@@ -235,12 +238,6 @@ export const buildAiChatSnapshotFromFiles = (
   ].join('\n');
 };
 
-export const normalizeOpencodeModelId = (providerID: string, modelID: string): string => {
-  if (providerID !== 'opencode') return modelID;
-  if (modelID === 'claude-sonnet-4-5-20250929') return 'claude-sonnet-4-5';
-  return modelID;
-};
-
 const extractTextFromParts = (parts: Part[]): string => {
   return parts
     .filter((part) => part.type === 'text')
@@ -317,11 +314,8 @@ export const chooseChatModel = async (client: OpencodeClient): Promise<{ provide
   const configResult = await client.config.get();
   const configured = configResult.data?.model;
   if (configured) {
-    const [providerID, ...rest] = configured.split('/');
-    if (providerID && rest.length > 0) {
-      const modelID = rest.join('/');
-      return { providerID, modelID: normalizeOpencodeModelId(providerID, modelID) };
-    }
+    const parsed = parseAiModelRef(configured);
+    if (parsed) return parsed;
   }
 
   const providersResult = await client.config.providers();

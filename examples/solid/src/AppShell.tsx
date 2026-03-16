@@ -247,6 +247,9 @@ export default function AppShell(props: AppShellProps) {
                   <span class={fieldCaptionClass}>Model</span>
                   <select id="ai-model-select" class={fieldInputClass} />
                 </label>
+                <p class="min-w-[14rem] flex-1 text-[0.68rem] leading-[1.5] text-text-muted max-sm:min-w-full">
+                  `OpenCode Zen` routes through OpenCode-managed models. `OpenAI auth` uses your connected OpenAI or ChatGPT access inside OpenCode.
+                </p>
                 <div id="ai-chat-status" class="chat-status inline-flex min-h-[2.2rem] items-center rounded-[4px] border border-line-soft bg-bg-input px-[0.75rem] py-[0.55rem] font-mono text-[0.72rem] text-text-secondary" data-state="idle" aria-live="polite">Ready</div>
               </div>
             </div>
