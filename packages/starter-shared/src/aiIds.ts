@@ -1,0 +1,18 @@
+export const SHARED_AI_UI_IDS = {
+  link: 'ai-chat-link',
+  baseUrlInput: 'ai-base-url',
+  healthButton: 'ai-health-btn',
+  healthStatus: 'ai-health-status',
+  sessionNewButton: 'ai-session-new',
+  sessionResetButton: 'ai-session-reset',
+  sessionList: 'ai-session-list',
+  modelSelect: 'ai-model-select',
+  chatStatus: 'ai-chat-status',
+  chatRoot: 'ai-chat-root',
+  chatLog: 'ai-chat-log',
+  chatInput: 'ai-chat-input',
+  chatSendButton: 'ai-chat-send',
+  chatApplyButton: 'ai-chat-apply',
+  diffSummary: 'ai-diff-summary',
+  diffViewer: 'ai-diff-viewer',
+} as const;

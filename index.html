@@ -6,7 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>EditorTs Editor</title>
 	<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><path fill='%23facc15' d='M36 2L12 36h16l-4 26 28-40H36z'/></svg>" />
-	<link rel="stylesheet" href="./src/styles/branding.css" />
+	<link rel="stylesheet" href="./core/src/styles/branding.css" />
 	<style>
 		* {
 			margin: 0;
@@ -316,6 +316,11 @@
 				<div id="pages-container"></div>
 			</div>
 
+			<div class="layers-section">
+				<h3>Preview</h3>
+				<div id="preview-status"></div>
+			</div>
+
 			<!-- History (Undo/Redo) -->
 			<div class="layers-section">
 				<h3>History</h3>
@@ -425,7 +430,7 @@
 
 
 	<!-- Initialize editor -->
-	<script type="module" src="./examples/quickstart.ts"></script>
+	<script type="module" src="./packages/quickstart/src/main.ts"></script>
 
 	<!-- Mobile sidebar toggle script -->
 	<script>

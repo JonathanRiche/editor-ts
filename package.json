@@ -1,67 +1,27 @@
 {
-  "name": "editor-ts",
-  "version": "0.0.13",
-  "description": "TypeScript library for editing HTML content with JSON representation",
-  "module": "index.ts",
-  "main": "index.ts",
+  "name": "editorts-workspace",
+  "private": true,
   "type": "module",
-  "keywords": [
-    "html",
-    "json",
-    "editor",
-    "page-builder",
-    "cms",
-    "typescript",
-    "web"
+  "workspaces": [
+    "core",
+    "packages/*"
   ],
-  "author": "Jonathan Riche",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/JonathanRiche/editor-ts.git"
-  },
-  "license": "MIT",
   "scripts": {
     "dev": "bun run local-server.ts",
+    "dev:web": "cd packages/web && bun run dev",
+    "dev:desktop": "cd packages/desktop && bun run dev",
+    "dev:localsql": "cd packages/localsql && bun run dev",
     "server": "bun run local-server.ts",
-    "build": "bun build index.ts --outdir=dist",
+    "build": "cd core && bun run build",
+    "build:web": "cd packages/web && bun run build",
+    "build:desktop": "cd packages/desktop && bun run build",
+    "build:localsql": "cd packages/localsql && bun run build",
     "example": "bun run local-server.ts",
-    "test": "bun test",
-    "test:api": "bun test"
+    "test": "bun test tests/*.test.ts",
+    "test:api": "bun test tests/*.test.ts"
   },
   "devDependencies": {
-    "@opencode-ai/sdk": "^1.2.24",
     "@types/bun": "latest",
-    "drizzle-orm": "^0.44.0",
-    "modern-monaco": "^0.3.6",
     "playwright": "^1.57.0"
-  },
-  "peerDependencies": {
-    "typescript": "^5",
-    "modern-monaco": "^0.3.6",
-    "@opencode-ai/sdk": "^1.2.24",
-    "sqlocal": "^0.16.0",
-    "drizzle-orm": "^0.44.0"
-  },
-  "peerDependenciesMeta": {
-    "modern-monaco": {
-      "optional": true
-    },
-    "@opencode-ai/sdk": {
-      "optional": true
-    },
-    "sqlocal": {
-      "optional": true
-    },
-    "typescript": {
-      "optional": true
-    },
-    "drizzle-orm": {
-      "optional": true
-    }
-  },
-  "files": [
-    "src",
-    "index.ts",
-    "README.md"
-  ]
+  }
 }

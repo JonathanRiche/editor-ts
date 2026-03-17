@@ -1,0 +1,63 @@
+{
+  "name": "editor-ts",
+  "version": "0.0.13",
+  "description": "TypeScript library for editing HTML content with JSON representation",
+  "module": "index.ts",
+  "main": "index.ts",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "keywords": [
+    "html",
+    "json",
+    "editor",
+    "page-builder",
+    "cms",
+    "typescript",
+    "web"
+  ],
+  "author": "Jonathan Riche",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JonathanRiche/editor-ts.git"
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "bun build index.ts --outdir=dist"
+  },
+  "devDependencies": {
+    "@opencode-ai/sdk": "^1.2.24",
+    "drizzle-orm": "^0.44.0",
+    "modern-monaco": "^0.3.6"
+  },
+  "peerDependencies": {
+    "typescript": "^5",
+    "modern-monaco": "^0.3.6",
+    "@opencode-ai/sdk": "^1.2.24",
+    "sqlocal": "^0.16.0",
+    "drizzle-orm": "^0.44.0"
+  },
+  "peerDependenciesMeta": {
+    "modern-monaco": {
+      "optional": true
+    },
+    "@opencode-ai/sdk": {
+      "optional": true
+    },
+    "sqlocal": {
+      "optional": true
+    },
+    "typescript": {
+      "optional": true
+    },
+    "drizzle-orm": {
+      "optional": true
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "index.ts"
+  ]
+}

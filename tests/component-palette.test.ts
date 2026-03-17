@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { ComponentPalette } from '../src/core/ComponentPalette';
-import type { CustomComponentRegistry } from '../src/types';
+import { ComponentPalette } from '../core/src/core/ComponentPalette';
+import type { CustomComponentRegistry } from '../core/src/types';
 
 type MockElement = {
   id?: string;
@@ -26,6 +26,9 @@ const createElement = (tagName: string): MockElement => {
     className: tagName,
     appendChild: (child) => {
       element.children.push(child);
+      element.textContent = element.children
+        .map((entry) => entry.textContent ?? '')
+        .join('');
     },
     addEventListener: (_event, handler) => {
       element.click = handler;
@@ -42,6 +45,10 @@ describe('ComponentPalette', () => {
     originalDocument = globalThis.document;
     globalThis.document = {
       createElement: (tag: string) => createElement(tag) as unknown as HTMLElement,
+      getElementById: () => null,
+      head: {
+        appendChild: () => {},
+      },
     } as unknown as Document;
   });
 

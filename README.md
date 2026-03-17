@@ -13,7 +13,7 @@ bun run dev
 
 Open `http://localhost:5021`.
 
-The demo UI is `index.html` and is wired by `examples/quickstart.ts`.
+The demo UI is `index.html` and is wired by `packages/quickstart/src/main.ts`.
 
 ## Core concepts
 
@@ -151,7 +151,7 @@ Default HTTP contract:
 
 ### Storage adapters
 
-Local storage is the default, but we recommend SQLocal for persistent, browser-native SQLite storage. SQLocal requires cross-origin isolation headers, so the easiest way is to use the Vite examples in `examples/localsql` or `examples/solid`.
+Local storage is the default, but we recommend SQLocal for persistent, browser-native SQLite storage. SQLocal requires cross-origin isolation headers, so the easiest way is to use the Vite workspace apps in `packages/localsql` or `packages/web`.
 
 ```ts
 import { init } from 'editorts'
@@ -173,28 +173,28 @@ const editor = init({
 Run the SQLocal demos (Vite):
 
 ```bash
-cd examples/localsql
+cd packages/localsql
 bun install
 bun run dev
 ```
 
 ```bash
-cd examples/solid
+cd packages/web
 bun install
 bun run dev
 ```
 
-Open `http://localhost:5173`.
+Open `http://localhost:5173` for `packages/localsql`, or `http://localhost:2022` for `packages/web`.
 
 Run filesystem-backed Solid demo:
 
 ```bash
-cd examples/filesystem-solid
+cd packages/desktop
 bun install
 bun run dev
 ```
 
-Open `http://localhost:5173` and use either:
+Open `http://localhost:2050` and use either:
 
 - **Open Folder** (browser File System Access API), or
 - **Server Routes** mode for host/VM/container filesystem access via `/api/fs/*`.
@@ -387,7 +387,7 @@ The editor emits typed events:
 - `pageEditCSS`, `pageEditJSON`
 - `pageSaved`, `pageLoaded`
 
-See `src/types.ts` for the full event map.
+See `core/src/types.ts` for the full event map.
 
 ## Development
 
@@ -411,10 +411,10 @@ The existing `storage` option remains separate from `content.adapter`:
 
 ## Project map
 
-- Core entry: `src/core/init.ts`
-- Page model: `src/core/Page.ts`
-- Data managers: `src/core/ComponentManager.ts`, `src/core/StyleManager.ts`, `src/core/AssetManager.ts`
-- Storage: `src/core/StorageManager.ts`
-- Content adapters: `src/core/JsonContentAdapter.ts`, `src/core/ProjectFilesystemAdapter.ts`
-- Demo: `index.html` + `examples/quickstart.ts`
+- Core entry: `core/src/core/init.ts`
+- Page model: `core/src/core/Page.ts`
+- Data managers: `core/src/core/ComponentManager.ts`, `core/src/core/StyleManager.ts`, `core/src/core/AssetManager.ts`
+- Storage: `core/src/core/StorageManager.ts`
+- Content adapters: `core/src/core/JsonContentAdapter.ts`, `core/src/core/ProjectFilesystemAdapter.ts`
+- Demo: `index.html` + `packages/quickstart/src/main.ts`
 - Architecture + workflow: `AGENTS.md`

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import {
   REMOTE_PROJECT_FILES_PREFIX,
   handleRemoteProjectRequest,
-} from '../examples/solid/src/remoteProject';
+} from '../packages/web/src/remoteProject';
 
 const clearStore = () => {
   const host = globalThis as typeof globalThis & {

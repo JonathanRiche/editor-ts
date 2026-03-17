@@ -14,7 +14,7 @@ Content adapters handle only the first concern: how content is loaded/saved and 
 
 ## Contracts
 
-`ContentAdapter` is defined in `src/types.ts` and includes:
+`ContentAdapter` is defined in `core/src/types.ts` and includes:
 
 - `load()` and `save(snapshot)`
 - `listFiles()`, `readFile(path)`, `writeFile(path, content)`

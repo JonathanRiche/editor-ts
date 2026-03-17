@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { createHttpProjectProvider } from '../src/core/HttpProjectProvider';
-import { JsonContentAdapter } from '../src/core/JsonContentAdapter';
+import { createHttpProjectProvider } from '../core/src/core/HttpProjectProvider';
+import { JsonContentAdapter } from '../core/src/core/JsonContentAdapter';
 import {
   ProjectFilesystemAdapter,
   type ProjectFilesystemProvider,
-} from '../src/core/ProjectFilesystemAdapter';
-import type { MultiPageData, PageData, PagePayload } from '../src/types';
+} from '../core/src/core/ProjectFilesystemAdapter';
+import type { MultiPageData, PageData, PagePayload } from '../core/src/types';
 
 const parsePayload = (payload: PagePayload): PageData | MultiPageData => {
   if (typeof payload === 'string') {
@@ -178,6 +178,127 @@ describe('content adapters', () => {
     expect(page.title).toBe('From HTML');
     expect(page.body.html).toBe('<main>html-source</main>');
     expect(page.body.css).toBe('main { color: blue; }');
+  });
+
+  it('ProjectFilesystemAdapter describes a Solid Vite app workspace', async () => {
+    const { provider } = createMemoryFs({
+      'package.json': JSON.stringify({
+        dependencies: { 'solid-js': '^1.9.0' },
+        devDependencies: { vite: '^7.0.0', 'vite-plugin-solid': '^2.0.0' },
+      }),
+      'vite.config.ts': 'export default {};',
+      'index.html': '<!DOCTYPE html><html><body><div id="root"></div><script type="module" src="/src/index.tsx"></script></body></html>',
+      'src/index.tsx': 'import { render } from "solid-js/web";',
+      'src/App.tsx': 'export default function App() { return <main />; }',
+      'src/styles.css': 'body { margin: 0; }',
+    });
+
+    const adapter = new ProjectFilesystemAdapter({
+      fs: provider,
+      loadStrategy: 'auto',
+    });
+
+    const descriptor = await adapter.describeWorkspace();
+
+    expect(descriptor.kind).toBe('vite-solid');
+    expect(descriptor.runtime).toBe('app');
+    expect(descriptor.entryPaths).toContain('index.html');
+    expect(descriptor.entryPaths).toContain('src/index.tsx');
+    expect(descriptor.stylePaths).toContain('src/styles.css');
+  });
+
+  it('ProjectFilesystemAdapter describes app preview routes when app preview is configured', async () => {
+    const { provider } = createMemoryFs({
+      'package.json': JSON.stringify({
+        dependencies: { react: '^19.0.0', 'react-dom': '^19.0.0' },
+        devDependencies: { vite: '^7.0.0', '@vitejs/plugin-react': '^4.0.0' },
+      }),
+      'vite.config.ts': 'export default {};',
+      'index.html': '<!DOCTYPE html><html><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>',
+      'src/main.tsx': 'import { createRoot } from "react-dom/client";',
+      'src/App.tsx': 'export const App = () => <Routes><Route path=\"/pricing\" /></Routes>;',
+      'src/pages/index.tsx': 'export default function Home() { return <main>home</main>; }',
+      'src/pages/about.tsx': 'export default function About() { return <main>about</main>; }',
+    });
+
+    const adapter = new ProjectFilesystemAdapter({
+      fs: provider,
+      loadStrategy: 'auto',
+      preview: {
+        appBaseUrl: 'http://localhost:4173',
+      },
+    });
+
+    const preview = await adapter.describePreview();
+
+    expect(preview.mode).toBe('app-url');
+    expect(preview.baseUrl).toBe('http://localhost:4173');
+    expect(preview.routes.map((route) => route.path)).toEqual(['/', '/about', '/pricing']);
+  });
+
+  it('ProjectFilesystemAdapter builds project-file AI workspace for app projects by default', async () => {
+    const { provider } = createMemoryFs({
+      'package.json': JSON.stringify({
+        dependencies: { react: '^19.0.0', 'react-dom': '^19.0.0' },
+        devDependencies: { vite: '^7.0.0', '@vitejs/plugin-react': '^4.0.0' },
+      }),
+      'vite.config.ts': 'export default {};',
+      'index.html': '<!DOCTYPE html><html><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>',
+      'src/main.tsx': 'import { createRoot } from "react-dom/client";',
+      'src/App.tsx': 'export function App() { return <main />; }',
+      'src/index.css': 'body { margin: 0; }',
+    });
+
+    const adapter = new ProjectFilesystemAdapter({
+      fs: provider,
+      loadStrategy: 'auto',
+    });
+
+    const workspace = await adapter.buildAiWorkspace();
+
+    expect(workspace.mode).toBe('files');
+    expect(workspace.editablePaths).toContain('src/App.tsx');
+    expect(workspace.files['src/main.tsx']).toContain('createRoot');
+    expect(workspace.files['package.json']).toContain('react');
+    expect(workspace.files['page.json']).toBeUndefined();
+  });
+
+  it('ProjectFilesystemAdapter can force canonical AI workspace projection', async () => {
+    const { provider } = createMemoryFs({
+      'page.json': JSON.stringify({
+        title: 'Canonical',
+        item_id: 2,
+        body: {
+          components: [
+            {
+              type: 'box',
+              attributes: { id: 'hero' },
+              script: 'console.log("hero")',
+            },
+          ],
+          css: 'body { color: blue; }',
+          styles: [],
+          assets: [],
+        },
+      }),
+    });
+
+    const adapter = new ProjectFilesystemAdapter({
+      fs: provider,
+      loadStrategy: 'page-json',
+      aiWorkspace: {
+        mode: 'canonical',
+      },
+    });
+
+    await adapter.load();
+    const workspace = await adapter.buildAiWorkspace();
+
+    expect(workspace.mode).toBe('canonical');
+    expect(workspace.files['page.json']).toContain('"Canonical"');
+    expect(workspace.files['styles.css']).toContain('color: blue');
+    expect(workspace.files['components/hero.js']).toContain('hero');
+    expect(workspace.readOnlyPaths).toContain('index.html');
   });
 
   it('ProjectFilesystemAdapter listFiles respects .gitignore patterns', async () => {

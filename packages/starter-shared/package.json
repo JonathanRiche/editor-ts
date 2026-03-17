@@ -1,0 +1,19 @@
+{
+  "name": "@editorts/starter-shared",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./AiPanels": "./src/AiPanels.tsx",
+    "./aiIds": "./src/aiIds.ts",
+    "./aiRuntime": "./src/aiRuntime.ts",
+    "./ai-ui.css": "./src/ai-ui.css",
+    "./opencode-sdk-browser": "./src/opencode-sdk-browser.ts",
+    "./opencode-sdk-server-browser": "./src/opencode-sdk-server-browser.ts"
+  },
+  "dependencies": {
+    "@opencode-ai/sdk": "^1.2.24",
+    "editor-ts": "workspace:*",
+    "solid-js": "^1.9.0"
+  }
+}

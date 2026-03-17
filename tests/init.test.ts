@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { init } from '../src/core/init';
-import type { ContentAdapter, InitConfig, ToolbarConfig } from '../src/types';
+import { init } from '../core/src/core/init';
+import type { ContentAdapter, InitConfig, ToolbarConfig } from '../core/src/types';
 
 type MockIframe = HTMLIFrameElement & { contentWindow: Window };
 
@@ -44,10 +44,20 @@ const createIframe = (doc: MockDocument, id: string): MockIframe => {
   iframe.id = id;
   Object.defineProperty(iframe, 'tagName', { value: 'IFRAME' });
   (iframe as unknown as { style: CSSStyleDeclaration }).style = {} as CSSStyleDeclaration;
+  (iframe as unknown as { src?: string }).src = '';
+  (iframe as unknown as { srcdoc?: string }).srcdoc = '';
   (iframe as unknown as { contentWindow: Window }).contentWindow = {
     postMessage: () => {},
   } as unknown as Window;
   (iframe as unknown as { addEventListener: () => void }).addEventListener = () => {};
+  (iframe as unknown as { removeAttribute: (name: string) => void }).removeAttribute = (name: string) => {
+    if (name === 'src') {
+      (iframe as unknown as { src?: string }).src = '';
+    }
+    if (name === 'srcdoc') {
+      (iframe as unknown as { srcdoc?: string }).srcdoc = '';
+    }
+  };
   doc.body.appendChild(iframe as unknown as HTMLElement);
   return iframe;
 };
@@ -133,6 +143,8 @@ describe('init', () => {
 
     let saveCount = 0;
     let loadCount = 0;
+    let describeCount = 0;
+    let aiWorkspaceCount = 0;
 
     const adapter: ContentAdapter = {
       id: 'mock',
@@ -163,6 +175,32 @@ describe('init', () => {
       writeFile: async () => {
         return;
       },
+      describeWorkspace: async () => {
+        describeCount += 1;
+        return {
+          kind: 'json-page',
+          runtime: 'page',
+          entryPaths: ['page.json'],
+          stylePaths: ['styles.css'],
+          dataPaths: ['page.json'],
+          scriptPaths: [],
+        };
+      },
+      buildAiWorkspace: async () => {
+        aiWorkspaceCount += 1;
+        return {
+          files: { 'page.json': '{"title":"Loaded from adapter"}' },
+          editablePaths: ['page.json'],
+          readOnlyPaths: [],
+          mode: 'canonical',
+        };
+      },
+      describePreview: async () => ({
+        mode: 'page-srcdoc',
+        kind: 'json-page',
+        runtime: 'page',
+        routes: [],
+      }),
     };
 
     const editor = init({
@@ -174,9 +212,69 @@ describe('init', () => {
 
     await editor.content.save();
     await editor.content.load();
+    const workspace = await editor.content.describeWorkspace();
+    const aiWorkspace = await editor.content.buildAiWorkspace();
+    const preview = await editor.content.describePreview();
 
     expect(saveCount).toBeGreaterThan(0);
     expect(loadCount).toBeGreaterThan(0);
+    expect(describeCount).toBe(1);
+    expect(aiWorkspaceCount).toBe(1);
+    expect(workspace?.kind).toBe('json-page');
+    expect(aiWorkspace?.mode).toBe('canonical');
+    expect(preview?.mode).toBe('page-srcdoc');
+  });
+
+  it('switches the iframe to app-url preview and supports route navigation', async () => {
+    const iframe = createIframe(mockDocument, 'app-preview');
+
+    const editor = init({
+      iframeId: 'app-preview',
+      content: {
+        adapter: {
+          id: 'app-preview-adapter',
+          capabilities: {
+            supportsPreviewDescription: true,
+          },
+          load: async () => ({
+            data: {
+              title: 'App preview',
+              item_id: 1,
+              body: {
+                components: [],
+                styles: [],
+                assets: [],
+              },
+            },
+          }),
+          save: async () => undefined,
+          listFiles: async () => [],
+          readFile: async () => null,
+          writeFile: async () => undefined,
+          describePreview: async () => ({
+            mode: 'app-url',
+            kind: 'vite-solid',
+            runtime: 'app',
+            baseUrl: 'http://localhost:4173',
+            activePath: '/',
+            routes: [
+              { path: '/', label: 'Home' },
+              { path: '/pricing', label: 'Pricing' },
+            ],
+          }),
+        },
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect((iframe as unknown as { src?: string }).src).toBe('http://localhost:4173/');
+    expect(editor.preview.currentPath()).toBe('/');
+
+    await editor.preview.navigate('/pricing');
+
+    expect((iframe as unknown as { src?: string }).src).toBe('http://localhost:4173/pricing');
+    expect(editor.preview.currentPath()).toBe('/pricing');
   });
 
   afterEach(() => {

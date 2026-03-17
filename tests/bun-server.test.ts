@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { createBunPageMetaStore } from '../src/server/bun_server';
-import type { PageMeta } from '../src/server/sync';
+import { createBunPageMetaStore } from '../core/src/server/bun_server';
+import type { PageMeta } from '../core/src/server/sync';
 
 type Statement = {
   run: (params?: Record<string, unknown>) => void;

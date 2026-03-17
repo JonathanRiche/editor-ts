@@ -1,0 +1,9 @@
+{
+  "name": "@editorts/quickstart",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "editor-ts": "workspace:*"
+  }
+}

@@ -499,13 +499,13 @@ When adding a new feature:
    - Do not add new dependencies/polyfills without explicit approval.
 
 10. **Quickstart Rule**
-   - When a task adds user-facing functionality, wire it into `index.html` + `examples/quickstart.ts` so it can be tested immediately.
+   - When a task adds user-facing functionality, wire it into `index.html` + `packages/quickstart/src/main.ts` so it can be tested immediately.
 
 11. **Repo Orientation (Quick Map)**
-   - Core entry: `src/core/init.ts` (iframe injection, UI panels, events)
-   - Data model: `src/core/Page.ts`, `src/core/ComponentManager.ts`, `src/core/StyleManager.ts`, `src/core/AssetManager.ts`
-   - Storage: `src/core/StorageManager.ts` (local is default)
-   - Demo harness: `index.html` + `examples/quickstart.ts`
+   - Core entry: `core/src/core/init.ts` (iframe injection, UI panels, events)
+   - Data model: `core/src/core/Page.ts`, `core/src/core/ComponentManager.ts`, `core/src/core/StyleManager.ts`, `core/src/core/AssetManager.ts`
+   - Storage: `core/src/core/StorageManager.ts` (local is default)
+   - Demo harness: `index.html` + `packages/quickstart/src/main.ts`
 
 12. **Common Runtime Config**
    - Code view tabs: `ui.viewTabs` toggles iframe vs code panels
@@ -520,7 +520,7 @@ When adding a new feature:
 
 14. **Validation Loop**
    - Build: `bun run build`
-   - Tests: `bun run test` (currently aliases build)
+   - Tests: `bun run test`
 
 ---
 

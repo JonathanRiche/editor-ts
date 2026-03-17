@@ -1,0 +1,614 @@
+import { createSignal, onCleanup } from 'solid-js';
+import {
+  createCustomComponentDefinition,
+  init,
+  ProjectFilesystemAdapter,
+  type ProjectFilesystemProvider,
+  type ProjectFilesystemPermissionReply,
+  type ProjectFilesystemPermissionRequest,
+  type Component,
+  type InitConfig,
+  type PagesRenderProps,
+} from 'editor-ts';
+import { SHARED_AI_UI_IDS } from '@editorts/starter-shared/aiIds';
+import {
+  installAiDiffPreview,
+  loadStoredAiBaseUrl,
+  persistAiBaseUrl,
+  setAiDiffEmptyState,
+} from '@editorts/starter-shared/aiRuntime';
+import AppShell from './AppShell';
+
+type FsMode = 'browser-folder' | 'server-routes';
+
+type FsFileHandle = {
+  kind: 'file';
+  getFile: () => Promise<File>;
+  createWritable: () => Promise<{ write: (data: string) => Promise<void>; close: () => Promise<void> }>;
+};
+
+type FsDirectoryHandle = {
+  kind: 'directory';
+  name?: string;
+  entries: () => AsyncIterable<[string, FsEntryHandle]>;
+  getDirectoryHandle: (name: string, options?: { create?: boolean }) => Promise<FsDirectoryHandle>;
+  getFileHandle: (name: string, options?: { create?: boolean }) => Promise<FsFileHandle>;
+};
+
+type FsEntryHandle = FsFileHandle | FsDirectoryHandle;
+
+type DirectoryPickerHost = {
+  showDirectoryPicker?: () => Promise<FsDirectoryHandle>;
+};
+
+type FsListResponse = {
+  files?: unknown;
+  error?: unknown;
+};
+
+type FsReadResponse = {
+  content?: unknown;
+  error?: unknown;
+};
+
+const AI_BASE_URL_STORAGE_KEY = 'editorts:filesystem-solid:ai-base-url';
+const DEFAULT_AI_BASE_URL = 'http://127.0.0.1:4096';
+
+const normalizePath = (path: string): string => path.replace(/^\.\//, '').replace(/\\/g, '/');
+
+const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
+const sanitizeSessionNamespaceSegment = (value: string): string => {
+  return value.trim().replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+};
+
+const getDirectoryPickerHost = (): DirectoryPickerHost => {
+  return window as unknown as DirectoryPickerHost;
+};
+
+const supportsDirectoryPicker = (): boolean => {
+  return typeof getDirectoryPickerHost().showDirectoryPicker === 'function';
+};
+
+const buildApiUrl = (baseUrl: string, endpoint: string, params?: Record<string, string>): string => {
+  const base = trimTrailingSlash(baseUrl.trim());
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = new URL(base ? `${base}${path}` : path, window.location.origin);
+
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
+      url.searchParams.set(key, value);
+    });
+  }
+
+  return url.toString();
+};
+
+const createServerRoutesProvider = (args: { baseUrl: string; root: string }): ProjectFilesystemProvider => {
+  const { baseUrl, root } = args;
+
+  const requireOk = async (response: Response): Promise<void> => {
+    if (response.ok) return;
+    const text = await response.text();
+    throw new Error(text || `Request failed with status ${response.status}`);
+  };
+
+  return {
+    listFiles: async () => {
+      const response = await fetch(buildApiUrl(baseUrl, '/api/fs/list', { root }));
+      await requireOk(response);
+
+      const payload = (await response.json()) as FsListResponse;
+      const files = Array.isArray(payload.files)
+        ? payload.files.filter((value): value is string => typeof value === 'string')
+        : [];
+
+      return files.map(normalizePath).sort((a, b) => a.localeCompare(b));
+    },
+    readFile: async (path: string) => {
+      const response = await fetch(buildApiUrl(baseUrl, '/api/fs/read', {
+        root,
+        path,
+      }));
+      await requireOk(response);
+
+      const payload = (await response.json()) as FsReadResponse;
+      return typeof payload.content === 'string' ? payload.content : null;
+    },
+    writeFile: async (path: string, content: string) => {
+      const response = await fetch(buildApiUrl(baseUrl, '/api/fs/write'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          root,
+          path,
+          content,
+        }),
+      });
+
+      await requireOk(response);
+    },
+  };
+};
+
+const createFolderProvider = (root: FsDirectoryHandle): ProjectFilesystemProvider => {
+  const cache = new Map<string, FsFileHandle>();
+
+  const walk = async (dir: FsDirectoryHandle, prefix = ''): Promise<string[]> => {
+    const out: string[] = [];
+
+    for await (const [name, handle] of dir.entries()) {
+      const path = prefix ? `${prefix}/${name}` : name;
+      if (handle.kind === 'directory') {
+        const nested = await walk(handle as FsDirectoryHandle, path);
+        out.push(...nested);
+      } else {
+        cache.set(path, handle as FsFileHandle);
+        out.push(path);
+      }
+    }
+
+    return out;
+  };
+
+  const getFileHandle = async (path: string, create: boolean): Promise<FsFileHandle | null> => {
+    const cleanPath = normalizePath(path);
+    if (!cleanPath) return null;
+
+    const cached = cache.get(cleanPath);
+    if (cached) return cached;
+
+    const parts = cleanPath.split('/').filter((part) => part.length > 0);
+    if (parts.length === 0) return null;
+
+    let dir = root;
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const part = parts[i]!;
+      try {
+        dir = await dir.getDirectoryHandle(part, { create });
+      } catch {
+        if (!create) return null;
+        throw new Error(`Failed to access directory ${part} for path ${cleanPath}`);
+      }
+    }
+
+    const fileName = parts[parts.length - 1]!;
+    try {
+      const handle = await dir.getFileHandle(fileName, { create });
+      cache.set(cleanPath, handle);
+      return handle;
+    } catch {
+      if (!create) return null;
+      throw new Error(`Failed to access file ${fileName} for path ${cleanPath}`);
+    }
+  };
+
+  return {
+    listFiles: async () => {
+      const paths = await walk(root);
+      return paths.map(normalizePath).sort((a, b) => a.localeCompare(b));
+    },
+    readFile: async (path: string) => {
+      const handle = await getFileHandle(path, false);
+      if (!handle) return null;
+      const file = await handle.getFile();
+      return file.text();
+    },
+    writeFile: async (path: string, content: string) => {
+      const handle = await getFileHandle(path, true);
+      if (!handle) {
+        throw new Error(`Could not resolve writable file handle for ${path}`);
+      }
+
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+    },
+  };
+};
+
+const ensureSeedFiles = async (fs: ProjectFilesystemProvider): Promise<void> => {
+  const files = await fs.listFiles();
+  const hasPageJson = files.includes('page.json');
+  const hasHtml = files.some((file) => file === 'index.html' || file === 'src/index.html');
+  const hasCss = files.some((file) => file === 'styles.css' || file === 'src/styles.css' || file === 'src/index.css');
+
+  if (!hasPageJson && !hasHtml) {
+    await fs.writeFile(
+      'index.html',
+      '<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Filesystem Demo</title><link rel="stylesheet" href="styles.css" /></head><body><main id="app-root"><h1 id="title">Filesystem-backed EditorTs</h1><p id="body">Connect a source and start editing real files.</p></main></body></html>'
+    );
+  }
+
+  if (!hasCss) {
+    await fs.writeFile(
+      'styles.css',
+      'body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; }\n#app-root { max-width: 820px; margin: 0 auto; padding: 2rem 1rem; }\n#title { font-size: 2rem; margin-bottom: 0.5rem; }'
+    );
+  }
+};
+
+export default function App() {
+  let editor: ReturnType<typeof init> | null = null;
+  const permissionQueue: Array<{
+    request: ProjectFilesystemPermissionRequest;
+    resolve: (reply: ProjectFilesystemPermissionReply) => void;
+  }> = [];
+  let activePermissionRequest: {
+    request: ProjectFilesystemPermissionRequest;
+    resolve: (reply: ProjectFilesystemPermissionReply) => void;
+  } | null = null;
+
+  const [mode, setMode] = createSignal<FsMode>('browser-folder');
+  const [apiBaseUrl, setApiBaseUrl] = createSignal(window.location.origin);
+  const [projectRoot, setProjectRoot] = createSignal('');
+  const [previewBaseUrl, setPreviewBaseUrl] = createSignal('');
+  const [aiBaseUrl, setAiBaseUrl] = createSignal(
+    loadStoredAiBaseUrl(AI_BASE_URL_STORAGE_KEY, DEFAULT_AI_BASE_URL),
+  );
+  const [statusText, setStatusText] = createSignal('No project connected');
+  const [hasProject, setHasProject] = createSignal(false);
+  const [pendingPermissionRequest, setPendingPermissionRequest] =
+    createSignal<ProjectFilesystemPermissionRequest | null>(null);
+
+  const describePermissionRequest = (request: ProjectFilesystemPermissionRequest): string => {
+    const targets = request.paths.join(', ');
+    return `${request.permission}: ${targets}`;
+  };
+
+  const processNextPermissionRequest = (): void => {
+    if (activePermissionRequest) return;
+    const next = permissionQueue.shift();
+    if (!next) {
+      setPendingPermissionRequest(null);
+      return;
+    }
+
+    activePermissionRequest = next;
+    setPendingPermissionRequest(next.request);
+    setStatusText(`Permission requested: ${describePermissionRequest(next.request)}`);
+  };
+
+  const enqueuePermissionRequest = (
+    request: ProjectFilesystemPermissionRequest
+  ): Promise<ProjectFilesystemPermissionReply> => {
+    return new Promise<ProjectFilesystemPermissionReply>((resolve) => {
+      permissionQueue.push({ request, resolve });
+      processNextPermissionRequest();
+    });
+  };
+
+  const clearPermissionRequests = (): void => {
+    if (activePermissionRequest) {
+      activePermissionRequest.resolve('reject');
+      activePermissionRequest = null;
+    }
+
+    while (permissionQueue.length > 0) {
+      const item = permissionQueue.shift();
+      item?.resolve('reject');
+    }
+
+    setPendingPermissionRequest(null);
+  };
+
+  const respondToPermissionRequest = (reply: ProjectFilesystemPermissionReply): void => {
+    if (!activePermissionRequest) return;
+
+    const current = activePermissionRequest;
+    activePermissionRequest = null;
+    setPendingPermissionRequest(null);
+    current.resolve(reply);
+
+    setStatusText(`Permission ${reply}: ${describePermissionRequest(current.request)}`);
+    processNextPermissionRequest();
+  };
+
+  const initializeWithProvider = async (
+    fs: ProjectFilesystemProvider,
+    connectedMessage: string,
+    sessionNamespaceSuffix: string
+  ): Promise<void> => {
+    clearPermissionRequests();
+
+    await ensureSeedFiles(fs);
+
+    if (editor) {
+      editor.destroy();
+      editor = null;
+    }
+
+    const editorConfig: InitConfig = {
+      iframeId: 'preview-iframe',
+      codeEditor: {
+        provider: 'textarea',
+      },
+      content: {
+        adapter: new ProjectFilesystemAdapter({
+          fs,
+          loadStrategy: 'auto',
+          preview: {
+            appBaseUrl: previewBaseUrl().trim() || undefined,
+          },
+          permissions: {
+            defaultAction: 'allow',
+            rules: [
+              { permission: 'external_directory', pattern: '*', action: 'ask' },
+              { permission: 'edit', pattern: '*', action: 'ask' },
+            ],
+            onRequest: async (request: ProjectFilesystemPermissionRequest): Promise<ProjectFilesystemPermissionReply> => {
+              return enqueuePermissionRequest(request);
+            },
+          },
+          save: {
+            writeHtml: true,
+            writeCss: true,
+            writeComponentScripts: true,
+            writePageJson: false,
+          },
+        }),
+      },
+      aiProvider: {
+        provider: 'opencode',
+        mode: 'client',
+        baseUrl: aiBaseUrl(),
+        stream: { enabled: true },
+        sessions: {
+          storageNamespace: `filesystem-solid:${sessionNamespaceSuffix}`,
+          hydrateRemoteList: false,
+        },
+      },
+      toolbars: {
+        byType: {
+          box: {
+            enabled: true,
+            actions: [
+              { id: 'edit', label: 'Edit', icon: '✏️', enabled: true },
+              { id: 'duplicate', label: 'Duplicate', icon: '📋', enabled: true },
+            ],
+          },
+        },
+      },
+      customComponents: {
+        hero: createCustomComponentDefinition({
+          type: 'hero',
+          label: 'Hero',
+          iconSvg:
+            '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16"/><path d="M4 10h10"/><path d="M4 14h16"/><path d="M4 18h10"/></svg>',
+          factory: () => ({
+            type: 'hero',
+            tagName: 'section',
+            attributes: { id: `hero-${Date.now()}`, class: 'hero' },
+            components: [
+              { type: 'text', tagName: 'h1', attributes: { id: `hero-title-${Date.now()}` }, content: 'Hero Title' },
+              { type: 'text', tagName: 'p', attributes: { id: `hero-subtitle-${Date.now()}` }, content: 'Filesystem subtitle text' },
+            ],
+          }),
+        }),
+      },
+      ui: {
+        stats: { containerId: 'stats-container', enabled: true },
+        layers: { containerId: 'layers-container', enabled: true },
+        selectedInfo: { containerId: 'selected-info', enabled: true },
+        pages: {
+          containerId: 'pages-container',
+          enabled: true,
+          render: ({ container, pages, activePageIndex, onSelect }: PagesRenderProps) => {
+            container.innerHTML = pages
+              .map((page, index) => {
+                const label = page.title?.trim() ? page.title.trim() : `Page ${index + 1}`;
+                const isActive = index === activePageIndex;
+                return `<button type="button" data-page-index="${index}" style="margin-right:0.25rem; padding:0.25rem 0.5rem; ${isActive ? 'background:#4f46e5; color:white;' : ''}">${label}</button>`;
+              })
+              .join('');
+
+            container.querySelectorAll('[data-page-index]').forEach((button) => {
+              button.addEventListener('click', () => {
+                const index = Number((button as HTMLElement).dataset.pageIndex);
+                if (Number.isFinite(index)) onSelect(index);
+              });
+            });
+          },
+        },
+        componentPalette: { containerId: 'component-palette', enabled: true },
+        editors: {
+          files: { containerId: 'files-viewer-container', enabled: true },
+          viewer: { containerId: 'viewer-editor-container', enabled: true },
+          js: { containerId: 'js-editor-container', enabled: true },
+          css: { containerId: 'css-editor-container', enabled: true },
+          json: { containerId: 'json-editor-container', enabled: true },
+          jsx: { containerId: 'jsx-editor-container', enabled: true },
+        },
+        viewTabs: {
+          editorButtonId: 'tab-editor',
+          codeButtonId: 'tab-code',
+          defaultView: 'editor',
+        },
+        codeTabs: {
+          filesButtonId: 'code-tab-files',
+          viewerButtonId: 'code-tab-viewer',
+          jsButtonId: 'code-tab-js',
+          cssButtonId: 'code-tab-css',
+          jsonButtonId: 'code-tab-json',
+          jsxButtonId: 'code-tab-jsx',
+          defaultTab: 'files',
+        },
+        aiChat: {
+          rootId: SHARED_AI_UI_IDS.chatRoot,
+          inputId: SHARED_AI_UI_IDS.chatInput,
+          sendButtonId: SHARED_AI_UI_IDS.chatSendButton,
+          applyButtonId: SHARED_AI_UI_IDS.chatApplyButton,
+          logId: SHARED_AI_UI_IDS.chatLog,
+          statusId: SHARED_AI_UI_IDS.chatStatus,
+          sessionListId: SHARED_AI_UI_IDS.sessionList,
+          modelSelectId: SHARED_AI_UI_IDS.modelSelect,
+          sessionNewButtonId: SHARED_AI_UI_IDS.sessionNewButton,
+          sessionResetButtonId: SHARED_AI_UI_IDS.sessionResetButton,
+          healthButtonId: SHARED_AI_UI_IDS.healthButton,
+          healthStatusId: SHARED_AI_UI_IDS.healthStatus,
+          baseUrlInputId: SHARED_AI_UI_IDS.baseUrlInput,
+          autoApply: false,
+          stream: { enabled: true },
+          link: {
+            anchorId: SHARED_AI_UI_IDS.link,
+            path: '/chats',
+            enabled: true,
+          },
+          enabled: true,
+        },
+        commandPalette: {
+          containerId: 'command-palette',
+          inputId: 'command-palette-input',
+          resultsId: 'command-palette-results',
+          closeButtonId: 'command-palette-close',
+          hintId: 'command-palette-hint',
+          enabled: true,
+        },
+      },
+      onComponentSelect: (component: Component) => {
+        console.log('Selected:', component.attributes?.id);
+      },
+    };
+
+    editor = init(editorConfig);
+    installAiDiffPreview(editor);
+    setAiDiffEmptyState(
+      'Generate a reply with file replacements to inspect it here before applying.',
+      'Awaiting AI changes',
+    );
+    await editor.content.load();
+    const preview = await editor.preview.describe();
+    setHasProject(true);
+    if (preview?.mode === 'app-url' && preview.baseUrl) {
+      const routeCount = preview.routes.length;
+      setStatusText(`${connectedMessage} App preview: ${preview.baseUrl}${routeCount > 0 ? ` (${routeCount} route${routeCount === 1 ? '' : 's'} discovered)` : ''}.`);
+    } else if (preview?.runtime === 'app') {
+      setStatusText(`${connectedMessage} App workspace detected. Add an App Preview URL to boot the real app in the canvas.`);
+    } else {
+      setStatusText(connectedMessage);
+    }
+
+    (window as unknown as { editor?: ReturnType<typeof init> }).editor = editor;
+  };
+
+  const onPickProject = async () => {
+    if (!supportsDirectoryPicker()) {
+      setStatusText('This browser does not support showDirectoryPicker().');
+      return;
+    }
+
+    try {
+      setStatusText('Opening project folder picker...');
+      const host = getDirectoryPickerHost();
+      const picker = host.showDirectoryPicker;
+      if (!picker) {
+        setStatusText('Directory picker is unavailable.');
+        return;
+      }
+
+      const root = await picker();
+      const fs = createFolderProvider(root);
+      const folderName = typeof root.name === 'string' && root.name.trim().length > 0
+        ? root.name.trim()
+        : 'browser-folder';
+      const sessionNamespace = sanitizeSessionNamespaceSegment(folderName) || 'browser-folder';
+      await initializeWithProvider(fs, 'Browser folder connected. Files tab is live.', sessionNamespace);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.toLowerCase().includes('abort')) {
+        setStatusText('Folder selection cancelled.');
+      } else {
+        setStatusText(`Failed to open folder: ${message}`);
+      }
+    }
+  };
+
+  const onConnectServerRoutes = async () => {
+    const root = projectRoot().trim();
+    if (!root) {
+      setStatusText('Enter a project root path for server-routes mode.');
+      return;
+    }
+
+    try {
+      setStatusText('Connecting to server routes...');
+      const fs = createServerRoutesProvider({
+        baseUrl: apiBaseUrl(),
+        root,
+      });
+      const sessionNamespace = sanitizeSessionNamespaceSegment(root) || 'server-routes';
+      await initializeWithProvider(fs, `Server routes connected: ${root}`, sessionNamespace);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatusText(`Server routes connection failed: ${message}`);
+    }
+  };
+
+  const onReloadProject = async () => {
+    if (!editor) return;
+
+    try {
+      setStatusText('Reloading project files...');
+      await editor.content.load();
+      editor.refresh();
+      await editor.preview.refresh();
+      setStatusText('Project reloaded.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatusText(`Reload failed: ${message}`);
+    }
+  };
+
+  const handleAiBaseUrlChange = (value: string): void => {
+    setAiBaseUrl(value);
+    persistAiBaseUrl(AI_BASE_URL_STORAGE_KEY, value);
+  };
+
+  onCleanup(() => {
+    clearPermissionRequests();
+    editor?.destroy();
+  });
+
+  return (
+    <AppShell
+      fsSupported={supportsDirectoryPicker()}
+      hasProject={hasProject()}
+      mode={mode()}
+      apiBaseUrl={apiBaseUrl()}
+      projectRoot={projectRoot()}
+      previewBaseUrl={previewBaseUrl()}
+      aiBaseUrl={aiBaseUrl()}
+      statusText={statusText()}
+      permissionRequest={pendingPermissionRequest()}
+      onModeChange={(nextMode) => {
+        setMode(nextMode);
+        setStatusText(nextMode === 'browser-folder'
+          ? 'Browser-folder mode selected.'
+          : 'Server-routes mode selected. Configure API base URL and root path.');
+      }}
+      onApiBaseUrlChange={(value) => {
+        setApiBaseUrl(value);
+      }}
+      onProjectRootChange={(value) => {
+        setProjectRoot(value);
+      }}
+      onPreviewBaseUrlChange={(value) => {
+        setPreviewBaseUrl(value);
+      }}
+      onAiBaseUrlChange={handleAiBaseUrlChange}
+      onPickProject={() => {
+        void onPickProject();
+      }}
+      onConnectServerRoutes={() => {
+        void onConnectServerRoutes();
+      }}
+      onReloadProject={() => {
+        void onReloadProject();
+      }}
+      onPermissionReply={(reply) => {
+        respondToPermissionRequest(reply);
+      }}
+    />
+  );
+}

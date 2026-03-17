@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { createCfPageMetaStore, createCfSyncWorker } from '../src/server/cf_worker';
-import type { EditorTsSyncMessage } from '../src/types';
-import type { PageMeta } from '../src/server/sync';
+import { createCfPageMetaStore, createCfSyncWorker } from '../core/src/server/cf_worker';
+import type { EditorTsSyncMessage } from '../core/src/types';
+import type { PageMeta } from '../core/src/server/sync';
 
 type Stub = {
   fetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>;
@@ -61,7 +61,7 @@ const createNamespace = () => {
 describe('createCfPageMetaStore', () => {
   it('calls durable object endpoints', async () => {
     const { calls, namespace } = createNamespace();
-    const store = createCfPageMetaStore(namespace as unknown as import('../src/server/cf_worker').DurableObjectNamespace);
+    const store = createCfPageMetaStore(namespace as unknown as import('../core/src/server/cf_worker').DurableObjectNamespace);
 
     const meta: PageMeta = {
       key: 'page-1',

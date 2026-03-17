@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { buildIframeCanvasSrcdoc, buildIframeCanvasSrcdocFromPage } from '../src/core/iframeCanvas';
-import { Page } from '../src/core/Page';
-import type { PageData } from '../src/types';
+import { buildIframeCanvasSrcdoc, buildIframeCanvasSrcdocFromPage } from '../core/src/core/iframeCanvas';
+import { Page } from '../core/src/core/Page';
+import type { PageData } from '../core/src/types';
 
 describe('iframeCanvas', () => {
   it('builds srcdoc with title, css, and html', () => {
