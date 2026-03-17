@@ -5,12 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "dev:native": "bash ./scripts/dev-native.sh",
+    "dev:native:shell": "bun x electrobun dev",
+    "build": "bun run build:web && bun run build:native",
+    "build:web": "vite build",
+    "build:native": "bun x electrobun build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@editorts/starter-shared": "workspace:*",
     "editor-ts": "workspace:*",
+    "electrobun": "^1.15.1",
     "solid-js": "^1.9.0"
   },
   "devDependencies": {

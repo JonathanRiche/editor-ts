@@ -224,6 +224,14 @@ export interface OpencodeAiProviderConfig {
 
   // Client-only mode
   baseUrl?: string;
+  /**
+   * Optional project working directory forwarded to OpenCode client mode.
+   *
+   * When provided, the SDK sends it as `x-opencode-directory` so server-side
+   * session/project operations run against the intended workspace instead of
+   * the server process cwd.
+   */
+  directory?: string;
 
   // Client+server mode
   hostname?: OpencodeServerLaunchOptions['hostname'];

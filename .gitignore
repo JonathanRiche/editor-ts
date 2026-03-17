@@ -4,6 +4,7 @@ opencode
 # output
 out
 dist
+build
 *.tgz
 
 # code coverage

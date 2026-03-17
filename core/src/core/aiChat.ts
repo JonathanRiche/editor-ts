@@ -365,6 +365,38 @@ const formatStreamError = (error: unknown): string => {
   return 'OpenCode stream failed.';
 };
 
+type RawMessagePartDeltaEvent = {
+  type: 'message.part.delta';
+  properties?: {
+    sessionID?: unknown;
+    messageID?: unknown;
+    partID?: unknown;
+    delta?: unknown;
+  };
+};
+
+const isRawMessagePartDeltaEvent = (event: unknown): event is RawMessagePartDeltaEvent => {
+  if (!event || typeof event !== 'object') return false;
+  const record = event as { type?: unknown };
+  return record.type === 'message.part.delta';
+};
+
+const readDeltaEventSessionId = (event: RawMessagePartDeltaEvent): string | null => {
+  return typeof event.properties?.sessionID === 'string' && event.properties.sessionID.trim()
+    ? event.properties.sessionID
+    : null;
+};
+
+const readDeltaEventMessageId = (event: RawMessagePartDeltaEvent): string | null => {
+  return typeof event.properties?.messageID === 'string' && event.properties.messageID.trim()
+    ? event.properties.messageID
+    : null;
+};
+
+const readDeltaEventText = (event: RawMessagePartDeltaEvent): string => {
+  return typeof event.properties?.delta === 'string' ? event.properties.delta : '';
+};
+
 const readLatestAssistantMessage = async (args: {
   client: OpencodeClient;
   sessionId: string;
@@ -683,6 +715,30 @@ export const requestAiReplacements = async (args: {
               assembled += nextDelta;
               assistantMessageHasText = true;
               onStream(nextDelta);
+            }
+
+            continue;
+          }
+
+          if (isRawMessagePartDeltaEvent(event)) {
+            const deltaSessionId = readDeltaEventSessionId(event);
+            const deltaMessageId = readDeltaEventMessageId(event);
+            const deltaText = readDeltaEventText(event);
+
+            if (deltaSessionId !== sessionId || !deltaMessageId) {
+              continue;
+            }
+
+            if (!canSwitchTrackedAssistant(deltaMessageId)) {
+              continue;
+            }
+
+            startTrackingAssistantMessage(deltaMessageId);
+
+            if (deltaText.length > 0) {
+              assembled += deltaText;
+              assistantMessageHasText = true;
+              onStream(deltaText);
             }
 
             continue;

@@ -1206,6 +1206,9 @@ export function init(config: InitConfig): EditorTsEditor {
 
                 return sdk.createOpencodeClient({
                   baseUrl,
+                  directory: typeof aiConfig.directory === 'string' && aiConfig.directory.trim().length > 0
+                    ? aiConfig.directory.trim()
+                    : undefined,
                   fetch: auth ? createAuthedFetch(auth.username ?? 'opencode', auth.password) : undefined,
                 });
               }

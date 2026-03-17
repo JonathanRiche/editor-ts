@@ -9,8 +9,15 @@ import type {
 
 type FsMode = 'browser-folder' | 'server-routes';
 
+type RecentProject = {
+  path: string;
+  label?: string;
+  openedAt?: number;
+};
+
 type AppShellProps = {
   fsSupported: boolean;
+  nativeRuntime?: boolean;
   statusText: string;
   hasProject: boolean;
   mode: FsMode;
@@ -18,12 +25,16 @@ type AppShellProps = {
   projectRoot: string;
   previewBaseUrl: string;
   aiBaseUrl: string;
+  aiDirectory: string;
+  recentProjects: RecentProject[];
   permissionRequest: ProjectFilesystemPermissionRequest | null;
   onModeChange: (mode: FsMode) => void;
   onApiBaseUrlChange: (value: string) => void;
   onProjectRootChange: (value: string) => void;
   onPreviewBaseUrlChange: (value: string) => void;
   onAiBaseUrlChange: (value: string) => void;
+  onAiDirectoryChange: (value: string) => void;
+  onOpenRecentProject: (projectPath: string) => void;
   onPickProject: () => void;
   onConnectServerRoutes: () => void;
   onReloadProject: () => void;
@@ -40,6 +51,10 @@ export default function AppShell(props: AppShellProps) {
   let observer: MutationObserver | undefined;
 
   const workspaceDescription = () => {
+    if (props.nativeRuntime && props.mode === 'browser-folder') {
+      return 'Open a native project directory through the Electrobun shell. EditorTs will use the desktop filesystem bridge instead of the browser File System Access API.';
+    }
+
     if (props.mode === 'browser-folder') {
       return 'Pick a local folder to grant EditorTs file access through the browser File System Access API.';
     }
@@ -48,6 +63,10 @@ export default function AppShell(props: AppShellProps) {
   };
 
   const modeSummary = () => {
+    if (props.nativeRuntime && props.mode === 'browser-folder') {
+      return 'Native folder';
+    }
+
     if (props.mode === 'browser-folder') {
       return 'Browser folder';
     }
@@ -104,7 +123,9 @@ export default function AppShell(props: AppShellProps) {
                     }
                   }}
                 >
-                  {props.mode === 'browser-folder' ? 'Open Folder' : 'Connect Routes'}
+                  {props.mode === 'browser-folder'
+                    ? props.nativeRuntime ? 'Open Native Folder' : 'Open Folder'
+                    : 'Connect Routes'}
                 </button>
                 <button
                   type="button"
@@ -125,8 +146,9 @@ export default function AppShell(props: AppShellProps) {
               </div>
 
               <p class="hero-note">
-                Folder mode needs Chromium.
-                {!props.fsSupported ? ' This browser does not expose folder picking.' : ''}
+                {props.nativeRuntime
+                  ? 'Native mode uses the Electrobun shell for folder access and desktop persistence.'
+                  : `Folder mode needs Chromium.${!props.fsSupported ? ' This browser does not expose folder picking.' : ''}`}
               </p>
             </section>
           </div>
@@ -172,7 +194,7 @@ export default function AppShell(props: AppShellProps) {
                     class={cx('mode-btn', props.mode === 'browser-folder' && 'active')}
                     onClick={() => props.onModeChange('browser-folder')}
                   >
-                    Browser Folder
+                    {props.nativeRuntime ? 'Native Folder' : 'Browser Folder'}
                   </button>
                   <button
                     type="button"
@@ -274,6 +296,29 @@ export default function AppShell(props: AppShellProps) {
                 )}
               </section>
 
+              {props.nativeRuntime && props.recentProjects.length > 0 && (
+                <section class="card">
+                  <div class="card-heading">
+                    <strong class="section-title">Recent projects</strong>
+                    <span class="section-chip">{props.recentProjects.length}</span>
+                  </div>
+                  <div class="recent-projects">
+                    {props.recentProjects.map((project) => (
+                      <button
+                        type="button"
+                        class="recent-project"
+                        onClick={() => props.onOpenRecentProject(project.path)}
+                      >
+                        <span class="recent-project-label">
+                          {project.label ?? project.path.split('/').filter(Boolean).at(-1) ?? project.path}
+                        </span>
+                        <span class="recent-project-path">{project.path}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               <section class="card">
                 <strong class="section-title">Pages</strong>
                 <div id="pages-container" />
@@ -292,6 +337,24 @@ export default function AppShell(props: AppShellProps) {
 
             <div class="panel-stack" hidden={activeSidebarTab() !== 'ai'}>
               <AiConnectionPanel aiBaseUrl={props.aiBaseUrl} onAiBaseUrlChange={props.onAiBaseUrlChange} />
+
+              <section class="card">
+                <strong class="section-title">AI workspace</strong>
+                <label class="field">
+                  <span class="field-caption">AI Working Directory</span>
+                  <input
+                    type="text"
+                    value={props.aiDirectory}
+                    onInput={(event) => props.onAiDirectoryChange(event.currentTarget.value)}
+                    placeholder={props.mode === 'server-routes' ? props.projectRoot || '/home/user/my-project' : '/absolute/path/to/project'}
+                  />
+                </label>
+                <p>
+                  {props.nativeRuntime
+                    ? 'OpenCode needs a real absolute project path to scope sessions and edits. Native folder connections reuse the selected project path automatically, but you can still override it here.'
+                    : 'OpenCode needs a real absolute project path to scope sessions and edits. In Server Routes mode this should match the project root. In Browser Folder mode, enter the actual local path manually because the browser does not expose it.'}
+                </p>
+              </section>
             </div>
 
             <div class="panel-stack" hidden={activeSidebarTab() !== 'structure'}>

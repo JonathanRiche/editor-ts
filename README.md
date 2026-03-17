@@ -19,9 +19,14 @@ Root workspace commands:
 
 - `bun run dev`: quickstart/local server
 - `bun run dev:web`: web starter
-- `bun run dev:desktop`: desktop/filesystem starter
+- `bun run dev:desktop`: desktop/filesystem browser renderer
+- `bun run dev:desktop:native`: Electrobun desktop shell + desktop renderer
+- `bun run dev:desktop:native:ai`: Electrobun desktop shell + desktop renderer + OpenCode
 - `bun run dev:localsql`: SQLocal starter
 - `bun run build`: build the full workspace
+- `bun run build:desktop`: build the desktop renderer and native Electrobun package
+- `bun run build:desktop:web`: build only the desktop renderer
+- `bun run build:desktop:native`: build only the native Electrobun package
 - `bun run test`: run package-oriented tests
 
 ## Core concepts
@@ -205,6 +210,30 @@ Open `http://localhost:2050` and use either:
 - **Open Folder** (browser File System Access API), or
 - **Server Routes** mode for host/VM/container filesystem access via `/api/fs/*`.
 
+Electrobun desktop shell:
+
+```bash
+bun run dev:desktop:native
+```
+
+The Electrobun path is being introduced incrementally. It uses Bun in the main
+process, exposes a native desktop API to the renderer, and initializes desktop
+app state in SQLite under the native user-data directory. Native project picks are
+stored as recent projects and the last connected native project is restored on launch.
+
+Desktop build commands:
+
+```bash
+bun run build:desktop
+```
+
+For renderer-only or native-only output:
+
+```bash
+bun run build:desktop:web
+bun run build:desktop:native
+```
+
 ### Toolbars (runtime only)
 
 ```ts
@@ -362,6 +391,7 @@ const editor = init({
     provider: 'opencode',
     mode: 'client',
     baseUrl: 'http://localhost:4096',
+    directory: '/absolute/path/to/project',
 
     // Optional: pass your own client
     client: createOpencodeClient({ baseUrl: 'http://localhost:4096' }),
@@ -379,6 +409,9 @@ opencode serve --port 4096 --cors https://your-app.example.com
 ```
 
 EditorTs uses the OpenCode SDK's fetch + event-stream subscription model for streaming chat output. It does not open a direct WebSocket for AI chat.
+
+When you need OpenCode sessions to run against a specific local project, pass
+`aiProvider.directory` so the client forwards `x-opencode-directory` to the server.
 
 For the full hosted + local-files workflow, recommend Chromium browsers because folder access depends on the File System Access API.
 
@@ -408,6 +441,7 @@ Workspace layout:
 - `core/`: the `editor-ts` library package
 - `packages/web`: web starter
 - `packages/desktop`: desktop/filesystem starter
+- `packages/desktop/src/bun`: Electrobun native shell entry + desktop SQLite bootstrap
 - `packages/localsql`: SQLocal starter
 - `packages/quickstart`: root quickstart wiring and quickstart-owned assets
 - `packages/starter-shared`: shared starter UI/runtime helpers
