@@ -7,7 +7,8 @@ declare global {
       sqlitePath: string;
       userDataPath: string;
       rendererUrl: string;
-      nativeApiBaseUrl: string;
+      uiScale?: number;
+      bundledRenderer?: boolean;
     };
   }
 }

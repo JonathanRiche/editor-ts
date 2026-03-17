@@ -1,9 +1,9 @@
 # EditorTs Desktop
 
-This package currently contains two desktop-facing paths:
+This package contains:
 
-- a browser/Vite renderer used during the existing migration
-- an Electrobun native shell scaffold that will become the long-term desktop runtime
+- a browser/Vite renderer for filesystem and hosted testing
+- an Electrobun native desktop runtime for real local project access
 
 The renderer runs EditorTs in a SolidJS app with a filesystem-backed content adapter.
 
@@ -26,8 +26,8 @@ field. OpenCode needs a real absolute project path for session/workspace scoping
 ## Setup
 
 ```bash
-cd packages/desktop
 bun install
+cd packages/desktop
 ```
 
 ## Run
@@ -58,6 +58,9 @@ Native packaging build:
 bun run build
 ```
 
+`bun run build:native` also runs the renderer prebuild automatically, so packaged
+desktop output always includes the latest copied `views/` assets.
+
 If you only want one half of the desktop target:
 
 ```bash
@@ -68,14 +71,21 @@ bun run build:native
 Electrobun app state is initialized with SQLite in the native app-data directory
 via `Utils.paths.userData`, using `editorts-desktop.sqlite`.
 
-In native mode, the Electrobun main process also starts a desktop API bridge that the
-renderer uses for:
+The desktop renderer does not ship SQLocal or OPFS SQLite worker assets. Desktop
+state stays on the native Bun/SQLite side instead of pulling the browser storage
+stack into the packaged app.
+
+In native mode, the Electrobun main process exposes desktop functionality over
+Electrobun RPC. The renderer uses that native RPC path for:
 
 - native folder picking
 - filesystem reads/writes
 - persisted desktop settings (`aiBaseUrl`, `aiDirectory`, `previewBaseUrl`, `lastProjectRoot`)
 - recent-project tracking
 - automatic restore of the last connected native project
+
+Packaged native builds use the bundled renderer assets copied into `views/`.
+Only development mode depends on the local Vite URL.
 
 ## Browser support
 
@@ -99,7 +109,7 @@ If your browser does not support it, use **Server Routes** mode.
 1. Start the native shell with `bun run dev:native` or `bun run dev:desktop:native`.
 2. Click **Open Native Folder**.
 3. Pick a real project directory through the native dialog.
-4. EditorTs switches to the native filesystem bridge automatically.
+4. EditorTs switches to the native filesystem RPC provider automatically.
 5. The selected project is stored in desktop SQLite and appears in **Recent projects**.
 6. OpenCode can use the selected absolute project path as its AI working directory.
 7. On the next native launch, EditorTs attempts to restore the last connected native project automatically.
@@ -130,13 +140,20 @@ For safety, requested root paths must be under allowed directories.
 FS_DEMO_ALLOWED_ROOTS="/path/a:/path/b" bun run dev
 ```
 
-The Electrobun native shell runs its own local desktop API instead of the Vite-only
-filesystem routes. That native API is what enables absolute-path project selection and
-SQLite-backed desktop settings and recent-project restore.
+The Electrobun native shell bypasses the Vite-only filesystem HTTP routes for native
+operations. Absolute-path project selection, real file IO, and SQLite-backed desktop
+state all go through the native RPC path instead.
 
 If the native app looks too zoomed in or too small on your platform, override the
 desktop webview zoom factor:
 
 ```bash
 EDITORTS_DESKTOP_ZOOM=0.9 bun run dev:native
+```
+
+If the native wrapper ignores that zoom change, use the renderer-level desktop UI
+scale instead:
+
+```bash
+EDITORTS_DESKTOP_UI_SCALE=0.8 bun run dev:native
 ```

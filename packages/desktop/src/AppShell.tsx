@@ -52,7 +52,7 @@ export default function AppShell(props: AppShellProps) {
 
   const workspaceDescription = () => {
     if (props.nativeRuntime && props.mode === 'browser-folder') {
-      return 'Open a native project directory through the Electrobun shell. EditorTs will use the desktop filesystem bridge instead of the browser File System Access API.';
+      return 'Open a native project directory through the Electrobun shell. EditorTs will use the desktop RPC filesystem provider instead of the browser File System Access API.';
     }
 
     if (props.mode === 'browser-folder') {

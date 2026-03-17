@@ -7,6 +7,7 @@ import { fileURLToPath, URL } from 'node:url';
 
 const OPENCODE_BROWSER_STUB = fileURLToPath(new URL('../starter-shared/src/opencode-sdk-browser.ts', import.meta.url));
 const OPENCODE_SERVER_BROWSER_STUB = fileURLToPath(new URL('../starter-shared/src/opencode-sdk-server-browser.ts', import.meta.url));
+const SQLOCAL_DISABLED_STUB = fileURLToPath(new URL('./src/sqlocal-disabled.ts', import.meta.url));
 
 const BLOCKED_DIRS = new Set(['.git', 'node_modules', 'dist', '.vite']);
 
@@ -243,7 +244,45 @@ const opencodeBrowserAliasPlugin = (): Plugin => {
 };
 
 export default defineConfig({
+  base: './',
   plugins: [opencodeBrowserAliasPlugin(), solid(), fsRoutesPlugin()],
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+
+          if (id.includes('/typescript/')) {
+            return 'vendor-typescript';
+          }
+
+          if (id.includes('/modern-monaco/')) {
+            return 'vendor-monaco';
+          }
+
+          if (id.includes('/@opencode-ai/')) {
+            return 'vendor-opencode';
+          }
+
+          if (
+            id.includes('/@sqlite.org/') ||
+            id.includes('sqlite3-worker1-bundler-friendly') ||
+            id.includes('sqlite3-opfs-async-proxy')
+          ) {
+            return 'vendor-sqlite';
+          }
+
+          if (id.includes('/solid-js/')) {
+            return 'vendor-solid';
+          }
+
+          return 'vendor';
+        },
+      },
+    },
+  },
   worker: {
     format: 'es',
   },
@@ -256,6 +295,10 @@ export default defineConfig({
       {
         find: /^@opencode-ai\/sdk\/server$/,
         replacement: OPENCODE_SERVER_BROWSER_STUB,
+      },
+      {
+        find: /^sqlocal$/,
+        replacement: SQLOCAL_DISABLED_STUB,
       },
     ],
   },

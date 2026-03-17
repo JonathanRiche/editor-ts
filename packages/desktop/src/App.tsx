@@ -18,6 +18,16 @@ import {
   setAiDiffEmptyState,
 } from '@editorts/starter-shared/aiRuntime';
 import AppShell from './AppShell';
+import {
+  createNativeProjectProvider,
+  defaultHttpApiBaseUrl,
+  fetchNativeDesktopState,
+  isNativeDesktopRuntime,
+  openNativeProjectDirectory,
+  persistNativeDesktopSetting,
+  persistNativeRecentProject,
+  type DesktopRecentProject,
+} from './desktopNativeRpc';
 
 type FsMode = 'browser-folder' | 'server-routes';
 
@@ -41,39 +51,11 @@ type DirectoryPickerHost = {
   showDirectoryPicker?: () => Promise<FsDirectoryHandle>;
 };
 
-type FsListResponse = {
-  files?: unknown;
-  error?: unknown;
-};
-
-type FsReadResponse = {
-  content?: unknown;
-  error?: unknown;
-};
-
-type DesktopNativeStateResponse = {
-  sqlitePath?: unknown;
-  userDataPath?: unknown;
-  recentProjects?: unknown;
-  settings?: unknown;
-};
-
-type DesktopRecentProject = {
-  path: string;
-  label?: string;
-  openedAt?: number;
-};
-
 type DesktopNativeSettings = {
   aiBaseUrl?: string | null;
   aiDirectory?: string | null;
   previewBaseUrl?: string | null;
   lastProjectRoot?: string | null;
-};
-
-type DesktopOpenProjectResponse = {
-  path?: unknown;
-  label?: unknown;
 };
 
 const AI_BASE_URL_STORAGE_KEY = 'editorts:filesystem-solid:ai-base-url';
@@ -125,15 +107,6 @@ const buildApiUrl = (baseUrl: string, endpoint: string, params?: Record<string, 
   return url.toString();
 };
 
-const isNativeDesktopRuntime = (): boolean => {
-  return typeof window !== 'undefined' && window.__EDITORTS_DESKTOP__?.runtime === 'electrobun';
-};
-
-const getNativeDesktopApiBaseUrl = (): string | null => {
-  const baseUrl = window.__EDITORTS_DESKTOP__?.nativeApiBaseUrl;
-  return typeof baseUrl === 'string' && baseUrl.trim().length > 0 ? baseUrl.trim() : null;
-};
-
 const parseDesktopNativeSettings = (value: unknown): DesktopNativeSettings => {
   if (!value || typeof value !== 'object') {
     return {};
@@ -174,77 +147,6 @@ const parseDesktopRecentProjects = (value: unknown): DesktopRecentProject[] => {
   });
 };
 
-const fetchNativeDesktopState = async (): Promise<DesktopNativeStateResponse | null> => {
-  const baseUrl = getNativeDesktopApiBaseUrl();
-  if (!baseUrl) return null;
-
-  const response = await fetch(buildApiUrl(baseUrl, '/api/desktop/state'));
-  if (!response.ok) {
-    throw new Error(await response.text() || `Desktop state request failed with status ${response.status}`);
-  }
-
-  return (await response.json()) as DesktopNativeStateResponse;
-};
-
-const persistNativeDesktopSetting = async (key: string, value: string): Promise<void> => {
-  const baseUrl = getNativeDesktopApiBaseUrl();
-  if (!baseUrl) return;
-
-  const response = await fetch(buildApiUrl(baseUrl, '/api/desktop/settings'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ key, value }),
-  });
-
-  if (!response.ok) {
-    throw new Error(await response.text() || `Desktop setting request failed with status ${response.status}`);
-  }
-};
-
-const persistNativeRecentProject = async (projectPath: string, label?: string): Promise<void> => {
-  const baseUrl = getNativeDesktopApiBaseUrl();
-  if (!baseUrl) return;
-
-  const response = await fetch(buildApiUrl(baseUrl, '/api/desktop/recent-project'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      path: projectPath,
-      label,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(await response.text() || `Desktop recent-project request failed with status ${response.status}`);
-  }
-};
-
-const openNativeProjectDirectory = async (startingFolder?: string): Promise<string | null> => {
-  const baseUrl = getNativeDesktopApiBaseUrl();
-  if (!baseUrl) return null;
-
-  const response = await fetch(buildApiUrl(baseUrl, '/api/desktop/open-project'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      startingFolder: startingFolder?.trim() || undefined,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(await response.text() || `Desktop open-project request failed with status ${response.status}`);
-  }
-
-  const payload = (await response.json()) as DesktopOpenProjectResponse;
-  return typeof payload.path === 'string' && payload.path.trim().length > 0 ? payload.path.trim() : null;
-};
-
 const createServerRoutesProvider = (args: { baseUrl: string; root: string }): ProjectFilesystemProvider => {
   const { baseUrl, root } = args;
 
@@ -259,7 +161,7 @@ const createServerRoutesProvider = (args: { baseUrl: string; root: string }): Pr
       const response = await fetch(buildApiUrl(baseUrl, '/api/fs/list', { root }));
       await requireOk(response);
 
-      const payload = (await response.json()) as FsListResponse;
+      const payload = await response.json() as { files?: unknown };
       const files = Array.isArray(payload.files)
         ? payload.files.filter((value): value is string => typeof value === 'string')
         : [];
@@ -273,7 +175,7 @@ const createServerRoutesProvider = (args: { baseUrl: string; root: string }): Pr
       }));
       await requireOk(response);
 
-      const payload = (await response.json()) as FsReadResponse;
+      const payload = await response.json() as { content?: unknown };
       return typeof payload.content === 'string' ? payload.content : null;
     },
     writeFile: async (path: string, content: string) => {
@@ -411,7 +313,7 @@ export default function App() {
   } | null = null;
 
   const [mode, setMode] = createSignal<FsMode>('browser-folder');
-  const [apiBaseUrl, setApiBaseUrl] = createSignal(getNativeDesktopApiBaseUrl() ?? window.location.origin);
+  const [apiBaseUrl, setApiBaseUrl] = createSignal(defaultHttpApiBaseUrl());
   const [projectRoot, setProjectRoot] = createSignal('');
   const [previewBaseUrl, setPreviewBaseUrl] = createSignal('');
   const [aiBaseUrl, setAiBaseUrl] = createSignal(
@@ -693,10 +595,12 @@ export default function App() {
 
   const connectProjectRoot = async (args: {
     root: string;
-    baseUrl: string;
+    provider?: ProjectFilesystemProvider;
+    baseUrl?: string;
     connectedMessage: string;
     sessionNamespaceSuffix?: string;
     suggestedAiDirectory?: string;
+    recentProjectLabel?: string;
     nextMode?: FsMode;
     persistLastProject?: boolean;
     persistRecentProject?: boolean;
@@ -707,21 +611,22 @@ export default function App() {
       return;
     }
 
-    const baseUrl = args.baseUrl.trim();
-    if (!baseUrl) {
-      setStatusText('Filesystem API base URL is empty.');
-      return;
-    }
-
     if (args.nextMode) {
       setMode(args.nextMode);
     }
     setProjectRoot(root);
 
-    const fs = createServerRoutesProvider({
-      baseUrl,
-      root,
-    });
+    const fs = args.provider ?? (() => {
+      const baseUrl = args.baseUrl?.trim() ?? '';
+      if (!baseUrl) {
+        throw new Error('Filesystem API base URL is empty.');
+      }
+
+      return createServerRoutesProvider({
+        baseUrl,
+        root,
+      });
+    })();
     const sessionNamespace =
       args.sessionNamespaceSuffix ?? (sanitizeSessionNamespaceSegment(root) || 'project-root');
     await initializeWithProvider(fs, args.connectedMessage, sessionNamespace, args.suggestedAiDirectory ?? root);
@@ -731,7 +636,7 @@ export default function App() {
     }
 
     if (nativeDesktop && args.persistRecentProject) {
-      void persistNativeRecentProject(root);
+      void persistNativeRecentProject(root, args.recentProjectLabel);
     }
   };
 
@@ -742,11 +647,6 @@ export default function App() {
     const settings = parseDesktopNativeSettings(payload?.settings);
     const nextRecentProjects = parseDesktopRecentProjects(payload?.recentProjects);
     setRecentProjects(nextRecentProjects);
-
-    const nextApiBaseUrl = getNativeDesktopApiBaseUrl();
-    if (nextApiBaseUrl) {
-      setApiBaseUrl(nextApiBaseUrl);
-    }
 
     if (typeof settings.lastProjectRoot === 'string' && settings.lastProjectRoot.trim().length > 0) {
       setProjectRoot(settings.lastProjectRoot.trim());
@@ -776,10 +676,11 @@ export default function App() {
 
     await connectProjectRoot({
       root: lastProjectRoot,
-      baseUrl: getNativeDesktopApiBaseUrl() ?? apiBaseUrl(),
+      provider: createNativeProjectProvider(lastProjectRoot),
       connectedMessage: `Native project restored: ${lastProjectRoot}`,
       nextMode: 'browser-folder',
       persistLastProject: false,
+      persistRecentProject: false,
       suggestedAiDirectory: typeof settings.aiDirectory === 'string' && settings.aiDirectory.trim().length > 0
         ? settings.aiDirectory.trim()
         : lastProjectRoot,
@@ -809,7 +710,8 @@ export default function App() {
       setStatusText(nativeDesktop ? 'Opening native project picker...' : 'Opening project folder picker...');
 
       if (nativeDesktop) {
-        const selectedRoot = await openNativeProjectDirectory(projectRoot().trim() || undefined);
+        const selectedProject = await openNativeProjectDirectory(projectRoot().trim() || undefined);
+        const selectedRoot = selectedProject?.path?.trim() ?? '';
         if (!selectedRoot) {
           setStatusText('Project selection cancelled.');
           return;
@@ -817,8 +719,9 @@ export default function App() {
 
         await connectProjectRoot({
           root: selectedRoot,
-          baseUrl: getNativeDesktopApiBaseUrl() ?? apiBaseUrl(),
+          provider: createNativeProjectProvider(selectedRoot),
           connectedMessage: `Native project connected: ${selectedRoot}`,
+          recentProjectLabel: selectedProject?.label,
           nextMode: 'browser-folder',
           persistLastProject: true,
           persistRecentProject: false,
@@ -862,7 +765,7 @@ export default function App() {
       setStatusText('Connecting to server routes...');
       await connectProjectRoot({
         root,
-        baseUrl: nativeDesktop ? (getNativeDesktopApiBaseUrl() ?? apiBaseUrl()) : apiBaseUrl(),
+        baseUrl: apiBaseUrl(),
         connectedMessage: `Server routes connected: ${root}`,
         sessionNamespaceSuffix: sanitizeSessionNamespaceSegment(root) || 'server-routes',
         nextMode: 'server-routes',
@@ -978,7 +881,7 @@ export default function App() {
           try {
             await connectProjectRoot({
               root: projectPath,
-              baseUrl: getNativeDesktopApiBaseUrl() ?? apiBaseUrl(),
+              provider: createNativeProjectProvider(projectPath),
               connectedMessage: `Native project connected: ${projectPath}`,
               nextMode: 'browser-folder',
               persistLastProject: true,

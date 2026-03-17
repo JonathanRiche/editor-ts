@@ -1,22 +1,34 @@
-import { BrowserWindow } from 'electrobun/bun';
+import { BrowserWindow, BuildConfig, PATHS } from 'electrobun/bun';
 
+import { createDesktopRpc } from './desktopRpc';
 import { openDesktopDatabase } from './storage';
-import { startDesktopApiServer } from './server';
 
 const DEFAULT_DESKTOP_RENDERER_URL = 'http://localhost:2050';
 
+const buildConfig = await BuildConfig.get();
+const bundledRendererEntry = typeof buildConfig.runtime?.desktopRendererEntry === 'string'
+  ? buildConfig.runtime.desktopRendererEntry.trim()
+  : '';
+const usingBundledRenderer = bundledRendererEntry.length > 0 && !process.env.EDITORTS_DESKTOP_URL;
+
 const { db, sqlitePath, userDataPath } = openDesktopDatabase();
-const nativeApiServer = startDesktopApiServer({
+const desktopRpc = createDesktopRpc({
   db,
   sqlitePath,
   userDataPath,
 });
 
-const rendererUrl = (process.env.EDITORTS_DESKTOP_URL ?? DEFAULT_DESKTOP_RENDERER_URL).trim();
-const nativeApiBaseUrl = `http://127.0.0.1:${nativeApiServer.port}`;
+const rendererUrl = (process.env.EDITORTS_DESKTOP_URL
+  ?? (usingBundledRenderer ? bundledRendererEntry : DEFAULT_DESKTOP_RENDERER_URL)).trim();
 const configuredZoom = Number(process.env.EDITORTS_DESKTOP_ZOOM ?? '');
 const pageZoom = Number.isFinite(configuredZoom) && configuredZoom > 0
   ? configuredZoom
+  : process.platform === 'linux'
+    ? 0.8
+    : 1;
+const configuredUiScale = Number(process.env.EDITORTS_DESKTOP_UI_SCALE ?? '');
+const uiScale = Number.isFinite(configuredUiScale) && configuredUiScale > 0
+  ? configuredUiScale
   : process.platform === 'linux'
     ? 0.8
     : 1;
@@ -26,7 +38,8 @@ const desktopBoot = {
   sqlitePath,
   userDataPath,
   rendererUrl,
-  nativeApiBaseUrl,
+  uiScale,
+  bundledRenderer: usingBundledRenderer,
 } as const;
 
 const preloadScript = `
@@ -36,12 +49,15 @@ const preloadScript = `
 const mainWindow = new BrowserWindow({
   title: 'EditorTs Desktop',
   url: rendererUrl,
-  width: 1600,
-  height: 1040,
-  resizable: true,
-  devTools: true,
-  backgroundColor: '#161b24',
+  viewsRoot: usingBundledRenderer ? PATHS.VIEWS_FOLDER : null,
+  frame: {
+    x: 60,
+    y: 40,
+    width: 1600,
+    height: 1040,
+  },
   preload: preloadScript,
+  rpc: desktopRpc,
 });
 
 const applyWindowZoom = (): void => {
@@ -54,6 +70,5 @@ mainWindow.webview?.on('did-navigate', applyWindowZoom);
 mainWindow.webview?.on('did-navigate-in-page', applyWindowZoom);
 
 process.on('exit', () => {
-  nativeApiServer.stop(true);
   db.close();
 });

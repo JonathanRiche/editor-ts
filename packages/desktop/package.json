@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:native": "bash ./scripts/dev-native.sh",
     "dev:native:shell": "bun x electrobun dev",
-    "build": "bun run build:web && bun run build:native",
+    "build": "bun run build:native",
     "build:web": "vite build",
     "build:native": "bun x electrobun build",
     "preview": "vite preview"

@@ -4,6 +4,12 @@ import path from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { Utils } from 'electrobun/bun';
 
+import type {
+  DesktopNativeState,
+  DesktopOpenProjectResult,
+  DesktopRecentProject,
+  DesktopSettingKey,
+} from '../shared/desktopRpcSchema';
 import {
   getAppStateValue,
   listRecentProjects,
@@ -12,7 +18,7 @@ import {
 } from './storage';
 
 const BLOCKED_DIRS = new Set(['.git', 'node_modules', 'dist', '.vite']);
-const DESKTOP_SETTINGS_KEYS = new Set([
+const DESKTOP_SETTINGS_KEYS = new Set<DesktopSettingKey>([
   'aiBaseUrl',
   'aiDirectory',
   'previewBaseUrl',
@@ -27,36 +33,6 @@ const isSubPath = (parent: string, child: string): boolean => {
 
   if (normalizedChild === normalizedParent) return true;
   return normalizedChild.startsWith(`${normalizedParent}${path.sep}`);
-};
-
-const jsonResponse = (payload: unknown, status = 200): Response => {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    },
-  });
-};
-
-const emptyResponse = (): Response => {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    },
-  });
-};
-
-const readJsonBody = async (request: Request): Promise<Record<string, unknown>> => {
-  const text = await request.text();
-  if (!text.trim()) return {};
-  const parsed = JSON.parse(text) as unknown;
-  return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
 };
 
 const listFilesRecursive = async (root: string): Promise<string[]> => {
@@ -85,7 +61,7 @@ const listFilesRecursive = async (root: string): Promise<string[]> => {
   return out.sort((a, b) => a.localeCompare(b));
 };
 
-const resolveRootPath = (rawRoot: string | null): string => {
+const resolveRootPath = (rawRoot: string): string => {
   if (!rawRoot || rawRoot.trim().length === 0) {
     throw new Error('Missing root path.');
   }
@@ -93,7 +69,7 @@ const resolveRootPath = (rawRoot: string | null): string => {
   return path.resolve(rawRoot);
 };
 
-const resolveFilePath = (root: string, filePath: string | null): string => {
+const resolveFilePath = (root: string, filePath: string): string => {
   if (!filePath || filePath.trim().length === 0) {
     throw new Error('Missing file path.');
   }
@@ -108,142 +84,140 @@ const resolveFilePath = (root: string, filePath: string | null): string => {
   return absolute;
 };
 
-type DesktopServerOptions = {
+type DesktopServiceOptions = {
   db: Database;
   sqlitePath: string;
   userDataPath: string;
 };
 
-export const startDesktopApiServer = (options: DesktopServerOptions) => {
+export const createDesktopService = (options: DesktopServiceOptions) => {
   const { db, sqlitePath, userDataPath } = options;
 
-  const server = Bun.serve({
-    port: 0,
-    idleTimeout: 0,
-    async fetch(request) {
-      const url = new URL(request.url);
+  const getState = (): DesktopNativeState => {
+    return {
+      sqlitePath,
+      userDataPath,
+      recentProjects: listRecentProjects(db) as DesktopRecentProject[],
+      settings: {
+        aiBaseUrl: getAppStateValue(db, 'aiBaseUrl'),
+        aiDirectory: getAppStateValue(db, 'aiDirectory'),
+        previewBaseUrl: getAppStateValue(db, 'previewBaseUrl'),
+        lastProjectRoot: getAppStateValue(db, 'lastProjectRoot'),
+      },
+    };
+  };
 
-      if (request.method === 'OPTIONS') {
-        return emptyResponse();
+  const setSetting = (input: { key: DesktopSettingKey; value: string }): { ok: true } => {
+    if (!DESKTOP_SETTINGS_KEYS.has(input.key)) {
+      throw new Error(`Unsupported settings key: ${input.key}`);
+    }
+
+    setAppStateValue(db, input.key, input.value);
+    return { ok: true };
+  };
+
+  const openProject = async (input?: {
+    startingFolder?: string;
+  }): Promise<DesktopOpenProjectResult> => {
+    const startingFolder = typeof input?.startingFolder === 'string' && input.startingFolder.trim().length > 0
+      ? input.startingFolder.trim()
+      : undefined;
+
+    const chosenPaths = await Utils.openFileDialog({
+      startingFolder,
+      allowedFileTypes: '*',
+      canChooseFiles: false,
+      canChooseDirectory: true,
+      allowsMultipleSelection: false,
+    });
+
+    const chosen = Array.isArray(chosenPaths) && typeof chosenPaths[0] === 'string'
+      ? chosenPaths[0]
+      : null;
+
+    if (!chosen) {
+      return { path: null };
+    }
+
+    const label = path.basename(chosen);
+    upsertRecentProject(db, chosen, label);
+    setAppStateValue(db, 'lastProjectRoot', chosen);
+
+    return {
+      path: chosen,
+      label,
+    };
+  };
+
+  const touchRecentProject = (input: {
+    path: string;
+    label?: string;
+  }): { ok: true; path: string; label: string } => {
+    const projectPath = input.path.trim();
+    if (!projectPath) {
+      throw new Error('Missing recent project path.');
+    }
+
+    const label = typeof input.label === 'string' && input.label.trim().length > 0
+      ? input.label.trim()
+      : path.basename(projectPath);
+
+    upsertRecentProject(db, projectPath, label);
+
+    return {
+      ok: true,
+      path: projectPath,
+      label,
+    };
+  };
+
+  const listProjectFiles = async (input: {
+    root: string;
+  }): Promise<{ files: string[] }> => {
+    const root = resolveRootPath(input.root);
+    const files = await listFilesRecursive(root);
+    return { files };
+  };
+
+  const readProjectFile = async (input: {
+    root: string;
+    path: string;
+  }): Promise<{ content: string | null }> => {
+    const root = resolveRootPath(input.root);
+    const filePath = resolveFilePath(root, input.path);
+
+    try {
+      const content = await readFile(filePath, 'utf8');
+      return { content };
+    } catch (error: unknown) {
+      if ((error as { code?: string }).code === 'ENOENT') {
+        return { content: null };
       }
 
-      try {
-        if (url.pathname === '/api/desktop/state' && request.method === 'GET') {
-          return jsonResponse({
-            sqlitePath,
-            userDataPath,
-            recentProjects: listRecentProjects(db),
-            settings: {
-              aiBaseUrl: getAppStateValue(db, 'aiBaseUrl'),
-              aiDirectory: getAppStateValue(db, 'aiDirectory'),
-              previewBaseUrl: getAppStateValue(db, 'previewBaseUrl'),
-              lastProjectRoot: getAppStateValue(db, 'lastProjectRoot'),
-            },
-          });
-        }
+      throw error;
+    }
+  };
 
-        if (url.pathname === '/api/desktop/settings' && request.method === 'POST') {
-          const body = await readJsonBody(request);
-          const key = typeof body.key === 'string' ? body.key.trim() : '';
-          const value = typeof body.value === 'string' ? body.value : '';
+  const writeProjectFile = async (input: {
+    root: string;
+    path: string;
+    content: string;
+  }): Promise<{ ok: true }> => {
+    const root = resolveRootPath(input.root);
+    const filePath = resolveFilePath(root, input.path);
 
-          if (!DESKTOP_SETTINGS_KEYS.has(key)) {
-            return jsonResponse({ error: `Unsupported settings key: ${key}` }, 400);
-          }
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, input.content, 'utf8');
+    return { ok: true };
+  };
 
-          setAppStateValue(db, key, value);
-          return jsonResponse({ ok: true });
-        }
-
-        if (url.pathname === '/api/desktop/open-project' && request.method === 'POST') {
-          const body = await readJsonBody(request);
-          const startingFolder = typeof body.startingFolder === 'string' && body.startingFolder.trim()
-            ? body.startingFolder.trim()
-            : undefined;
-
-          const chosenPaths = await Utils.openFileDialog({
-            startingFolder,
-            allowedFileTypes: '*',
-            canChooseFiles: false,
-            canChooseDirectory: true,
-            allowsMultipleSelection: false,
-          });
-
-          const chosen = Array.isArray(chosenPaths) && typeof chosenPaths[0] === 'string'
-            ? chosenPaths[0]
-            : null;
-
-          if (!chosen) {
-            return jsonResponse({ path: null });
-          }
-
-          upsertRecentProject(db, chosen, path.basename(chosen));
-          setAppStateValue(db, 'lastProjectRoot', chosen);
-          return jsonResponse({
-            path: chosen,
-            label: path.basename(chosen),
-          });
-        }
-
-        if (url.pathname === '/api/desktop/recent-project' && request.method === 'POST') {
-          const body = await readJsonBody(request);
-          const projectPath = typeof body.path === 'string' ? body.path.trim() : '';
-          if (!projectPath) {
-            return jsonResponse({ error: 'Missing recent project path.' }, 400);
-          }
-
-          const label = typeof body.label === 'string' && body.label.trim().length > 0
-            ? body.label.trim()
-            : path.basename(projectPath);
-
-          upsertRecentProject(db, projectPath, label);
-          return jsonResponse({
-            ok: true,
-            path: projectPath,
-            label,
-          });
-        }
-
-        if (url.pathname === '/api/fs/list' && request.method === 'GET') {
-          const root = resolveRootPath(url.searchParams.get('root'));
-          const files = await listFilesRecursive(root);
-          return jsonResponse({ files });
-        }
-
-        if (url.pathname === '/api/fs/read' && request.method === 'GET') {
-          const root = resolveRootPath(url.searchParams.get('root'));
-          const filePath = resolveFilePath(root, url.searchParams.get('path'));
-
-          try {
-            const content = await readFile(filePath, 'utf8');
-            return jsonResponse({ content });
-          } catch (error: unknown) {
-            if ((error as { code?: string }).code === 'ENOENT') {
-              return jsonResponse({ content: null });
-            }
-
-            throw error;
-          }
-        }
-
-        if (url.pathname === '/api/fs/write' && request.method === 'POST') {
-          const body = await readJsonBody(request);
-          const root = resolveRootPath(typeof body.root === 'string' ? body.root : null);
-          const filePath = resolveFilePath(root, typeof body.path === 'string' ? body.path : null);
-          const content = typeof body.content === 'string' ? body.content : '';
-
-          await mkdir(path.dirname(filePath), { recursive: true });
-          await writeFile(filePath, content, 'utf8');
-          return jsonResponse({ ok: true });
-        }
-
-        return jsonResponse({ error: `Unsupported endpoint: ${request.method} ${url.pathname}` }, 404);
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        return jsonResponse({ error: message }, 500);
-      }
-    },
-  });
-
-  return server;
+  return {
+    getState,
+    setSetting,
+    openProject,
+    touchRecentProject,
+    listProjectFiles,
+    readProjectFile,
+    writeProjectFile,
+  };
 };

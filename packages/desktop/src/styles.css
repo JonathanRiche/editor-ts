@@ -3,6 +3,8 @@
 
 :root {
   color-scheme: dark;
+  --desktop-ui-scale: 1;
+  --desktop-ui-scale-inverse: 1;
   --font-display: 'Playfair Display', Georgia, serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
   --font-body: Georgia, 'Times New Roman', serif;
@@ -90,6 +92,27 @@ a {
   min-height: 100vh;
   overflow: hidden;
   background: transparent;
+}
+
+html[data-desktop-runtime='electrobun'] body {
+  overflow: auto;
+}
+
+html[data-desktop-runtime='electrobun'] #app[data-desktop-scaled='true'] {
+  width: calc(100% * var(--desktop-ui-scale-inverse));
+  height: calc(100vh * var(--desktop-ui-scale-inverse));
+  min-height: calc(100vh * var(--desktop-ui-scale-inverse));
+  transform: scale(var(--desktop-ui-scale));
+  transform-origin: top left;
+}
+
+html[data-desktop-runtime='electrobun'] .shell,
+html[data-desktop-runtime='electrobun'] .content {
+  min-height: calc(100vh * var(--desktop-ui-scale-inverse));
+}
+
+html[data-desktop-runtime='electrobun'] .sidebar {
+  height: calc(100vh * var(--desktop-ui-scale-inverse));
 }
 
 .sidebar {
@@ -185,6 +208,7 @@ a {
   color: var(--color-text-secondary);
   font-size: 0.72rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .hero-note {
@@ -260,12 +284,19 @@ a {
 .permission-panel {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 0.35rem;
   border: 1px solid var(--color-line-dim);
   border-radius: 4px;
   background: var(--color-bg-card);
   padding: 0.7rem;
   box-shadow: inset 0 1px 0 rgba(245, 230, 200, 0.04);
+}
+
+.status-box p,
+.permission-panel p {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .status-heading {
@@ -277,6 +308,7 @@ a {
   font-family: var(--font-mono);
   font-size: 0.68rem;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .status-dot {
@@ -383,6 +415,11 @@ a {
   gap: 0.65rem;
 }
 
+.card-heading > *,
+.command-palette-header > * {
+  min-width: 0;
+}
+
 .section-title,
 .stage-label {
   color: var(--color-text-secondary);
@@ -402,6 +439,7 @@ a {
   font-size: 0.64rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .controls-card {
@@ -460,6 +498,7 @@ a {
 
 .field input {
   width: 100%;
+  min-width: 0;
   border: 1px solid var(--color-line-soft);
   border-radius: 4px;
   background: var(--color-bg-input);
@@ -511,6 +550,7 @@ a {
 .permission-value {
   color: var(--color-text-primary);
   font-size: 0.78rem;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
@@ -577,15 +617,21 @@ a {
   gap: 0.85rem;
 }
 
+.content-topbar > * {
+  min-width: 0;
+}
+
 .content-copy {
   display: flex;
   max-width: 40rem;
   flex-direction: column;
   gap: 0.3rem;
+  min-width: 0;
 }
 
 .content-copy h2 {
   font-size: clamp(1.65rem, 2.2vw, 2.4rem);
+  overflow-wrap: anywhere;
 }
 
 .workspace-stage {
@@ -707,6 +753,42 @@ a {
 
 html:not([data-editorts-view='code']) .code-shell {
   display: none;
+}
+
+html[data-desktop-runtime='electrobun'] .sidebar-header {
+  padding-bottom: 0.55rem;
+}
+
+html[data-desktop-runtime='electrobun'] .hero-card {
+  gap: 0.55rem;
+}
+
+html[data-desktop-runtime='electrobun'] .hero-text,
+html[data-desktop-runtime='electrobun'] .hero-note,
+html[data-desktop-runtime='electrobun'] .controls-card p,
+html[data-desktop-runtime='electrobun'] .permission-idle {
+  font-size: 0.69rem;
+  line-height: 1.38;
+}
+
+html[data-desktop-runtime='electrobun'] .card,
+html[data-desktop-runtime='electrobun'] .shared-ai-card {
+  gap: 0.58rem;
+}
+
+html[data-desktop-runtime='electrobun'] .field input,
+html[data-desktop-runtime='electrobun'] .shared-ai-input,
+html[data-desktop-runtime='electrobun'] .shared-ai-textarea {
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+}
+
+html[data-desktop-runtime='electrobun'] .shared-ai-toolbar-card {
+  padding: 0.7rem;
+}
+
+html[data-desktop-runtime='electrobun'] .shared-ai-chat-status {
+  min-width: 6.5rem;
 }
 
 @media (max-width: 960px) {

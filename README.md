@@ -217,9 +217,12 @@ bun run dev:desktop:native
 ```
 
 The Electrobun path is being introduced incrementally. It uses Bun in the main
-process, exposes a native desktop API to the renderer, and initializes desktop
+process, uses Electrobun RPC for native desktop calls, and initializes desktop
 app state in SQLite under the native user-data directory. Native project picks are
 stored as recent projects and the last connected native project is restored on launch.
+Packaged desktop builds load bundled renderer assets from `views://index.html`;
+only dev mode relies on the local Vite renderer URL. The desktop renderer also
+stubs out SQLocal so browser OPFS SQLite assets do not ship in the native app.
 
 Desktop build commands:
 
@@ -233,6 +236,9 @@ For renderer-only or native-only output:
 bun run build:desktop:web
 bun run build:desktop:native
 ```
+
+`build:desktop:native` runs the desktop renderer prebuild automatically, so the
+packaged Electrobun app always includes fresh bundled `views/` assets.
 
 ### Toolbars (runtime only)
 
