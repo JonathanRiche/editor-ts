@@ -15,6 +15,15 @@ Open `http://localhost:5021`.
 
 The demo UI is `index.html` and is wired by `packages/quickstart/src/main.ts`.
 
+Root workspace commands:
+
+- `bun run dev`: quickstart/local server
+- `bun run dev:web`: web starter
+- `bun run dev:desktop`: desktop/filesystem starter
+- `bun run dev:localsql`: SQLocal starter
+- `bun run build`: build the full workspace
+- `bun run test`: run package-oriented tests
+
 ## Core concepts
 
 ### Data vs runtime config
@@ -174,13 +183,11 @@ Run the SQLocal demos (Vite):
 
 ```bash
 cd packages/localsql
-bun install
 bun run dev
 ```
 
 ```bash
 cd packages/web
-bun install
 bun run dev
 ```
 
@@ -190,7 +197,6 @@ Run filesystem-backed Solid demo:
 
 ```bash
 cd packages/desktop
-bun install
 bun run dev
 ```
 
@@ -392,6 +398,7 @@ See `core/src/types.ts` for the full event map.
 ## Development
 
 ```bash
+bun install
 bun run build
 bun run test
 ```
@@ -402,8 +409,15 @@ Workspace layout:
 - `packages/web`: web starter
 - `packages/desktop`: desktop/filesystem starter
 - `packages/localsql`: SQLocal starter
-- `packages/quickstart`: root quickstart wiring and shared demo assets
+- `packages/quickstart`: root quickstart wiring and quickstart-owned assets
 - `packages/starter-shared`: shared starter UI/runtime helpers
+
+Common workspace commands:
+
+- `bun run build`: build `core`, `packages/web`, `packages/desktop`, and `packages/localsql`
+- `bun run build:core`: build only the library package
+- `bun run dev`: run the root quickstart
+- `bun run test`: run `core` and `packages/web` tests
 
 ## Migration notes (`data` -> `content.adapter`)
 
