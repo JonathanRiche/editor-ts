@@ -18,6 +18,7 @@ type RecentProject = {
 type AppShellProps = {
   fsSupported: boolean;
   nativeRuntime?: boolean;
+  advancedUiReady: boolean;
   statusText: string;
   hasProject: boolean;
   mode: FsMode;
@@ -34,6 +35,7 @@ type AppShellProps = {
   onPreviewBaseUrlChange: (value: string) => void;
   onAiBaseUrlChange: (value: string) => void;
   onAiDirectoryChange: (value: string) => void;
+  onMainTabActivate: (tab: 'chat' | 'editor' | 'code') => void;
   onOpenRecentProject: (projectPath: string) => void;
   onPickProject: () => void;
   onConnectServerRoutes: () => void;
@@ -47,7 +49,7 @@ const cx = (...parts: Array<string | false | null | undefined>): string => {
 
 export default function AppShell(props: AppShellProps) {
   const [activeSidebarTab, setActiveSidebarTab] = createSignal<'workspace' | 'ai' | 'structure'>('workspace');
-  const [activeMainTab, setActiveMainTab] = createSignal<'chat' | 'editor' | 'code'>('chat');
+  const [activeMainTab, setActiveMainTab] = createSignal<'chat' | 'editor' | 'code'>('editor');
   let observer: MutationObserver | undefined;
 
   const workspaceDescription = () => {
@@ -388,7 +390,10 @@ export default function AppShell(props: AppShellProps) {
               type="button"
               class={cx('tab-btn', activeMainTab() === 'chat' && 'active')}
               aria-pressed={activeMainTab() === 'chat'}
-              onClick={() => setActiveMainTab('chat')}
+              onClick={() => {
+                setActiveMainTab('chat');
+                props.onMainTabActivate('chat');
+              }}
             >
               Chat
             </button>
@@ -397,7 +402,10 @@ export default function AppShell(props: AppShellProps) {
               type="button"
               class={cx('tab-btn', activeMainTab() === 'editor' && 'active')}
               aria-pressed={activeMainTab() === 'editor'}
-              onClick={() => setActiveMainTab('editor')}
+              onClick={() => {
+                setActiveMainTab('editor');
+                props.onMainTabActivate('editor');
+              }}
             >
               Editor
             </button>
@@ -406,7 +414,10 @@ export default function AppShell(props: AppShellProps) {
               type="button"
               class={cx('tab-btn', activeMainTab() === 'code' && 'active')}
               aria-pressed={activeMainTab() === 'code'}
-              onClick={() => setActiveMainTab('code')}
+              onClick={() => {
+                setActiveMainTab('code');
+                props.onMainTabActivate('code');
+              }}
             >
               Code
             </button>
@@ -414,6 +425,13 @@ export default function AppShell(props: AppShellProps) {
         </div>
 
         <AiWorkspacePanel hidden={activeMainTab() !== 'chat'} />
+
+        {!props.advancedUiReady && activeMainTab() === 'chat' && (
+          <section class="card">
+            <strong class="section-title">Preparing AI workspace</strong>
+            <p>Loading AI chat and session controls for this project.</p>
+          </section>
+        )}
 
         <div class="workspace-stage" hidden={activeMainTab() === 'chat'}>
           <div class="stage-header">
@@ -435,14 +453,21 @@ export default function AppShell(props: AppShellProps) {
               <button id="code-tab-jsx" type="button" class="tab-btn">JSX</button>
             </div>
 
-            <div class="code-panels">
+            {!props.advancedUiReady && activeMainTab() === 'code' ? (
+              <section class="card">
+                <strong class="section-title">Preparing code workspace</strong>
+                <p>Loading files, code editors, and workspace tools for this project.</p>
+              </section>
+            ) : (
+              <div class="code-panels">
               <div id="files-viewer-container" />
               <div id="viewer-editor-container" />
               <div id="js-editor-container" />
               <div id="css-editor-container" />
               <div id="json-editor-container" />
               <div id="jsx-editor-container" />
-            </div>
+              </div>
+            )}
           </div>
         </div>
       </main>

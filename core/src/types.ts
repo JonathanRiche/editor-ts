@@ -231,7 +231,7 @@ export interface OpencodeAiProviderConfig {
    * session/project operations run against the intended workspace instead of
    * the server process cwd.
    */
-  directory?: string;
+  directory?: string | (() => string);
 
   // Client+server mode
   hostname?: OpencodeServerLaunchOptions['hostname'];

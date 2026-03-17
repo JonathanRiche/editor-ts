@@ -101,12 +101,17 @@ export const openNativeProjectDirectory = async (
 
 export const createNativeProjectProvider = (root: string): ProjectFilesystemProvider => {
   const normalizedRoot = root.trim();
+  let cachedFiles: string[] | null = null;
 
   return {
     listFiles: async () => {
+      if (cachedFiles) {
+        return [...cachedFiles];
+      }
       const client = await requireDesktopRpcClient();
       const result = await client.requestProxy.listProjectFiles({ root: normalizedRoot });
-      return result.files.map(normalizePath).sort((a, b) => a.localeCompare(b));
+      cachedFiles = result.files.map(normalizePath).sort((a, b) => a.localeCompare(b));
+      return [...cachedFiles];
     },
     readFile: async (path: string) => {
       const client = await requireDesktopRpcClient();
@@ -123,6 +128,7 @@ export const createNativeProjectProvider = (root: string): ProjectFilesystemProv
         path,
         content,
       });
+      cachedFiles = null;
     },
   };
 };

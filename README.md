@@ -223,6 +223,8 @@ stored as recent projects and the last connected native project is restored on l
 Packaged desktop builds load bundled renderer assets from `views://index.html`;
 only dev mode relies on the local Vite renderer URL. The desktop renderer also
 stubs out SQLocal so browser OPFS SQLite assets do not ship in the native app.
+Desktop boots in a lighter mode first and upgrades AI/code tooling on first use,
+and AI working-directory changes now apply without forcing a full editor re-init.
 
 Desktop build commands:
 

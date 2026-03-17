@@ -722,6 +722,7 @@ export function init(config: InitConfig): EditorTsEditor {
     let server: OpencodeServer | null = null;
     let clientPromise: Promise<import('@opencode-ai/sdk/client').OpencodeClient> | null = null;
     let activeBaseUrl: string | null = null;
+    let activeDirectory: string | null = null;
 
     const resolveConfiguredAiBaseUrl = (): string => {
       const rawBaseUrl = (aiBaseUrlInput?.value || aiConfig.baseUrl || aiProxiedBaseUrl).trim();
@@ -750,10 +751,19 @@ export function init(config: InitConfig): EditorTsEditor {
       };
     };
 
+    const resolveConfiguredAiDirectory = (): string | undefined => {
+      const rawDirectory = typeof aiConfig.directory === 'function'
+        ? aiConfig.directory()
+        : aiConfig.directory;
+      const nextDirectory = typeof rawDirectory === 'string' ? rawDirectory.trim() : '';
+      return nextDirectory.length > 0 ? nextDirectory : undefined;
+    };
+
     const invalidateAiClient = () => {
       if (externalClient || mode !== 'client') return;
       clientPromise = null;
       activeBaseUrl = null;
+      activeDirectory = null;
       currentSessionId = null;
     };
 
@@ -1166,9 +1176,11 @@ export function init(config: InitConfig): EditorTsEditor {
       getClient: async () => {
         if (!externalClient && mode === 'client') {
           const requestedBaseUrl = resolveConfiguredAiBaseUrl();
-          if (activeBaseUrl !== requestedBaseUrl) {
+          const requestedDirectory = resolveConfiguredAiDirectory() ?? null;
+          if (activeBaseUrl !== requestedBaseUrl || activeDirectory !== requestedDirectory) {
             clientPromise = null;
             activeBaseUrl = requestedBaseUrl;
+            activeDirectory = requestedDirectory;
           }
         }
 
@@ -1179,7 +1191,9 @@ export function init(config: InitConfig): EditorTsEditor {
             clientPromise = (mode === 'client' ? loadClientSdk() : loadServerSdk()).then(async (sdk) => {
               if (mode === 'client') {
                 const baseUrl = resolveConfiguredAiBaseUrl();
+                const directory = resolveConfiguredAiDirectory();
                 activeBaseUrl = baseUrl;
+                activeDirectory = directory ?? null;
                 if (!baseUrl) {
                   throw new Error("EditorTs: aiProvider.baseUrl is required when mode is 'client'");
                 }
@@ -1206,9 +1220,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
                 return sdk.createOpencodeClient({
                   baseUrl,
-                  directory: typeof aiConfig.directory === 'string' && aiConfig.directory.trim().length > 0
-                    ? aiConfig.directory.trim()
-                    : undefined,
+                  directory,
                   fetch: auth ? createAuthedFetch(auth.username ?? 'opencode', auth.password) : undefined,
                 });
               }

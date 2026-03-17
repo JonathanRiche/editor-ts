@@ -75,6 +75,10 @@ The desktop renderer does not ship SQLocal or OPFS SQLite worker assets. Desktop
 state stays on the native Bun/SQLite side instead of pulling the browser storage
 stack into the packaged app.
 
+The desktop starter also boots in a lighter editor mode first. AI chat wiring and
+code-workspace panels are upgraded on first use when you open the `Chat` or `Code`
+tabs, instead of paying that setup cost on initial launch.
+
 In native mode, the Electrobun main process exposes desktop functionality over
 Electrobun RPC. The renderer uses that native RPC path for:
 
@@ -83,6 +87,9 @@ Electrobun RPC. The renderer uses that native RPC path for:
 - persisted desktop settings (`aiBaseUrl`, `aiDirectory`, `previewBaseUrl`, `lastProjectRoot`)
 - recent-project tracking
 - automatic restore of the last connected native project
+
+Changing the AI working directory no longer forces a full editor rebuild. New AI
+requests pick up the latest configured path through a live resolver in the library.
 
 Packaged native builds use the bundled renderer assets copied into `views/`.
 Only development mode depends on the local Vite URL.

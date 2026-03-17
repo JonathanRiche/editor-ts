@@ -149,6 +149,7 @@ const parseDesktopRecentProjects = (value: unknown): DesktopRecentProject[] => {
 
 const createServerRoutesProvider = (args: { baseUrl: string; root: string }): ProjectFilesystemProvider => {
   const { baseUrl, root } = args;
+  let cachedFiles: string[] | null = null;
 
   const requireOk = async (response: Response): Promise<void> => {
     if (response.ok) return;
@@ -158,6 +159,9 @@ const createServerRoutesProvider = (args: { baseUrl: string; root: string }): Pr
 
   return {
     listFiles: async () => {
+      if (cachedFiles) {
+        return [...cachedFiles];
+      }
       const response = await fetch(buildApiUrl(baseUrl, '/api/fs/list', { root }));
       await requireOk(response);
 
@@ -166,7 +170,8 @@ const createServerRoutesProvider = (args: { baseUrl: string; root: string }): Pr
         ? payload.files.filter((value): value is string => typeof value === 'string')
         : [];
 
-      return files.map(normalizePath).sort((a, b) => a.localeCompare(b));
+      cachedFiles = files.map(normalizePath).sort((a, b) => a.localeCompare(b));
+      return [...cachedFiles];
     },
     readFile: async (path: string) => {
       const response = await fetch(buildApiUrl(baseUrl, '/api/fs/read', {
@@ -192,12 +197,14 @@ const createServerRoutesProvider = (args: { baseUrl: string; root: string }): Pr
       });
 
       await requireOk(response);
+      cachedFiles = null;
     },
   };
 };
 
 const createFolderProvider = (root: FsDirectoryHandle): ProjectFilesystemProvider => {
   const cache = new Map<string, FsFileHandle>();
+  let cachedFiles: string[] | null = null;
 
   const walk = async (dir: FsDirectoryHandle, prefix = ''): Promise<string[]> => {
     const out: string[] = [];
@@ -250,8 +257,12 @@ const createFolderProvider = (root: FsDirectoryHandle): ProjectFilesystemProvide
 
   return {
     listFiles: async () => {
+      if (cachedFiles) {
+        return [...cachedFiles];
+      }
       const paths = await walk(root);
-      return paths.map(normalizePath).sort((a, b) => a.localeCompare(b));
+      cachedFiles = paths.map(normalizePath).sort((a, b) => a.localeCompare(b));
+      return [...cachedFiles];
     },
     readFile: async (path: string) => {
       const handle = await getFileHandle(path, false);
@@ -268,6 +279,7 @@ const createFolderProvider = (root: FsDirectoryHandle): ProjectFilesystemProvide
       const writable = await handle.createWritable();
       await writable.write(content);
       await writable.close();
+      cachedFiles = null;
     },
   };
 };
@@ -329,6 +341,8 @@ export default function App() {
   const [recentProjects, setRecentProjects] = createSignal<DesktopRecentProject[]>([]);
   const [pendingPermissionRequest, setPendingPermissionRequest] =
     createSignal<ProjectFilesystemPermissionRequest | null>(null);
+  const [advancedUiReady, setAdvancedUiReady] = createSignal(false);
+  const [advancedView, setAdvancedView] = createSignal<'editor' | 'code'>('editor');
 
   const describePermissionRequest = (request: ProjectFilesystemPermissionRequest): string => {
     const targets = request.paths.join(', ');
@@ -387,7 +401,8 @@ export default function App() {
     fs: ProjectFilesystemProvider,
     connectedMessage: string,
     sessionNamespaceSuffix: string,
-    suggestedAiDirectory?: string
+    suggestedAiDirectory?: string,
+    enableAdvancedUi = advancedUiReady()
   ): Promise<void> => {
     clearPermissionRequests();
     activeProjectConnection = {
@@ -444,17 +459,6 @@ export default function App() {
           },
         }),
       },
-      aiProvider: {
-        provider: 'opencode',
-        mode: 'client',
-        baseUrl: aiBaseUrl(),
-        directory: resolvedAiDirectory || undefined,
-        stream: { enabled: true },
-        sessions: {
-          storageNamespace: `filesystem-solid:${sessionNamespaceSuffix}`,
-          hydrateRemoteList: false,
-        },
-      },
       toolbars: {
         byType: {
           box: {
@@ -508,6 +512,37 @@ export default function App() {
           },
         },
         componentPalette: { containerId: 'component-palette', enabled: true },
+        commandPalette: {
+          containerId: 'command-palette',
+          inputId: 'command-palette-input',
+          resultsId: 'command-palette-results',
+          closeButtonId: 'command-palette-close',
+          hintId: 'command-palette-hint',
+          enabled: true,
+        },
+      },
+      onComponentSelect: (component: Component) => {
+        console.log('Selected:', component.attributes?.id);
+      },
+    };
+
+    if (enableAdvancedUi) {
+      editorConfig.aiProvider = {
+        provider: 'opencode',
+        mode: 'client',
+        baseUrl: aiBaseUrl(),
+        directory: () => {
+          const nextDirectory = aiDirectory().trim() || suggestedAiDirectory?.trim() || '';
+          return nextDirectory || '';
+        },
+        stream: { enabled: true },
+        sessions: {
+          storageNamespace: `filesystem-solid:${sessionNamespaceSuffix}`,
+          hydrateRemoteList: false,
+        },
+      };
+      editorConfig.ui = {
+        ...editorConfig.ui,
         editors: {
           files: { containerId: 'files-viewer-container', enabled: true },
           viewer: { containerId: 'viewer-editor-container', enabled: true },
@@ -519,7 +554,7 @@ export default function App() {
         viewTabs: {
           editorButtonId: 'tab-editor',
           codeButtonId: 'tab-code',
-          defaultView: 'editor',
+          defaultView: advancedView(),
         },
         codeTabs: {
           filesButtonId: 'code-tab-files',
@@ -553,19 +588,8 @@ export default function App() {
           },
           enabled: true,
         },
-        commandPalette: {
-          containerId: 'command-palette',
-          inputId: 'command-palette-input',
-          resultsId: 'command-palette-results',
-          closeButtonId: 'command-palette-close',
-          hintId: 'command-palette-hint',
-          enabled: true,
-        },
-      },
-      onComponentSelect: (component: Component) => {
-        console.log('Selected:', component.attributes?.id);
-      },
-    };
+      };
+    }
 
     editor = init(editorConfig);
     installAiDiffPreview(editor);
@@ -638,6 +662,31 @@ export default function App() {
     if (nativeDesktop && args.persistRecentProject) {
       void persistNativeRecentProject(root, args.recentProjectLabel);
     }
+  };
+
+  const enableAdvancedWorkspaceUi = async (target: 'chat' | 'code'): Promise<void> => {
+    if (advancedUiReady()) return;
+    setAdvancedView(target === 'code' ? 'code' : 'editor');
+    setAdvancedUiReady(true);
+
+    if (!activeProjectConnection) {
+      setStatusText(target === 'chat'
+        ? 'AI workspace will finish loading after you connect a project.'
+        : 'Code workspace will finish loading after you connect a project.');
+      return;
+    }
+
+    setStatusText(target === 'chat'
+      ? 'Loading AI workspace for this project...'
+      : 'Loading code workspace for this project...');
+
+    await initializeWithProvider(
+      activeProjectConnection.fs,
+      activeProjectConnection.connectedMessage,
+      activeProjectConnection.sessionNamespaceSuffix,
+      activeProjectConnection.suggestedAiDirectory,
+      true,
+    );
   };
 
   const hydrateNativeDesktopState = async (options?: { restoreProject?: boolean }): Promise<void> => {
@@ -812,14 +861,8 @@ export default function App() {
     } else {
       persistStoredValue(AI_DIRECTORY_STORAGE_KEY, value);
     }
-    if (activeProjectConnection) {
-      setStatusText('Reconnecting AI workspace to the updated working directory...');
-      void initializeWithProvider(
-        activeProjectConnection.fs,
-        activeProjectConnection.connectedMessage,
-        activeProjectConnection.sessionNamespaceSuffix,
-        activeProjectConnection.suggestedAiDirectory,
-      );
+    if (advancedUiReady()) {
+      setStatusText('AI working directory updated. The next AI request will use the new project path.');
     }
   };
 
@@ -832,6 +875,7 @@ export default function App() {
     <AppShell
       fsSupported={nativeDesktop || supportsDirectoryPicker()}
       nativeRuntime={nativeDesktop}
+      advancedUiReady={advancedUiReady()}
       hasProject={hasProject()}
       mode={mode()}
       apiBaseUrl={apiBaseUrl()}
@@ -867,6 +911,11 @@ export default function App() {
       }}
       onAiBaseUrlChange={handleAiBaseUrlChange}
       onAiDirectoryChange={handleAiDirectoryChange}
+      onMainTabActivate={(tab) => {
+        if (tab === 'chat' || tab === 'code') {
+          void enableAdvancedWorkspaceUi(tab);
+        }
+      }}
       onPickProject={() => {
         void onPickProject();
       }}
