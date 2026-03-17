@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { defaultComponentFactories, mergeCustomComponentRegistry } from '../core/src/core/CustomComponentRegistry';
-import type { CustomComponentRegistry } from '../core/src/types';
+import { defaultComponentFactories, mergeCustomComponentRegistry } from '../src/core/CustomComponentRegistry';
+import type { CustomComponentRegistry } from '../src/types';
 
 describe('CustomComponentRegistry', () => {
   it('merges custom registries with overrides', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { ComponentManager } from '../core/src/core/ComponentManager';
-import type { Component, PageBody } from '../core/src/types';
+import { ComponentManager } from '../src/core/ComponentManager';
+import type { Component, PageBody } from '../src/types';
 
 describe('ComponentManager', () => {
   const makeBody = (components: Component[]): PageBody => ({

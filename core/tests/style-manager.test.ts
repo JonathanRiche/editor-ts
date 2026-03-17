@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { StyleManager } from '../core/src/core/StyleManager';
-import type { PageBody } from '../core/src/types';
+import { StyleManager } from '../src/core/StyleManager';
+import type { PageBody } from '../src/types';
 
 describe('StyleManager', () => {
   const body: PageBody = {

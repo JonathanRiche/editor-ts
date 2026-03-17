@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { createToolbarConfig, findToolbarAction, getEnabledActions, mergeToolbarConfigs, toolbarPresets } from '../core/src/utils/toolbar';
-import type { ToolbarConfig } from '../core/src/types';
+import { createToolbarConfig, findToolbarAction, getEnabledActions, mergeToolbarConfigs, toolbarPresets } from '../src/utils/toolbar';
+import type { ToolbarConfig } from '../src/types';
 
 describe('toolbar utils', () => {
   it('merges toolbar configs with override precedence', () => {

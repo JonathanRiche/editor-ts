@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { Page } from '../core/src/core/Page';
-import type { PageData } from '../core/src/types';
+import { Page } from '../src/core/Page';
+import type { PageData } from '../src/types';
 
 describe('Page', () => {
   const baseData: PageData = {

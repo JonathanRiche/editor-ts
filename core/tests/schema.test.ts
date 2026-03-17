@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { pageFiles, pages } from '../core/src/server/schema';
+import { pageFiles, pages } from '../src/server/schema';
 
 const getColumnNames = (table: unknown): string[] => {
   return Object.keys(table as Record<string, unknown>).filter((key) => typeof (table as Record<string, unknown>)[key] === 'object');

@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "bun run src/server.ts",
-    "smoke": "bash ./scripts/smoke-solid-demo.sh"
+    "smoke": "bash ./scripts/smoke-solid-demo.sh",
+    "test": "bun test tests/*.test.ts"
   },
   "dependencies": {
     "@editorts/starter-shared": "workspace:*",

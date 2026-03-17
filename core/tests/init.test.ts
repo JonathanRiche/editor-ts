@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { init } from '../core/src/core/init';
-import type { ContentAdapter, InitConfig, ToolbarConfig } from '../core/src/types';
+import { init } from '../src/core/init';
+import type { ContentAdapter, InitConfig, ToolbarConfig } from '../src/types';
 
 type MockIframe = HTMLIFrameElement & { contentWindow: Window };
 

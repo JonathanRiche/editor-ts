@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { VersionControl } from '../core/src/core/VersionControl';
-import type { PageData } from '../core/src/types';
+import { VersionControl } from '../src/core/VersionControl';
+import type { PageData } from '../src/types';
 
 describe('VersionControl', () => {
   const snapshot = (title: string): PageData => ({

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { StorageManager, SqlocalStorageAdapter } from '../core/src/core/StorageManager';
-import type { SqlocalClient, StorageAdapter } from '../core/src/core/StorageManager';
+import { StorageManager, SqlocalStorageAdapter } from '../src/core/StorageManager';
+import type { SqlocalClient, StorageAdapter } from '../src/core/StorageManager';
 
 class MemoryStorageAdapter implements StorageAdapter {
   private pages = new Map<string, string>();

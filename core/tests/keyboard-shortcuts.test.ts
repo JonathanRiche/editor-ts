@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { KeyboardShortcuts } from '../core/src/core/KeyboardShortcuts';
-import type { ShortcutDefinition } from '../core/src/types';
+import { KeyboardShortcuts } from '../src/core/KeyboardShortcuts';
+import type { ShortcutDefinition } from '../src/types';
 
 const OriginalHTMLElement = globalThis.HTMLElement;
 class MockHTMLElement {

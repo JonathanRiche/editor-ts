@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { ToolbarManager } from '../core/src/core/ToolbarManager';
-import { defaultToolbarConfig } from '../core/src/utils/toolbar';
-import type { Component, ToolbarConfig } from '../core/src/types';
+import { ToolbarManager } from '../src/core/ToolbarManager';
+import { defaultToolbarConfig } from '../src/utils/toolbar';
+import type { Component, ToolbarConfig } from '../src/types';
 
 describe('ToolbarManager', () => {
   const baseComponent: Component = {

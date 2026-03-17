@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { cssObjectToString, cssStringToObject, flattenComponents, generateId, parseSelector } from '../core/src/utils/helpers';
-import type { Component } from '../core/src/types';
+import { cssObjectToString, cssStringToObject, flattenComponents, generateId, parseSelector } from '../src/utils/helpers';
+import type { Component } from '../src/types';
 
 describe('helpers', () => {
   it('converts CSS objects to strings and back', () => {

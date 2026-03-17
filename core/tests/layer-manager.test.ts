@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { LayerManager } from '../core/src/core/LayerManager';
-import type { Component } from '../core/src/types';
+import { LayerManager } from '../src/core/LayerManager';
+import type { Component } from '../src/types';
 
 type MockElement = {
   id?: string;

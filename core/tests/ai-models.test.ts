@@ -5,7 +5,7 @@ import {
   normalizeOpencodeModelId,
   parseAiModelRef,
   readProviderDefaultModels,
-} from '../core/src/core/aiModels';
+} from '../src/core/aiModels';
 
 describe('aiModels helpers', () => {
   it('normalizes dated opencode aliases', () => {

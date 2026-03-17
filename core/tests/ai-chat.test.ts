@@ -12,9 +12,9 @@ import {
   parseAiChatResponse,
   requestAiReplacements,
   summarizeAiAssistantText,
-} from '../core/src/core/aiChat';
-import { Page } from '../core/src/core/Page';
-import type { EditorTsAiChatReplacement, PageData } from '../core/src/types';
+} from '../src/core/aiChat';
+import { Page } from '../src/core/Page';
+import type { EditorTsAiChatReplacement, PageData } from '../src/types';
 import type { Message, OpencodeClient } from '@opencode-ai/sdk';
 
 describe('aiChat helpers', () => {

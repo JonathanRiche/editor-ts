@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { createHttpProjectProvider } from '../core/src/core/HttpProjectProvider';
-import { JsonContentAdapter } from '../core/src/core/JsonContentAdapter';
+import { createHttpProjectProvider } from '../src/core/HttpProjectProvider';
+import { JsonContentAdapter } from '../src/core/JsonContentAdapter';
 import {
   ProjectFilesystemAdapter,
   type ProjectFilesystemProvider,
-} from '../core/src/core/ProjectFilesystemAdapter';
-import type { MultiPageData, PageData, PagePayload } from '../core/src/types';
+} from '../src/core/ProjectFilesystemAdapter';
+import type { MultiPageData, PageData, PagePayload } from '../src/types';
 
 const parsePayload = (payload: PagePayload): PageData | MultiPageData => {
   if (typeof payload === 'string') {

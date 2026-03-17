@@ -17,8 +17,10 @@
     "build:desktop": "cd packages/desktop && bun run build",
     "build:localsql": "cd packages/localsql && bun run build",
     "example": "bun run local-server.ts",
-    "test": "bun test tests/*.test.ts",
-    "test:api": "bun test tests/*.test.ts"
+    "test": "bun run test:core && bun run test:web",
+    "test:api": "bun run test",
+    "test:core": "cd core && bun run test",
+    "test:web": "cd packages/web && bun run test"
   },
   "devDependencies": {
     "@types/bun": "latest",

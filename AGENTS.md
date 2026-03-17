@@ -506,6 +506,8 @@ When adding a new feature:
    - Data model: `core/src/core/Page.ts`, `core/src/core/ComponentManager.ts`, `core/src/core/StyleManager.ts`, `core/src/core/AssetManager.ts`
    - Storage: `core/src/core/StorageManager.ts` (local is default)
    - Demo harness: `index.html` + `packages/quickstart/src/main.ts`
+   - Library tests: `core/tests/*.test.ts`
+   - Web starter tests: `packages/web/tests/*.test.ts`
 
 12. **Common Runtime Config**
    - Code view tabs: `ui.viewTabs` toggles iframe vs code panels

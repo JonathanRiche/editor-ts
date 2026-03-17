@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { createPageMeta, createSyncMessage, isSyncAck, isSyncMessage, parseSyncEnvelope } from '../core/src/server/sync';
-import type { PageData } from '../core/src/types';
+import { createPageMeta, createSyncMessage, isSyncAck, isSyncMessage, parseSyncEnvelope } from '../src/server/sync';
+import type { PageData } from '../src/types';
 
 describe('server sync helpers', () => {
   const pageData: PageData = {

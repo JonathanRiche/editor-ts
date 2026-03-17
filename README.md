@@ -396,6 +396,15 @@ bun run build
 bun run test
 ```
 
+Workspace layout:
+
+- `core/`: the `editor-ts` library package
+- `packages/web`: web starter
+- `packages/desktop`: desktop/filesystem starter
+- `packages/localsql`: SQLocal starter
+- `packages/quickstart`: root quickstart wiring and shared demo assets
+- `packages/starter-shared`: shared starter UI/runtime helpers
+
 ## Migration notes (`data` -> `content.adapter`)
 
 1. Keep your existing `data` flow first (no behavior change).
@@ -417,4 +426,6 @@ The existing `storage` option remains separate from `content.adapter`:
 - Storage: `core/src/core/StorageManager.ts`
 - Content adapters: `core/src/core/JsonContentAdapter.ts`, `core/src/core/ProjectFilesystemAdapter.ts`
 - Demo: `index.html` + `packages/quickstart/src/main.ts`
+- Library tests: `core/tests/*.test.ts`
+- Web starter tests: `packages/web/tests/*.test.ts`
 - Architecture + workflow: `AGENTS.md`

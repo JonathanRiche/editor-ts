@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { syncFrontendWithServer } from '../core/src/server/sync';
-import type { ServerFile, ServerPageMeta, ServerSyncAdapter } from '../core/src/server/sync';
-import type { StorageAdapter } from '../core/src/core/StorageManager';
+import { syncFrontendWithServer } from '../src/server/sync';
+import type { ServerFile, ServerPageMeta, ServerSyncAdapter } from '../src/server/sync';
+import type { StorageAdapter } from '../src/core/StorageManager';
 
 class MemoryStorage implements StorageAdapter {
   private pages = new Map<string, string>();

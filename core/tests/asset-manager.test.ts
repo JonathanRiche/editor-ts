@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { AssetManager } from '../core/src/core/AssetManager';
-import type { Asset, PageBody } from '../core/src/types';
+import { AssetManager } from '../src/core/AssetManager';
+import type { Asset, PageBody } from '../src/types';
 
 describe('AssetManager', () => {
   const makeAsset = (overrides: Partial<Asset> = {}): Asset => ({

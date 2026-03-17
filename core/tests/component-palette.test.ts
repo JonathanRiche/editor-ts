@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { ComponentPalette } from '../core/src/core/ComponentPalette';
-import type { CustomComponentRegistry } from '../core/src/types';
+import { ComponentPalette } from '../src/core/ComponentPalette';
+import type { CustomComponentRegistry } from '../src/types';
 
 type MockElement = {
   id?: string;
