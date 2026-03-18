@@ -12,6 +12,7 @@
     "build:native": "bunx electrobun build",
     "build:canary": "bunx electrobun build --env=canary",
     "build:stable": "bunx electrobun build --env=stable",
+    "install:local": "bash ./scripts/install-local.sh",
     "preview": "vite preview"
   },
   "dependencies": {

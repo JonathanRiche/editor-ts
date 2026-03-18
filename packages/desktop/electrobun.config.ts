@@ -8,6 +8,9 @@ export default {
     bun: {
       entrypoint: 'src/bun/index.ts',
     },
+    linux: {
+      icon: 'assets/icon-bolt.png',
+    },
     copy: {
       dist: 'views',
     },

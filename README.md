@@ -27,6 +27,7 @@ Root workspace commands:
 - `bun run build:desktop`: build the desktop renderer and native Electrobun package
 - `bun run build:desktop:web`: build only the desktop renderer
 - `bun run build:desktop:native`: build only the native Electrobun package
+- `bun run install:desktop:local`: build and run the Linux local desktop installer
 - `bun run test`: run package-oriented tests
 
 ## Core concepts
@@ -214,6 +215,12 @@ Electrobun desktop shell:
 
 ```bash
 bun run dev:desktop:native
+```
+
+Install the desktop app locally on Linux:
+
+```bash
+bun run install:desktop:local
 ```
 
 The Electrobun path is being introduced incrementally. It uses Bun in the main

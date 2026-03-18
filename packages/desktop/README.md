@@ -58,6 +58,15 @@ Native packaging build:
 bun run build
 ```
 
+Local install on Linux:
+
+```bash
+bun run install:local
+```
+
+That command builds the stable package, extracts the generated `*-Setup.tar.gz`
+installer from `artifacts/`, and runs the embedded installer for you.
+
 `bun run build:native` also runs the renderer prebuild automatically, so packaged
 desktop output always includes the latest copied `views/` assets.
 

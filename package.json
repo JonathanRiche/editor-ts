@@ -24,6 +24,7 @@
     "build:desktop": "cd packages/desktop && bun run build",
     "build:desktop:web": "cd packages/desktop && bun run build:web",
     "build:desktop:native": "cd packages/desktop && bun run build:native",
+    "install:desktop:local": "cd packages/desktop && bun run install:local",
     "build:localsql": "cd packages/localsql && bun run build",
     "example": "bun run dev:quickstart",
     "test": "bun run test:core && bun run test:web",

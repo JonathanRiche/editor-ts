@@ -7,6 +7,8 @@ import { openDesktopDatabase } from './storage';
 
 const DEFAULT_DESKTOP_RENDERER_URL = 'http://localhost:2050';
 
+process.title = 'Blink';
+
 const buildConfig = await BuildConfig.get();
 const bundledRendererEntry = typeof buildConfig.runtime?.desktopRendererEntry === 'string'
   ? buildConfig.runtime.desktopRendererEntry.trim()
