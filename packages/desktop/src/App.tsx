@@ -333,9 +333,7 @@ export default function App() {
   );
   const [aiDirectory, setAiDirectory] = createSignal(loadStoredValue(AI_DIRECTORY_STORAGE_KEY));
   const [statusText, setStatusText] = createSignal(
-    nativeBoot
-      ? `Electrobun shell ready. Desktop SQLite state: ${nativeBoot.sqlitePath}`
-      : 'No project connected',
+    'No project connected',
   );
   const [hasProject, setHasProject] = createSignal(false);
   const [recentProjects, setRecentProjects] = createSignal<DesktopRecentProject[]>([]);
@@ -432,7 +430,11 @@ export default function App() {
     const editorConfig: InitConfig = {
       iframeId: 'preview-iframe',
       codeEditor: {
-        provider: 'textarea',
+        provider: 'modern-monaco',
+        workspace: {
+          enabled: true,
+          name: 'desktop',
+        },
       },
       content: {
         adapter: new ProjectFilesystemAdapter({
@@ -713,7 +715,9 @@ export default function App() {
       setAiDirectory(settings.aiDirectory.trim());
     }
 
-    setStatusText(`Electrobun shell ready. Desktop SQLite state: ${nativeBoot?.sqlitePath ?? 'unknown'}`);
+    if (!hasProject()) {
+      setStatusText('No project connected');
+    }
 
     const restoreProject = options?.restoreProject ?? false;
     const lastProjectRoot = typeof settings.lastProjectRoot === 'string'
@@ -765,7 +769,7 @@ export default function App() {
         }
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
-        setStatusText(`Electrobun shell ready, but desktop state failed to load: ${message}`);
+        setStatusText(`Desktop state failed to load: ${message}`);
       }
     })();
   });
@@ -910,9 +914,7 @@ export default function App() {
       onModeChange={(nextMode) => {
         setMode(nextMode);
         if (nextMode === 'browser-folder') {
-          setStatusText(nativeDesktop
-            ? 'Native-folder mode selected.'
-            : 'Browser-folder mode selected.');
+          setStatusText('Folder mode selected.');
           return;
         }
 

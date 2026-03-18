@@ -24,12 +24,12 @@
   --color-text-muted: rgba(255, 255, 255, 0.3);
   --color-text-bright: #ffffff;
 
-  --color-accent: #3b82f6;
-  --color-accent-soft: rgba(59, 130, 246, 0.15);
+  --color-accent: #05a54c;
+  --color-accent-soft: rgba(5, 165, 76, 0.15);
   --color-accent-warm: #fbbf24;
   --color-accent-warm-soft: rgba(251, 191, 36, 0.15);
   --color-status-live: #22c55e;
-  --color-status-idle: #2563eb;
+  --color-status-idle: #6b7280;
   --color-danger: #ef4444;
 
   --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
@@ -138,7 +138,7 @@ html[data-desktop-runtime='electrobun'] .sidebar {
 .sidebar-header {
   flex-shrink: 0;
   border-bottom: 1px solid var(--color-line-dim);
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.05) 0%, transparent 100%);
+  background: linear-gradient(180deg, rgba(5, 165, 76, 0.05) 0%, transparent 100%);
   padding: 0.75rem 0.8rem 0.7rem;
 }
 
@@ -161,8 +161,8 @@ html[data-desktop-runtime='electrobun'] .sidebar {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  border: 1px solid rgba(59, 130, 246, 0.24);
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.14), rgba(59, 130, 246, 0.05));
+  border: 1px solid rgba(5, 165, 76, 0.24);
+  background: linear-gradient(180deg, rgba(5, 165, 76, 0.14), rgba(5, 165, 76, 0.05));
   padding: 0 0.45rem;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: var(--color-accent);
@@ -245,8 +245,8 @@ html[data-desktop-runtime='electrobun'] .sidebar {
 }
 
 .button-primary:hover:not(:disabled) {
-  border-color: #60a5fa;
-  background: #60a5fa;
+  border-color: #22c55e;
+  background: #22c55e;
 }
 
 .button-secondary {
@@ -313,7 +313,7 @@ html[data-desktop-runtime='electrobun'] .sidebar {
   height: 0.45rem;
   border-radius: 999px;
   background: var(--color-status-idle);
-  box-shadow: 0 0 8px rgba(37, 99, 235, 0.2);
+  box-shadow: 0 0 8px rgba(5, 165, 76, 0.2);
 }
 
 .status-dot.is-live {
@@ -327,9 +327,9 @@ html[data-desktop-runtime='electrobun'] .sidebar {
   min-width: 0;
   align-items: center;
   gap: 0.45rem;
-  border: 1px solid rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(5, 165, 76, 0.1);
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.03));
+  background: linear-gradient(180deg, rgba(5, 165, 76, 0.08), rgba(5, 165, 76, 0.03));
   padding: 0.32rem 0.6rem;
 }
 
@@ -450,7 +450,7 @@ html[data-desktop-runtime='electrobun'] .sidebar {
 
 .project-config-card {
   background:
-    linear-gradient(180deg, rgba(59, 130, 246, 0.06), transparent 45%),
+    linear-gradient(180deg, rgba(5, 165, 76, 0.06), transparent 45%),
     var(--color-bg-card);
 }
 
@@ -511,7 +511,7 @@ html[data-desktop-runtime='electrobun'] .sidebar {
 }
 
 .controls-card {
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.03) 0%, var(--color-bg-card) 100%);
+  background: linear-gradient(180deg, rgba(5, 165, 76, 0.03) 0%, var(--color-bg-card) 100%);
 }
 
 .mode-row {
@@ -586,7 +586,7 @@ html[data-desktop-runtime='electrobun'] .sidebar {
 .command-palette-close:focus-visible {
   outline: none;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 0 2px rgba(5, 165, 76, 0.15);
 }
 
 .field input:focus-visible {
@@ -594,9 +594,9 @@ html[data-desktop-runtime='electrobun'] .sidebar {
 }
 
 .permission-panel.active {
-  border-color: rgba(59, 130, 246, 0.35);
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.06) 0%, var(--color-bg-card) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 0 1px rgba(37, 99, 235, 0.15), 0 0 24px -4px rgba(59, 130, 246, 0.1);
+  border-color: rgba(5, 165, 76, 0.35);
+  background: linear-gradient(180deg, rgba(5, 165, 76, 0.06) 0%, var(--color-bg-card) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 0 1px rgba(5, 165, 76, 0.15), 0 0 24px -4px rgba(5, 165, 76, 0.1);
   transition: border-color 200ms ease, box-shadow 200ms ease, background 200ms ease;
 }
 
@@ -656,8 +656,8 @@ html[data-desktop-runtime='electrobun'] .sidebar {
 }
 
 .recent-project:hover {
-  border-color: rgba(59, 130, 246, 0.22);
-  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(5, 165, 76, 0.22);
+  background: rgba(5, 165, 76, 0.08);
   transform: translateX(3px);
 }
 
@@ -817,7 +817,7 @@ html[data-desktop-runtime='electrobun'] .sidebar {
 .command-palette-input:focus-visible {
   outline: none;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 0 2px rgba(5, 165, 76, 0.15);
 }
 
 .command-palette-results {

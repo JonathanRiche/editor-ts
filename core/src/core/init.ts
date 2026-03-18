@@ -2248,6 +2248,167 @@ export function init(config: InitConfig): EditorTsEditor {
     }
   };
 
+  type WorkspaceFileEntry = {
+    path: string;
+    readOnly?: boolean;
+    language?: string;
+  };
+
+  type FileTreeNode = FileTreeDirectoryNode | FileTreeLeafNode;
+
+  type FileTreeDirectoryNode = {
+    kind: 'directory';
+    name: string;
+    path: string;
+    children: FileTreeNode[];
+  };
+
+  type FileTreeLeafNode = WorkspaceFileEntry & {
+    kind: 'file';
+    name: string;
+  };
+
+  const expandedFileTreeDirectories = new Set<string>();
+  const discoveredRootDirectories = new Set<string>();
+
+  const sortFileTreeChildren = (children: FileTreeNode[]): FileTreeNode[] => {
+    return children.sort((left, right) => {
+      if (left.kind !== right.kind) {
+        return left.kind === 'directory' ? -1 : 1;
+      }
+
+      return left.name.localeCompare(right.name);
+    });
+  };
+
+  const buildFileTree = (files: WorkspaceFileEntry[]): FileTreeDirectoryNode => {
+    const root: FileTreeDirectoryNode = {
+      kind: 'directory',
+      name: '',
+      path: '',
+      children: [],
+    };
+
+    const ensureDirectory = (parent: FileTreeDirectoryNode, name: string, path: string): FileTreeDirectoryNode => {
+      const existing = parent.children.find((child) => child.kind === 'directory' && child.path === path);
+      if (existing && existing.kind === 'directory') {
+        return existing;
+      }
+
+      const directory: FileTreeDirectoryNode = {
+        kind: 'directory',
+        name,
+        path,
+        children: [],
+      };
+      parent.children.push(directory);
+      return directory;
+    };
+
+    files.forEach((file) => {
+      const segments = file.path.split('/').filter((segment) => segment.length > 0);
+      if (segments.length === 0) return;
+
+      let parent = root;
+      let currentPath = '';
+
+      segments.forEach((segment, index) => {
+        const nextPath = currentPath ? `${currentPath}/${segment}` : segment;
+        const isLeaf = index === segments.length - 1;
+
+        if (isLeaf) {
+          parent.children.push({
+            kind: 'file',
+            name: segment,
+            path: file.path,
+            readOnly: file.readOnly,
+            language: file.language,
+          });
+        } else {
+          parent = ensureDirectory(parent, segment, nextPath);
+          currentPath = nextPath;
+        }
+      });
+    });
+
+    const sortTree = (directory: FileTreeDirectoryNode): void => {
+      directory.children = sortFileTreeChildren(directory.children);
+      directory.children.forEach((child) => {
+        if (child.kind === 'directory') {
+          sortTree(child);
+        }
+      });
+    };
+
+    sortTree(root);
+    return root;
+  };
+
+  const filterFileTree = (node: FileTreeDirectoryNode, filter: string): FileTreeDirectoryNode => {
+    if (!filter) {
+      return node;
+    }
+
+    const visitDirectory = (directory: FileTreeDirectoryNode): FileTreeDirectoryNode | null => {
+      const nextChildren = directory.children.flatMap((child) => {
+        if (child.kind === 'file') {
+          return child.path.toLowerCase().includes(filter) ? [child] : [];
+        }
+
+        const nested = visitDirectory(child);
+        const directoryMatches = child.path.toLowerCase().includes(filter) || child.name.toLowerCase().includes(filter);
+
+        if (nested) return [nested];
+        if (!directoryMatches) return [];
+
+        return [
+          {
+            ...child,
+            children: [],
+          },
+        ];
+      });
+
+      if (directory.path === '' || nextChildren.length > 0) {
+        return {
+          ...directory,
+          children: nextChildren,
+        };
+      }
+
+      return null;
+    };
+
+    return visitDirectory(node) ?? {
+      ...node,
+      children: [],
+    };
+  };
+
+  const expandAncestorDirectories = (path: string): void => {
+    const segments = path.split('/').filter((segment) => segment.length > 0);
+    let currentPath = '';
+
+    segments.slice(0, -1).forEach((segment, index) => {
+      currentPath = index === 0 ? segment : `${currentPath}/${segment}`;
+      expandedFileTreeDirectories.add(currentPath);
+    });
+  };
+
+  const syncDefaultExpandedDirectories = (root: FileTreeDirectoryNode): void => {
+    root.children.forEach((child) => {
+      if (child.kind !== 'directory') return;
+      if (discoveredRootDirectories.has(child.path)) return;
+
+      discoveredRootDirectories.add(child.path);
+      expandedFileTreeDirectories.add(child.path);
+    });
+
+    if (viewerPath) {
+      expandAncestorDirectories(viewerPath);
+    }
+  };
+
   let viewerEditor: RuntimeCodeEditor | null = null;
   let viewerPath: string | null = null;
 
@@ -2284,6 +2445,69 @@ export function init(config: InitConfig): EditorTsEditor {
 
   let filesListRenderNonce = 0;
 
+  const openWorkspacePath = async (path: string): Promise<void> => {
+    viewerPath = path;
+    expandAncestorDirectories(path);
+    void renderFilesList();
+
+    const targetTab: CodeTab =
+      path === 'styles.css' ? 'css'
+        : path === 'page.json' ? 'json'
+          : path.startsWith('components/') && path.endsWith('.js') ? 'js'
+            : 'viewer';
+
+    // Switch tabs immediately so the user sees something happen.
+    // Also ensures Monaco hosts are visible before editor creation.
+    setCodeTab?.(targetTab);
+
+    // For the viewer tab, show a quick placeholder while loading.
+    if (targetTab === 'viewer' && viewerEditorContainer) {
+      setViewerHeader(path);
+      const host = viewerEditorContainer.querySelector('[data-editorts-field="viewer-editor"]') as HTMLElement | null;
+      if (host && !viewerEditor) {
+        host.innerHTML = '<pre style="margin:0; opacity:0.8;">Loading...</pre>';
+      }
+    }
+
+    const value = await readAdapterFile(path);
+    if (value === null) {
+      console.warn(`EditorTs: adapter did not return content for ${path}`);
+      return;
+    }
+
+    if (path === 'styles.css') {
+      await ensureCssEditorReady();
+      cssEditor?.setValue(value);
+      cssEditor?.focus();
+      return;
+    }
+
+    if (path === 'page.json') {
+      await ensureJsonEditorReady();
+      jsonEditor?.setValue(value);
+      jsonEditor?.focus();
+      return;
+    }
+
+    if (path.startsWith('components/') && path.endsWith('.js')) {
+      const id = path.slice('components/'.length, -3);
+      const component = page.components.findById(id);
+      if (component) {
+        iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
+        layerManager?.setSelected(id);
+      }
+
+      await ensureJsEditorReadyFor(component);
+      jsEditor?.setValue(value);
+      jsEditor?.focus();
+      return;
+    }
+
+    await ensureViewerReady(path, value);
+    viewerEditor?.focus();
+    void renderFilesList();
+  };
+
   const renderFilesList = async () => {
     if (!shouldEnableFilesViewer || !filesViewerContainer) return;
 
@@ -2306,101 +2530,107 @@ export function init(config: InitConfig): EditorTsEditor {
     const files = await listAdapterFiles();
     if (renderNonce !== filesListRenderNonce) return;
 
-    const visibleFiles = filter
-      ? files.filter((f) => f.path.toLowerCase().includes(filter))
-      : files;
+    const tree = buildFileTree(files);
+    syncDefaultExpandedDirectories(tree);
 
-    if (visibleFiles.length === 0) {
+    const filteredTree = filterFileTree(tree, filter);
+
+    if (filteredTree.children.length === 0) {
       listHost.textContent = filter ? 'No matches' : 'No files';
       return;
     }
 
-    visibleFiles.forEach((file) => {
-      const path = file.path;
+    const renderTreeNode = (node: FileTreeNode, level: number): void => {
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '0.25rem';
+      row.style.paddingLeft = `${level * 0.875}rem`;
+      row.style.minHeight = '1.9rem';
+
+      if (node.kind === 'directory') {
+        const isExpanded = filter.length > 0 || expandedFileTreeDirectories.has(node.path);
+
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.textContent = isExpanded ? '-' : '+';
+        toggle.setAttribute('aria-label', `${isExpanded ? 'Collapse' : 'Expand'} ${node.path}`);
+        toggle.style.width = '1.4rem';
+        toggle.style.height = '1.4rem';
+        toggle.style.border = 'none';
+        toggle.style.borderRadius = '4px';
+        toggle.style.background = 'transparent';
+        toggle.style.cursor = 'pointer';
+        toggle.style.flex = '0 0 auto';
+        toggle.addEventListener('click', () => {
+          if (isExpanded) {
+            expandedFileTreeDirectories.delete(node.path);
+          } else {
+            expandedFileTreeDirectories.add(node.path);
+          }
+          void renderFilesList();
+        });
+
+        const label = document.createElement('button');
+        label.type = 'button';
+        label.textContent = `${node.name}/`;
+        label.title = node.path;
+        label.style.flex = '1 1 auto';
+        label.style.textAlign = 'left';
+        label.style.padding = '0.2rem 0.35rem';
+        label.style.border = 'none';
+        label.style.borderRadius = '4px';
+        label.style.background = 'transparent';
+        label.style.cursor = 'pointer';
+        label.style.fontWeight = '600';
+        label.addEventListener('click', () => {
+          if (isExpanded) {
+            expandedFileTreeDirectories.delete(node.path);
+          } else {
+            expandedFileTreeDirectories.add(node.path);
+          }
+          void renderFilesList();
+        });
+
+        row.appendChild(toggle);
+        row.appendChild(label);
+        listHost.appendChild(row);
+
+        if (isExpanded) {
+          node.children.forEach((child) => renderTreeNode(child, level + 1));
+        }
+        return;
+      }
+
+      const spacer = document.createElement('div');
+      spacer.style.width = '1.4rem';
+      spacer.style.flex = '0 0 auto';
+
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = file.readOnly ? `${path} [read-only]` : path;
+      btn.textContent = node.readOnly ? `${node.name} [read-only]` : node.name;
+      btn.title = node.path;
       btn.style.display = 'block';
       btn.style.width = '100%';
       btn.style.textAlign = 'left';
       btn.style.padding = '0.25rem 0.5rem';
       btn.style.border = 'none';
       btn.style.borderRadius = '4px';
-      btn.style.background = viewerPath === path ? 'rgba(59, 130, 246, 0.10)' : 'transparent';
+      btn.style.background = viewerPath === node.path ? 'rgba(59, 130, 246, 0.10)' : 'transparent';
       btn.style.cursor = 'pointer';
-
       btn.addEventListener('click', () => {
-        // Provide immediate visual feedback.
-        viewerPath = path;
-        void renderFilesList();
-
-        const targetTab: CodeTab =
-          path === 'styles.css' ? 'css'
-            : path === 'page.json' ? 'json'
-              : path.startsWith('components/') && path.endsWith('.js') ? 'js'
-                : 'viewer';
-
-        // Switch tabs immediately so the user sees something happen.
-        // Also ensures Monaco hosts are visible before editor creation.
-        setCodeTab?.(targetTab);
-
-        // For the viewer tab, show a quick placeholder while loading.
-        if (targetTab === 'viewer' && viewerEditorContainer) {
-          setViewerHeader(path);
-          const host = viewerEditorContainer.querySelector('[data-editorts-field="viewer-editor"]') as HTMLElement | null;
-          if (host && !viewerEditor) {
-            host.innerHTML = '<pre style="margin:0; opacity:0.8;">Loading…</pre>';
-          }
-        }
-
-        void (async () => {
-          try {
-            const value = await readAdapterFile(path);
-            if (value === null) {
-              console.warn(`EditorTs: adapter did not return content for ${path}`);
-              return;
-            }
-
-            if (path === 'styles.css') {
-              await ensureCssEditorReady();
-              cssEditor?.setValue(value);
-              cssEditor?.focus();
-              return;
-            }
-
-            if (path === 'page.json') {
-              await ensureJsonEditorReady();
-              jsonEditor?.setValue(value);
-              jsonEditor?.focus();
-              return;
-            }
-
-            if (path.startsWith('components/') && path.endsWith('.js')) {
-              const id = path.slice('components/'.length, -3);
-              const component = page.components.findById(id);
-              if (component) {
-                iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
-                layerManager?.setSelected(id);
-              }
-
-              await ensureJsEditorReadyFor(component);
-              jsEditor?.setValue(value);
-              jsEditor?.focus();
-              return;
-            }
-
-            await ensureViewerReady(path, value);
-            viewerEditor?.focus();
-            void renderFilesList();
-          } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : String(err);
-            console.warn(`Failed to open adapter file ${path}:`, message);
-          }
-        })();
+        void openWorkspacePath(node.path).catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(`Failed to open adapter file ${node.path}:`, message);
+        });
       });
 
-      listHost.appendChild(btn);
-    });
+      row.appendChild(spacer);
+      row.appendChild(btn);
+      listHost.appendChild(row);
+    };
+
+    filteredTree.children.forEach((child) => renderTreeNode(child, 0));
   };
 
   async function ensureCssEditorReady() {

@@ -190,14 +190,14 @@ export default function AppShell(props: AppShellProps) {
       <main class="content flex min-h-screen min-w-0 flex-col gap-[0.65rem] overflow-auto bg-bg-void p-[0.95rem] max-lg:min-h-[50vh] max-lg:overflow-visible">
         <div class="tabs flex flex-wrap">
           <button id="tab-chat" type="button" class={mainTabClass(activeMainTab() === 'chat')} aria-pressed={activeMainTab() === 'chat'} onClick={() => setActiveMainTab('chat')}>Chat</button>
-          <button id="tab-editor" type="button" class={mainTabClass(activeMainTab() === 'editor')} aria-pressed={activeMainTab() === 'editor'} onClick={() => setActiveMainTab('editor')}>Editor</button>
+          <button id="tab-editor" type="button" class={mainTabClass(activeMainTab() === 'editor')} aria-pressed={activeMainTab() === 'editor'} onClick={() => setActiveMainTab('editor')}>Canvas</button>
           <button id="tab-code" type="button" class={mainTabClass(activeMainTab() === 'code')} aria-pressed={activeMainTab() === 'code'} onClick={() => setActiveMainTab('code')}>Code</button>
         </div>
 
         <AiWorkspacePanel hidden={activeMainTab() !== 'chat'} />
 
         <div class="workspace-stage flex min-h-0 flex-1 flex-col gap-[0.8rem]" hidden={activeMainTab() === 'chat'}>
-          <iframe id="preview-iframe" class="editorts-preview-frame preview-frame w-full flex-1 rounded-[8px] border border-line-dim bg-white" title="Editor preview" />
+          <iframe id="preview-iframe" class="editorts-preview-frame preview-frame w-full flex-1 rounded-[8px] border border-line-dim bg-white" title="Canvas preview" />
 
           <div class="editorts-code-tabs code-tabs">
             <button id="code-tab-files" type="button">Files</button>

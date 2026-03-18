@@ -85,11 +85,11 @@ export default function AppShell(props: AppShellProps) {
 
   const modeSummary = () => {
     if (props.nativeRuntime && props.mode === 'browser-folder') {
-      return 'Native folder';
+      return 'Project folder';
     }
 
     if (props.mode === 'browser-folder') {
-      return 'Browser folder';
+      return 'Folder';
     }
 
     return 'Server routes';
@@ -141,11 +141,16 @@ export default function AppShell(props: AppShellProps) {
     const root = document.documentElement;
     const syncMainTab = () => {
       const next = root.getAttribute('data-editorts-view');
-      if (next === 'editor' || next === 'code') {
-        setActiveMainTab(next);
-      }
+      if (next !== 'editor' && next !== 'code') return;
+
+      // The desktop shell owns the chat tab locally; the editor runtime only
+      // reports canvas/code. Ignore its default editor reset while chat is active.
+      if (activeMainTab() === 'chat' && next === 'editor') return;
+
+      setActiveMainTab(next);
     };
 
+    syncMainTab();
     observer = new MutationObserver(syncMainTab);
     observer.observe(root, { attributes: true, attributeFilter: ['data-editorts-view'] });
   });
@@ -165,7 +170,7 @@ export default function AppShell(props: AppShellProps) {
                   {'</>'}
                 </span>
                 <div class="brand-copy">
-                  <h1>Blink</h1>
+                  <h1>Verde</h1>
                 </div>
               </div>
 
@@ -182,7 +187,7 @@ export default function AppShell(props: AppShellProps) {
                   }}
                 >
                   {props.mode === 'browser-folder'
-                    ? props.nativeRuntime ? 'Open Native Folder' : 'Open Folder'
+                    ? 'Open Folder'
                     : 'Connect Routes'}
                 </button>
                 <button
@@ -237,7 +242,7 @@ export default function AppShell(props: AppShellProps) {
                     class={cx('mode-btn', props.mode === 'browser-folder' && 'active')}
                     onClick={() => props.onModeChange('browser-folder')}
                   >
-                    {props.nativeRuntime ? 'Native Folder' : 'Browser Folder'}
+                    Folder
                   </button>
                   <button
                     type="button"
@@ -282,7 +287,7 @@ export default function AppShell(props: AppShellProps) {
                 </label>
                 {!props.fsSupported && (
                   <p class="warning">
-                    Browser-folder mode requires File System Access API. Use latest Chrome or Edge, or switch to Server Routes mode.
+                    Folder mode requires File System Access API. Use latest Chrome or Edge, or switch to Server Routes mode.
                   </p>
                 )}
               </section>
@@ -403,7 +408,7 @@ export default function AppShell(props: AppShellProps) {
                 props.onMainTabActivate('editor');
               }}
             >
-              Editor
+              Canvas
             </button>
             <button
               id="tab-code"
@@ -437,7 +442,7 @@ export default function AppShell(props: AppShellProps) {
             </div>
           </div>
 
-          <iframe id="preview-iframe" class="preview-frame" title="Editor preview" />
+          <iframe id="preview-iframe" class="preview-frame" title="Canvas preview" />
 
           <div class="code-shell">
             <div class="code-tabs">

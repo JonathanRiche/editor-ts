@@ -7,9 +7,22 @@ import { openDesktopDatabase } from './storage';
 
 const DEFAULT_DESKTOP_RENDERER_URL = 'http://localhost:2050';
 
-process.title = 'Blink';
+process.title = 'Verde';
+
+const readInitialProjectRootFromEnv = (): string => {
+  const value = process.env.EDITORTS_DESKTOP_PROJECT_ROOT?.trim() ?? '';
+  if (value.length === 0) {
+    return '';
+  }
+  return path.resolve(value);
+};
 
 const parseInitialProjectRoot = (argv: string[]): string => {
+  const fromEnv = readInitialProjectRootFromEnv();
+  if (fromEnv.length > 0) {
+    return fromEnv;
+  }
+
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (!arg) continue;
@@ -161,6 +174,10 @@ const initialProjectRoot = parseInitialProjectRoot(process.argv.slice(2));
 const DESKTOP_RELOAD_DELAY_MS = 140;
 const DESKTOP_SHORTCUT_RELOAD_DELAY_MS = 320;
 
+if (initialProjectRoot.length > 0) {
+  console.log('[desktop-startup] initial project root:', initialProjectRoot);
+}
+
 const desktopBoot = {
   runtime: 'electrobun',
   sqlitePath,
@@ -175,20 +192,6 @@ const desktopBoot = {
 const preloadScript = `
   window.__EDITORTS_DESKTOP__ = ${JSON.stringify(desktopBoot)};
 `;
-
-const mainWindow = new BrowserWindow({
-  title: 'EditorTs Desktop',
-  url: rendererUrl,
-  viewsRoot: null,
-  frame: {
-    x: 60,
-    y: 40,
-    width: 1600,
-    height: 1040,
-  },
-  preload: preloadScript,
-  rpc: desktopRpc,
-});
 
 process.on('uncaughtException', (error: Error) => {
   console.error('[desktop-bun:error] uncaughtException', error.stack ?? error.message);
@@ -250,6 +253,20 @@ const desktopRpc = createDesktopRpc({
   sqlitePath,
   userDataPath,
   onToggleDevTools: toggleWindowDevTools,
+});
+
+const mainWindow = new BrowserWindow({
+  title: 'Verde',
+  url: rendererUrl,
+  viewsRoot: null,
+  frame: {
+    x: 60,
+    y: 40,
+    width: 1600,
+    height: 1040,
+  },
+  preload: preloadScript,
+  rpc: desktopRpc,
 });
 
 const registerWindowShortcut = (accelerator: string, handler: () => void): void => {

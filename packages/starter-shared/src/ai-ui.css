@@ -15,7 +15,7 @@
 }
 
 .shared-ai-connection-card {
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.03) 0%, var(--color-bg-card) 100%);
+  background: linear-gradient(180deg, rgba(5, 165, 76, 0.03) 0%, var(--color-bg-card) 100%);
 }
 
 .shared-ai-header {
@@ -109,7 +109,7 @@ select.shared-ai-input {
 .editorts-ai-session-item:focus-visible {
   outline: none;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 0 2px rgba(5, 165, 76, 0.15);
 }
 
 .shared-ai-input:focus-visible,
@@ -153,8 +153,8 @@ select.shared-ai-input {
 }
 
 .shared-ai-button-primary:hover:not(:disabled) {
-  border-color: #60a5fa;
-  background: #60a5fa;
+  border-color: #22c55e;
+  background: #22c55e;
 }
 
 .shared-ai-button-secondary {
@@ -318,7 +318,7 @@ select.shared-ai-input {
   margin-right: 0.5rem;
   border-radius: 999px;
   background: var(--color-text-muted);
-  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  box-shadow: 0 0 0 0 rgba(5, 165, 76, 0);
 }
 
 .shared-ai-chat-status[data-state='loading'],
@@ -329,7 +329,7 @@ select.shared-ai-input {
 .shared-ai-chat-status[data-state='loading']::before,
 .shared-ai-chat-status[data-state='streaming']::before {
   background: var(--color-accent);
-  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.35);
+  box-shadow: 0 0 0 0 rgba(5, 165, 76, 0.35);
   animation: shared-ai-pulse 1.2s infinite;
 }
 
@@ -493,21 +493,21 @@ select.shared-ai-input {
 }
 
 .editorts-ai-session-item-active {
-  border-color: rgba(59, 130, 246, 0.3);
+  border-color: rgba(5, 165, 76, 0.3);
   border-left: 2px solid var(--color-accent);
-  background: rgba(59, 130, 246, 0.12);
+  background: rgba(5, 165, 76, 0.12);
   color: var(--color-text-bright);
 }
 
 @keyframes shared-ai-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.35);
+    box-shadow: 0 0 0 0 rgba(5, 165, 76, 0.35);
   }
   70% {
-    box-shadow: 0 0 0 0.4rem rgba(59, 130, 246, 0);
+    box-shadow: 0 0 0 0.4rem rgba(5, 165, 76, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    box-shadow: 0 0 0 0 rgba(5, 165, 76, 0);
   }
 }
 

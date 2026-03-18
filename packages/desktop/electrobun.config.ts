@@ -1,8 +1,8 @@
 import type { ElectrobunConfig } from "electrobun";
 export default {
   app: {
-    identifier: 'com.blink.desktop',
-    name: 'Blink',
+    identifier: 'com.verde.desktop',
+    name: 'Verde',
     version: '0.0.1',
   },
   build: {
@@ -19,6 +19,7 @@ export default {
   },
   runtime: {
     desktopRendererEntry: 'bundled',
+
   },
   scripts: {
     preBuild: 'scripts/prebuild-native.ts',

@@ -55,14 +55,14 @@ bun run dev:desktop:native
 Open the native desktop app directly to a project path:
 
 ```bash
-Blink -p /absolute/path/to/project
+verde -p /absolute/path/to/project
 ```
 
 Supported forms:
 
 ```bash
-Blink --project /absolute/path/to/project
-Blink --project=/absolute/path/to/project
+verde --project /absolute/path/to/project
+verde --project=/absolute/path/to/project
 ```
 
 When a project path is passed at startup, the desktop app opens that project
@@ -82,12 +82,12 @@ bun run install:local
 
 That command builds the stable package, extracts the generated `*-Setup.tar.gz`
 installer from `artifacts/`, runs the embedded installer for you, creates a
-`Blink.desktop` launcher under `~/.local/share/applications`, and exposes a
-`bin/Blink` executable alias inside the installed app bundle.
+`Verde.desktop` launcher under `~/.local/share/applications`, and exposes a
+`bin/Verde` executable alias inside the installed app bundle.
 
 Electrobun still hardcodes the internal Linux bundle launcher as `launcher`.
 The local install script adds the app-named alias and desktop entry on top so
-the launcher path looks like `.../bin/Blink` in normal use.
+the launcher path looks like `.../bin/Verde` in normal use.
 
 `bun run build:native` also runs the renderer prebuild automatically, so packaged
 desktop output always includes the latest copied `views/` assets.
