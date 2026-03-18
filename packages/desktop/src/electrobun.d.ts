@@ -10,6 +10,7 @@ declare global {
       uiScale?: number;
       debugAi?: boolean;
       bundledRenderer?: boolean;
+      initialProjectRoot?: string;
     };
   }
 }

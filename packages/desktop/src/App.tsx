@@ -736,12 +736,33 @@ export default function App() {
     });
   };
 
+  const connectInitialProjectRoot = async (initialRoot: string): Promise<void> => {
+    const root = initialRoot.trim();
+    if (!root) {
+      return;
+    }
+
+    await connectProjectRoot({
+      root,
+      provider: createNativeProjectProvider(root),
+      connectedMessage: `Native project connected from CLI: ${root}`,
+      nextMode: 'browser-folder',
+      persistLastProject: true,
+      persistRecentProject: true,
+    });
+    await hydrateNativeDesktopState();
+  };
+
   onMount(() => {
     if (!nativeDesktop) return;
 
     void (async () => {
       try {
-        await hydrateNativeDesktopState({ restoreProject: true });
+        const initialProjectRoot = nativeBoot?.initialProjectRoot?.trim() ?? '';
+        await hydrateNativeDesktopState({ restoreProject: initialProjectRoot.length === 0 });
+        if (initialProjectRoot.length > 0) {
+          await connectInitialProjectRoot(initialProjectRoot);
+        }
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         setStatusText(`Electrobun shell ready, but desktop state failed to load: ${message}`);

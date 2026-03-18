@@ -9,6 +9,37 @@ const DEFAULT_DESKTOP_RENDERER_URL = 'http://localhost:2050';
 
 process.title = 'Blink';
 
+const parseInitialProjectRoot = (argv: string[]): string => {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (!arg) continue;
+
+    if (arg === '-p' || arg === '--project') {
+      const next = argv[index + 1];
+      if (!next || next.startsWith('-')) {
+        continue;
+      }
+      return path.resolve(process.cwd(), next);
+    }
+
+    if (arg.startsWith('--project=')) {
+      const value = arg.slice('--project='.length).trim();
+      if (value.length > 0) {
+        return path.resolve(process.cwd(), value);
+      }
+    }
+
+    if (arg.startsWith('-p=')) {
+      const value = arg.slice('-p='.length).trim();
+      if (value.length > 0) {
+        return path.resolve(process.cwd(), value);
+      }
+    }
+  }
+
+  return '';
+};
+
 const buildConfig = await BuildConfig.get();
 const bundledRendererEntry = typeof buildConfig.runtime?.desktopRendererEntry === 'string'
   ? buildConfig.runtime.desktopRendererEntry.trim()
@@ -126,6 +157,7 @@ const uiScale = Number.isFinite(configuredUiScale) && configuredUiScale > 0
     ? 0.8
     : 1;
 const debugAi = process.env.EDITORTS_AI_DEBUG === '1';
+const initialProjectRoot = parseInitialProjectRoot(process.argv.slice(2));
 const DESKTOP_RELOAD_DELAY_MS = 140;
 const DESKTOP_SHORTCUT_RELOAD_DELAY_MS = 320;
 
@@ -137,6 +169,7 @@ const desktopBoot = {
   uiScale,
   debugAi,
   bundledRenderer: usingBundledRenderer,
+  initialProjectRoot: initialProjectRoot || undefined,
 } as const;
 
 const preloadScript = `

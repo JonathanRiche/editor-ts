@@ -223,6 +223,16 @@ Install the desktop app locally on Linux:
 bun run install:desktop:local
 ```
 
+On Linux this wraps Electrobun's generated installer, then creates a clean
+`Blink.desktop` entry and a `bin/Blink` executable alias for local use. Electrobun
+still uses an internal `launcher` binary name inside the bundle today.
+
+You can also open the installed desktop app directly to a project from the CLI:
+
+```bash
+Blink -p /absolute/path/to/project
+```
+
 The Electrobun path is being introduced incrementally. It uses Bun in the main
 process, uses Electrobun RPC for native desktop calls, and initializes desktop
 app state in SQLite under the native user-data directory. Native project picks are

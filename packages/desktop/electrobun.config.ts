@@ -1,10 +1,12 @@
+import type { ElectrobunConfig } from "electrobun";
 export default {
   app: {
     identifier: 'com.blink.desktop',
     name: 'Blink',
-    version: '0.0.0',
+    version: '0.0.1',
   },
   build: {
+
     bun: {
       entrypoint: 'src/bun/index.ts',
     },
@@ -21,4 +23,4 @@ export default {
   scripts: {
     preBuild: 'scripts/prebuild-native.ts',
   },
-};
+} satisfies ElectrobunConfig;
