@@ -15,6 +15,46 @@ type ParsedChatResponse = {
 
 const AI_CHAT_REQUEST_MARKER = 'REQUEST:\n';
 
+type DesktopDebugWindow = Window & {
+  __EDITORTS_DESKTOP__?: {
+    debugAi?: boolean;
+  };
+};
+
+const isAiDebugEnabled = (): boolean => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if ((window as DesktopDebugWindow).__EDITORTS_DESKTOP__?.debugAi === true) {
+    return true;
+  }
+
+  try {
+    return window.localStorage?.getItem('editorts:ai-debug') === '1';
+  } catch {
+    return false;
+  }
+};
+
+const logAiDebug = (message: string, details?: unknown): void => {
+  if (!isAiDebugEnabled()) return;
+  if (typeof details === 'undefined') {
+    console.info('[editorts-ai]', message);
+    return;
+  }
+  console.info('[editorts-ai]', message, details);
+};
+
+const warnAiDebug = (message: string, details?: unknown): void => {
+  if (!isAiDebugEnabled()) return;
+  if (typeof details === 'undefined') {
+    console.warn('[editorts-ai]', message);
+    return;
+  }
+  console.warn('[editorts-ai]', message, details);
+};
+
 const stripCodeFences = (text: string): string => {
   const trimmed = text.trim();
   if (!trimmed.startsWith('```')) return trimmed;
@@ -568,6 +608,15 @@ export const requestAiReplacements = async (args: {
       throw new Error(`Failed to create session: ${String(sessionResult.error)}`);
     }
     sessionId = sessionResult.data.id;
+    logAiDebug('created ai session', {
+      sessionId,
+      title: sessionTitle ?? 'EditorTs Chat',
+    });
+  } else {
+    logAiDebug('reusing ai session', {
+      sessionId,
+      title: sessionTitle ?? null,
+    });
   }
 
   const normalizedWorkspaceFiles = workspaceFiles ?? {
@@ -596,6 +645,16 @@ export const requestAiReplacements = async (args: {
   ].join('\n');
 
   const model = selectedModel ?? await chooseChatModel(client);
+  logAiDebug('prepared ai request', {
+    sessionId,
+    model,
+    streamEnabled: !!stream && typeof onStream === 'function',
+    promptLength: prompt.length,
+    workspaceFileCount: Object.keys(normalizedWorkspaceFiles).length,
+    allowedPathCount: normalizedAllowedPaths.length,
+    readOnlyPathCount: readOnlyPaths?.length ?? 0,
+    derivedPathCount: derivedPaths?.length ?? 0,
+  });
 
   if (stream && typeof onStream === 'function') {
     const streamStartedAt = Date.now() - 1000;
@@ -615,6 +674,12 @@ export const requestAiReplacements = async (args: {
 
     const startTrackingAssistantMessage = (messageId: string) => {
       if (assistantMessageId !== messageId) {
+        logAiDebug('switch tracked assistant message', {
+          previousMessageId: assistantMessageId,
+          nextMessageId: messageId,
+          assembledLength: assembled.length,
+          hadText: assistantMessageHasText,
+        });
         partTextById.clear();
         assembled = '';
         assistantMessageHasText = false;
@@ -632,13 +697,28 @@ export const requestAiReplacements = async (args: {
 
       if (latest?.text.trim()) {
         assistantMessageId = latest.id;
+        logAiDebug('resolved assistant text from transcript', {
+          sessionId,
+          messageId: latest.id,
+          textLength: latest.text.length,
+        });
         return latest.text;
       }
 
       if (assembled.trim()) {
+        logAiDebug('resolved assistant text from assembled stream', {
+          sessionId,
+          messageId: assistantMessageId,
+          textLength: assembled.length,
+        });
         return assembled;
       }
 
+      warnAiDebug('assistant text resolution returned empty', {
+        sessionId,
+        messageId: assistantMessageId,
+        assembledLength: assembled.length,
+      });
       return '';
     };
 
@@ -647,6 +727,10 @@ export const requestAiReplacements = async (args: {
         signal: abortController.signal,
         onSseError: (error) => {
           lastStreamFailure = error;
+          warnAiDebug('stream sse error', {
+            sessionId,
+            error: formatStreamError(error),
+          });
         },
       });
 
@@ -670,10 +754,20 @@ export const requestAiReplacements = async (args: {
             }
 
             if (message.error) {
+              warnAiDebug('assistant message error', {
+                sessionId,
+                messageId: message.id,
+                error: formatStreamError(message.error),
+              });
               throw new Error(formatStreamError(message.error));
             }
 
             if (assistantMessageId === message.id && typeof message.time?.completed === 'number') {
+              logAiDebug('assistant message completed', {
+                sessionId,
+                messageId: message.id,
+                completedAt: message.time.completed,
+              });
               const resolvedText = await waitForSettledAssistantText({
                 client,
                 sessionId,
@@ -714,6 +808,13 @@ export const requestAiReplacements = async (args: {
             if (nextDelta.length > 0) {
               assembled += nextDelta;
               assistantMessageHasText = true;
+              logAiDebug('message.part.updated delta', {
+                sessionId,
+                messageId: part.messageID,
+                partId: part.id,
+                deltaLength: nextDelta.length,
+                assembledLength: assembled.length,
+              });
               onStream(nextDelta);
             }
 
@@ -738,6 +839,12 @@ export const requestAiReplacements = async (args: {
             if (deltaText.length > 0) {
               assembled += deltaText;
               assistantMessageHasText = true;
+              logAiDebug('raw message.part.delta', {
+                sessionId,
+                messageId: deltaMessageId,
+                deltaLength: deltaText.length,
+                assembledLength: assembled.length,
+              });
               onStream(deltaText);
             }
 
@@ -745,10 +852,19 @@ export const requestAiReplacements = async (args: {
           }
 
           if (event.type === 'session.error' && event.properties.sessionID === sessionId) {
+            warnAiDebug('session.error', {
+              sessionId,
+              error: formatStreamError(event.properties.error),
+            });
             throw new Error(formatStreamError(event.properties.error));
           }
 
           if (event.type === 'session.idle' && event.properties.sessionID === sessionId && (assistantMessageId !== null || assembled.trim())) {
+            logAiDebug('session idle while waiting for assistant', {
+              sessionId,
+              messageId: assistantMessageId,
+              assembledLength: assembled.length,
+            });
             const resolvedText = await waitForSettledAssistantText({
               client,
               sessionId,
@@ -795,9 +911,18 @@ export const requestAiReplacements = async (args: {
         throw new Error(`Prompt failed: ${String(sendResult.error)}`);
       }
 
+      logAiDebug('promptAsync accepted', {
+        sessionId,
+        model,
+      });
       assistantText = await streamPromise;
     } catch (error: unknown) {
       if (timedOut) {
+        warnAiDebug('stream timed out; attempting fallback', {
+          sessionId,
+          messageId: assistantMessageId,
+          assembledLength: assembled.length,
+        });
         const fallbackText = await resolveAssistantText();
         if (fallbackText.trim()) {
           assistantText = fallbackText;
@@ -814,10 +939,23 @@ export const requestAiReplacements = async (args: {
     }
 
     if (!assistantText.trim()) {
+      warnAiDebug('no assistant text returned after streaming', {
+        sessionId,
+        messageId: assistantMessageId,
+        assembledLength: assembled.length,
+        streamFailure: lastStreamFailure ? formatStreamError(lastStreamFailure) : null,
+      });
       throw new Error('No assistant text returned.');
     }
 
-    return parseAiChatResponse(assistantText, sessionId);
+    const parsed = parseAiChatResponse(assistantText, sessionId);
+    logAiDebug('parsed streamed ai response', {
+      sessionId,
+      replacementCount: parsed.replacements.length,
+      warningCount: parsed.warnings.length,
+      skippedPathCount: parsed.skippedPaths.length,
+    });
+    return parsed;
   }
 
   const result = await client.session.prompt({
@@ -843,10 +981,21 @@ export const requestAiReplacements = async (args: {
     .join('');
 
   if (!assistantText.trim()) {
+    warnAiDebug('no assistant text returned from non-streaming prompt', {
+      sessionId,
+      partCount: parts.length,
+    });
     throw new Error('No assistant text returned.');
   }
 
-  return parseAiChatResponse(assistantText, sessionId);
+  const parsed = parseAiChatResponse(assistantText, sessionId);
+  logAiDebug('parsed non-streamed ai response', {
+    sessionId,
+    replacementCount: parsed.replacements.length,
+    warningCount: parsed.warnings.length,
+    skippedPathCount: parsed.skippedPaths.length,
+  });
+  return parsed;
 };
 
 export const applyAiReplacementsToPage = async (args: {

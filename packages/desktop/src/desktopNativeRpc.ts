@@ -1,8 +1,10 @@
 import type { ProjectFilesystemProvider } from 'editor-ts';
+import { Electroview } from 'electrobun/view';
 import type {
   DesktopNativeState,
   DesktopOpenProjectResult,
   DesktopRecentProject,
+  DesktopRendererLogMessage,
   DesktopRpcSchema,
   DesktopSettingKey,
 } from './shared/desktopRpcSchema';
@@ -14,8 +16,9 @@ const isHttpOrigin = (value: string): boolean => {
 };
 
 type DesktopRpcClient = Awaited<ReturnType<typeof createDesktopRpcClient>>;
+const DESKTOP_RPC_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
-let desktopRpcClientPromise: Promise<DesktopRpcClient | null> | null = null;
+let desktopRpcClientPromise: Promise<DesktopRpcClient> | null = null;
 
 export const isNativeDesktopRuntime = (): boolean => {
   return typeof window !== 'undefined' && window.__EDITORTS_DESKTOP__?.runtime === 'electrobun';
@@ -27,9 +30,15 @@ export const defaultHttpApiBaseUrl = (): string => {
   return isHttpOrigin(origin) ? origin : 'http://127.0.0.1:2050';
 };
 
+const assertNativeDesktopRuntime = (): void => {
+  if (!isNativeDesktopRuntime()) {
+    throw new Error('EditorTs Desktop must run inside the Electrobun runtime.');
+  }
+};
+
 async function createDesktopRpcClient() {
-  const { Electroview } = await import('electrobun/view');
   const rpc = Electroview.defineRPC<DesktopRpcSchema>({
+    maxRequestTime: DESKTOP_RPC_REQUEST_TIMEOUT_MS,
     handlers: {
       requests: {},
       messages: {},
@@ -40,9 +49,8 @@ async function createDesktopRpcClient() {
   return rpc;
 }
 
-const getDesktopRpcClient = async (): Promise<DesktopRpcClient | null> => {
-  if (!isNativeDesktopRuntime()) return null;
-
+const getDesktopRpcClient = async (): Promise<DesktopRpcClient> => {
+  assertNativeDesktopRuntime();
   if (!desktopRpcClientPromise) {
     desktopRpcClientPromise = createDesktopRpcClient().catch((error: unknown) => {
       desktopRpcClientPromise = null;
@@ -54,16 +62,11 @@ const getDesktopRpcClient = async (): Promise<DesktopRpcClient | null> => {
 };
 
 const requireDesktopRpcClient = async (): Promise<DesktopRpcClient> => {
-  const client = await getDesktopRpcClient();
-  if (!client) {
-    throw new Error('Electrobun desktop RPC is unavailable in this runtime.');
-  }
-  return client;
+  return getDesktopRpcClient();
 };
 
-export const fetchNativeDesktopState = async (): Promise<DesktopNativeState | null> => {
+export const fetchNativeDesktopState = async (): Promise<DesktopNativeState> => {
   const client = await getDesktopRpcClient();
-  if (!client) return null;
   return client.requestProxy.getDesktopState();
 };
 
@@ -88,15 +91,18 @@ export const persistNativeRecentProject = async (
 
 export const openNativeProjectDirectory = async (
   startingFolder?: string,
-): Promise<DesktopOpenProjectResult | null> => {
+): Promise<DesktopOpenProjectResult> => {
   const client = await getDesktopRpcClient();
-  if (!client) return null;
-
   return client.requestProxy.openProjectDialog(
     startingFolder?.trim()
       ? { startingFolder: startingFolder.trim() }
       : undefined,
   );
+};
+
+export const sendRendererLog = async (payload: DesktopRendererLogMessage): Promise<void> => {
+  const client = await getDesktopRpcClient();
+  client.sendProxy.rendererLog(payload);
 };
 
 export const createNativeProjectProvider = (root: string): ProjectFilesystemProvider => {

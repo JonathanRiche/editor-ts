@@ -29,6 +29,13 @@ export type DesktopOpenProjectResult = {
   label?: string;
 };
 
+export type DesktopRendererLogMessage = {
+  level: 'error' | 'warn' | 'info';
+  source: string;
+  message: string;
+  stack?: string;
+};
+
 export type DesktopRpcSchema = {
   bun: {
     requests: {
@@ -90,7 +97,9 @@ export type DesktopRpcSchema = {
         };
       };
     };
-    messages: Record<never, never>;
+    messages: {
+      rendererLog: DesktopRendererLogMessage;
+    };
   };
   webview: {
     requests: Record<never, never>;

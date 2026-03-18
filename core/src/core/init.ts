@@ -42,6 +42,7 @@ import type {
 type OpencodeClientSdkModule = {
   createOpencodeClient(args: {
     baseUrl: string;
+    directory?: string;
     fetch?: (request: Request) => Promise<Response>;
   }): PromiseLike<import('@opencode-ai/sdk/client').OpencodeClient> | import('@opencode-ai/sdk/client').OpencodeClient;
 };
@@ -77,6 +78,37 @@ const resolvePreviewUrl = (baseUrl: string, routePath: string | null): string =>
   resolvedBase.search = '';
   resolvedBase.hash = '';
   return resolvedBase.toString();
+};
+
+type DesktopDebugWindow = Window & {
+  __EDITORTS_DESKTOP__?: {
+    debugAi?: boolean;
+  };
+};
+
+const isAiDebugEnabled = (): boolean => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if ((window as DesktopDebugWindow).__EDITORTS_DESKTOP__?.debugAi === true) {
+    return true;
+  }
+
+  try {
+    return window.localStorage?.getItem('editorts:ai-debug') === '1';
+  } catch {
+    return false;
+  }
+};
+
+const logAiDebug = (message: string, details?: unknown): void => {
+  if (!isAiDebugEnabled()) return;
+  if (typeof details === 'undefined') {
+    console.info('[editorts-ai]', message);
+    return;
+  }
+  console.info('[editorts-ai]', message, details);
 };
 
 /**
@@ -1178,6 +1210,12 @@ export function init(config: InitConfig): EditorTsEditor {
           const requestedBaseUrl = resolveConfiguredAiBaseUrl();
           const requestedDirectory = resolveConfiguredAiDirectory() ?? null;
           if (activeBaseUrl !== requestedBaseUrl || activeDirectory !== requestedDirectory) {
+            logAiDebug('invalidate opencode client', {
+              previousBaseUrl: activeBaseUrl,
+              previousDirectory: activeDirectory,
+              requestedBaseUrl,
+              requestedDirectory,
+            });
             clientPromise = null;
             activeBaseUrl = requestedBaseUrl;
             activeDirectory = requestedDirectory;
@@ -1217,6 +1255,13 @@ export function init(config: InitConfig): EditorTsEditor {
                 const auth = baseUrl.startsWith(window.location.origin)
                   ? undefined
                   : aiConfig.auth;
+
+                logAiDebug('createOpencodeClient', {
+                  mode,
+                  baseUrl,
+                  directory: directory ?? null,
+                  proxied: baseUrl.startsWith(window.location.origin),
+                });
 
                 return sdk.createOpencodeClient({
                   baseUrl,

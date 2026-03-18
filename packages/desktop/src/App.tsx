@@ -601,17 +601,17 @@ export default function App() {
     const preview = await editor.preview.describe();
     setHasProject(true);
     const aiDirectoryMessage = resolvedAiDirectory
-      ? ` AI workspace: ${resolvedAiDirectory}.`
+      ? ' OpenCode is scoped to the selected project path.'
       : mode() === 'browser-folder'
         ? ' AI workspace path is not set yet; OpenCode will use its server cwd until you fill in AI Working Directory.'
         : '';
     if (preview?.mode === 'app-url' && preview.baseUrl) {
       const routeCount = preview.routes.length;
-      setStatusText(`${connectedMessage} App preview: ${preview.baseUrl}${routeCount > 0 ? ` (${routeCount} route${routeCount === 1 ? '' : 's'} discovered)` : ''}.${aiDirectoryMessage}`);
+      setStatusText(`Connected. Live app preview ready${routeCount > 0 ? ` (${routeCount} route${routeCount === 1 ? '' : 's'} discovered)` : ''}.${aiDirectoryMessage}`);
     } else if (preview?.runtime === 'app') {
-      setStatusText(`${connectedMessage} App workspace detected. Add an App Preview URL to boot the real app in the canvas.${aiDirectoryMessage}`);
+      setStatusText(`Connected. App workspace detected. Add an App Preview URL to boot the real app in the canvas.${aiDirectoryMessage}`);
     } else {
-      setStatusText(`${connectedMessage}${aiDirectoryMessage}`);
+      setStatusText(`Connected.${aiDirectoryMessage}`);
     }
 
     (window as unknown as { editor?: ReturnType<typeof init> }).editor = editor;

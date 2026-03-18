@@ -29,4 +29,4 @@ if [ "$attempt" -ge "$max_attempts" ]; then
   exit 1
 fi
 
-bun x electrobun dev
+EDITORTS_ELECTROBUN_SKIP_PREBUILD=1 EDITORTS_DESKTOP_RPC_DEBUG=1 EDITORTS_AI_DEBUG=1 EDITORTS_DESKTOP_URL="$renderer_url" bun x electrobun dev

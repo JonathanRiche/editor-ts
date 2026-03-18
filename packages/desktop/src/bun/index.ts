@@ -1,4 +1,4 @@
-import { BrowserWindow, BuildConfig, PATHS } from 'electrobun/bun';
+import { BrowserWindow, BuildConfig, GlobalShortcut, PATHS } from 'electrobun/bun';
 
 import { createDesktopRpc } from './desktopRpc';
 import { openDesktopDatabase } from './storage';
@@ -32,6 +32,9 @@ const uiScale = Number.isFinite(configuredUiScale) && configuredUiScale > 0
   : process.platform === 'linux'
     ? 0.8
     : 1;
+const debugAi = process.env.EDITORTS_AI_DEBUG === '1';
+const DESKTOP_RELOAD_DELAY_MS = 140;
+const DESKTOP_SHORTCUT_RELOAD_DELAY_MS = 320;
 
 const desktopBoot = {
   runtime: 'electrobun',
@@ -39,6 +42,7 @@ const desktopBoot = {
   userDataPath,
   rendererUrl,
   uiScale,
+  debugAi,
   bundledRenderer: usingBundledRenderer,
 } as const;
 
@@ -60,15 +64,73 @@ const mainWindow = new BrowserWindow({
   rpc: desktopRpc,
 });
 
+process.on('uncaughtException', (error: Error) => {
+  console.error('[desktop-bun:error] uncaughtException', error.stack ?? error.message);
+});
+
+process.on('unhandledRejection', (reason: unknown) => {
+  const message = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+  console.error('[desktop-bun:error] unhandledRejection', message);
+});
+
 const applyWindowZoom = (): void => {
   mainWindow.setPageZoom(pageZoom);
+};
+
+let pendingReloadTimer: ReturnType<typeof setTimeout> | null = null;
+
+const scheduleWindowReload = (handler: () => void): void => {
+  if (pendingReloadTimer !== null) {
+    clearTimeout(pendingReloadTimer);
+  }
+
+  pendingReloadTimer = setTimeout(() => {
+    pendingReloadTimer = null;
+    handler();
+  }, DESKTOP_RELOAD_DELAY_MS);
+};
+
+const reloadWindow = (): void => {
+  const webview = mainWindow.webview;
+  if (!webview) {
+    return;
+  }
+
+  scheduleWindowReload(() => {
+    try {
+      webview.executeJavascript(`window.setTimeout(() => window.location.reload(), ${DESKTOP_SHORTCUT_RELOAD_DELAY_MS})`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[desktop-shortcuts] renderer reload fallback triggered', message);
+      webview.loadURL(rendererUrl);
+    }
+  });
+};
+
+const toggleWindowDevTools = (): void => {
+  mainWindow.webview?.toggleDevTools();
+};
+
+const registerWindowShortcut = (accelerator: string, handler: () => void): void => {
+  const registered = GlobalShortcut.register(accelerator, handler);
+  if (!registered) {
+    console.warn('[desktop-shortcuts] failed to register', accelerator);
+  }
 };
 
 applyWindowZoom();
 mainWindow.webview?.on('dom-ready', applyWindowZoom);
 mainWindow.webview?.on('did-navigate', applyWindowZoom);
 mainWindow.webview?.on('did-navigate-in-page', applyWindowZoom);
+registerWindowShortcut('CommandOrControl+R', reloadWindow);
+registerWindowShortcut('CommandOrControl+Shift+R', reloadWindow);
+registerWindowShortcut('F5', reloadWindow);
+registerWindowShortcut('CommandOrControl+Shift+I', toggleWindowDevTools);
 
 process.on('exit', () => {
+  if (pendingReloadTimer !== null) {
+    clearTimeout(pendingReloadTimer);
+  }
+  GlobalShortcut.unregisterAll();
   db.close();
 });

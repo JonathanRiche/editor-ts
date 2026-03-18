@@ -1,5 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import type { Database } from 'bun:sqlite';
 import { Utils } from 'electrobun/bun';
@@ -90,6 +92,120 @@ type DesktopServiceOptions = {
   userDataPath: string;
 };
 
+const pickerDebugEnabled = (): boolean => {
+  return process.env.EDITORTS_DESKTOP_RPC_DEBUG === '1';
+};
+
+const shouldPreferPortalPicker = (): boolean => {
+  return process.env.EDITORTS_DESKTOP_USE_PORTAL === '1';
+};
+
+const ensureDirectoryHint = (value: string): string => {
+  return value.endsWith(path.sep) ? value : `${value}${path.sep}`;
+};
+
+const runCommand = async (cmd: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
+  const proc = Bun.spawn(cmd, {
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+
+  return { exitCode, stdout, stderr };
+};
+
+const runShellCommand = async (script: string): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
+  return runCommand(['bash', '-lc', script]);
+};
+
+const canRunCommand = async (command: string): Promise<boolean> => {
+  const result = await runShellCommand(`command -v ${command}`);
+  return result.exitCode === 0;
+};
+
+const decodeFileUri = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('file://')) {
+    return null;
+  }
+
+  try {
+    return fileURLToPath(trimmed);
+  } catch {
+    return null;
+  }
+};
+
+const pickDirectoryWithPortal = async (): Promise<string | null> => {
+  const script = `
+set -euo pipefail
+token="editorts$RANDOM$RANDOM"
+request=$(gdbus call --session \
+  --dest org.freedesktop.portal.Desktop \
+  --object-path /org/freedesktop/portal/desktop \
+  --method org.freedesktop.portal.FileChooser.OpenFile \
+  '' \
+  'Select Project Folder' \
+  "{'handle_token': <'$token'>, 'directory': <true>, 'multiple': <false>, 'modal': <true>}" \
+  2>/dev/null | sed -n "s/^(objectpath '\\([^']*\\)'.*/\\1/p")
+[ -n "$request" ] || exit 1
+timeout 300 gdbus monitor --session \
+  --dest org.freedesktop.portal.Desktop \
+  --object-path "$request" \
+  2>/dev/null | sed -n "/org\\.freedesktop\\.portal\\.Request\\.Response/{
+    s/.*'uris': <\\[\\([^]]*\\)\\]>.*/\\1/p
+    q
+  }" | tr -d "'" | cut -d, -f1
+`;
+
+  const result = await runShellCommand(script);
+  if (result.exitCode !== 0) {
+    return null;
+  }
+
+  return decodeFileUri(result.stdout) ?? null;
+};
+
+const pickDirectoryWithZenity = async (startingFolder: string): Promise<string | null> => {
+  const result = await runCommand([
+    'zenity',
+    '--file-selection',
+    '--directory',
+    '--title=Select Project Folder',
+    `--filename=${ensureDirectoryHint(startingFolder)}`,
+  ]);
+
+  if (result.exitCode !== 0) {
+    return null;
+  }
+
+  const chosen = result.stdout.trim();
+  return chosen.length > 0 ? chosen : null;
+};
+
+const pickDirectoryWithKDialog = async (startingFolder: string): Promise<string | null> => {
+  const result = await runCommand([
+    'kdialog',
+    '--getexistingdirectory',
+    startingFolder,
+    '--title',
+    'Select Project Folder',
+  ]);
+
+  if (result.exitCode !== 0) {
+    return null;
+  }
+
+  const chosen = result.stdout.trim();
+  return chosen.length > 0 ? chosen : null;
+};
+
 export const createDesktopService = (options: DesktopServiceOptions) => {
   const { db, sqlitePath, userDataPath } = options;
 
@@ -119,21 +235,67 @@ export const createDesktopService = (options: DesktopServiceOptions) => {
   const openProject = async (input?: {
     startingFolder?: string;
   }): Promise<DesktopOpenProjectResult> => {
-    const startingFolder = typeof input?.startingFolder === 'string' && input.startingFolder.trim().length > 0
+    const requestedStartingFolder = typeof input?.startingFolder === 'string' && input.startingFolder.trim().length > 0
       ? input.startingFolder.trim()
-      : undefined;
-
-    const chosenPaths = await Utils.openFileDialog({
-      startingFolder,
-      allowedFileTypes: '*',
-      canChooseFiles: false,
-      canChooseDirectory: true,
-      allowsMultipleSelection: false,
-    });
-
-    const chosen = Array.isArray(chosenPaths) && typeof chosenPaths[0] === 'string'
-      ? chosenPaths[0]
       : null;
+    const storedProjectRoot = getAppStateValue(db, 'lastProjectRoot')?.trim() || null;
+    const startingFolder = requestedStartingFolder
+      ?? storedProjectRoot
+      ?? homedir();
+
+    let chosen: string | null = null;
+
+    if (process.platform === 'linux') {
+      if (shouldPreferPortalPicker() && await canRunCommand('gdbus')) {
+        if (pickerDebugEnabled()) {
+          console.log(`[desktop-picker] trying xdg-portal from ${startingFolder}`);
+        }
+        chosen = await pickDirectoryWithPortal();
+      }
+
+      if (!chosen && await canRunCommand('kdialog')) {
+        if (pickerDebugEnabled()) {
+          console.log(`[desktop-picker] trying kdialog from ${startingFolder}`);
+        }
+        chosen = await pickDirectoryWithKDialog(startingFolder);
+      }
+
+      if (!chosen && await canRunCommand('zenity')) {
+        if (pickerDebugEnabled()) {
+          console.log(`[desktop-picker] trying zenity from ${startingFolder}`);
+        }
+        chosen = await pickDirectoryWithZenity(startingFolder);
+      }
+
+      if (!chosen && !shouldPreferPortalPicker() && await canRunCommand('gdbus')) {
+        if (pickerDebugEnabled()) {
+          console.log(`[desktop-picker] trying xdg-portal fallback from ${startingFolder}`);
+        }
+        chosen = await pickDirectoryWithPortal();
+      }
+    }
+
+    if (!chosen) {
+      if (pickerDebugEnabled()) {
+        console.log(`[desktop-picker] falling back to electrobun dialog from ${startingFolder}`);
+      }
+      const dialogOptions = {
+        allowedFileTypes: '*',
+        canChooseFiles: false,
+        canChooseDirectory: true,
+        allowsMultipleSelection: false,
+        startingFolder,
+      };
+
+      const chosenPaths = await Utils.openFileDialog(dialogOptions);
+      chosen = Array.isArray(chosenPaths) && typeof chosenPaths[0] === 'string'
+        ? chosenPaths[0]
+        : null;
+    }
+
+    if (pickerDebugEnabled()) {
+      console.log(`[desktop-picker] result ${chosen ?? '<cancelled>'}`);
+    }
 
     if (!chosen) {
       return { path: null };

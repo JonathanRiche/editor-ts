@@ -47,6 +47,38 @@ const cx = (...parts: Array<string | false | null | undefined>): string => {
   return parts.filter((part): part is string => typeof part === 'string' && part.length > 0).join(' ');
 };
 
+const getPathLeaf = (value: string): string => {
+  const normalized = value.trim().replace(/[\\/]+$/, '');
+  if (!normalized) return '';
+  const parts = normalized.split(/[\\/]/).filter((part) => part.length > 0);
+  return parts[parts.length - 1] ?? normalized;
+};
+
+const toCompactPath = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  const parts = trimmed.split(/[\\/]/).filter((part) => part.length > 0);
+  if (parts.length <= 3) {
+    return trimmed;
+  }
+
+  return `.../${parts.slice(-3).join('/')}`;
+};
+
+const toCompactUrl = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  try {
+    const url = new URL(trimmed);
+    const normalizedPath = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : '';
+    return `${url.host}${normalizedPath}`;
+  } catch {
+    return trimmed;
+  }
+};
+
 export default function AppShell(props: AppShellProps) {
   const [activeSidebarTab, setActiveSidebarTab] = createSignal<'workspace' | 'ai' | 'structure'>('workspace');
   const [activeMainTab, setActiveMainTab] = createSignal<'chat' | 'editor' | 'code'>('editor');
@@ -74,6 +106,48 @@ export default function AppShell(props: AppShellProps) {
     }
 
     return 'Server routes';
+  };
+
+  const statusProjectPath = () => {
+    return props.projectRoot.trim();
+  };
+
+  const statusProjectLabel = () => {
+    const projectPath = statusProjectPath();
+    return projectPath ? getPathLeaf(projectPath) : '';
+  };
+
+  const statusRows = () => {
+    const rows: Array<{ label: string; value: string; title: string }> = [];
+    const projectPath = statusProjectPath();
+    const previewUrl = props.previewBaseUrl.trim();
+    const workspacePath = props.aiDirectory.trim();
+
+    if (projectPath) {
+      rows.push({
+        label: 'Project',
+        value: toCompactPath(projectPath),
+        title: projectPath,
+      });
+    }
+
+    if (previewUrl) {
+      rows.push({
+        label: 'Preview',
+        value: toCompactUrl(previewUrl),
+        title: previewUrl,
+      });
+    }
+
+    if (workspacePath) {
+      rows.push({
+        label: 'AI',
+        value: workspacePath === projectPath ? 'Same as project' : toCompactPath(workspacePath),
+        title: workspacePath,
+      });
+    }
+
+    return rows;
   };
 
   onMount(() => {
@@ -104,13 +178,13 @@ export default function AppShell(props: AppShellProps) {
                   {'</>'}
                 </span>
                 <div class="brand-copy">
-                  <span class="eyebrow">Filesystem demo</span>
+                  <span class="eyebrow">Blink</span>
                   <h1>Editor TS</h1>
                 </div>
               </div>
 
               <p class="hero-text">
-                Open a project folder or host routes, then use the same AI workspace from the main Solid demo to inspect and apply real file changes.
+                Open a project folder
               </p>
 
               <div class="hero-actions">
@@ -144,7 +218,23 @@ export default function AppShell(props: AppShellProps) {
                   <span class={cx('status-dot', props.hasProject && 'is-live')} />
                   <span>{modeSummary()}</span>
                 </div>
-                <p>{props.statusText}</p>
+                {statusProjectLabel() && (
+                  <div class="status-project-pill" title={statusProjectPath()}>
+                    <span class="status-project-label">Connected</span>
+                    <strong>{statusProjectLabel()}</strong>
+                  </div>
+                )}
+                {statusRows().length > 0 && (
+                  <dl class="status-meta-list">
+                    {statusRows().map((row) => (
+                      <div class="status-meta-row">
+                        <dt>{row.label}</dt>
+                        <dd title={row.title}>{row.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                <p class="status-message" title={props.statusText}>{props.statusText}</p>
               </div>
 
               <p class="hero-note">
@@ -376,13 +466,7 @@ export default function AppShell(props: AppShellProps) {
 
       <main class="content">
         <div class="content-topbar">
-          <div class="content-copy">
-            <span class="eyebrow">Project canvas</span>
-            <h2>Filesystem-backed editor workspace</h2>
-            <p>
-              Open a live project, preview the derived page, inspect AI-generated file changes, and apply them in the same shell.
-            </p>
-          </div>
+
 
           <div class="tabs">
             <button
@@ -460,12 +544,12 @@ export default function AppShell(props: AppShellProps) {
               </section>
             ) : (
               <div class="code-panels">
-              <div id="files-viewer-container" />
-              <div id="viewer-editor-container" />
-              <div id="js-editor-container" />
-              <div id="css-editor-container" />
-              <div id="json-editor-container" />
-              <div id="jsx-editor-container" />
+                <div id="files-viewer-container" />
+                <div id="viewer-editor-container" />
+                <div id="js-editor-container" />
+                <div id="css-editor-container" />
+                <div id="json-editor-container" />
+                <div id="jsx-editor-container" />
               </div>
             )}
           </div>

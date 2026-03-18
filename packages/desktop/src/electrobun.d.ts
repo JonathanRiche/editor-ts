@@ -8,6 +8,7 @@ declare global {
       userDataPath: string;
       rendererUrl: string;
       uiScale?: number;
+      debugAi?: boolean;
       bundledRenderer?: boolean;
     };
   }
