@@ -264,7 +264,6 @@ html[data-desktop-runtime='electrobun'] .sidebar {
 .button-small:hover:not(:disabled),
 .mode-btn:hover:not(:disabled),
 .tab-btn:hover:not(:disabled),
-.sidebar-tab:hover:not(:disabled),
 .command-palette-close:hover:not(:disabled) {
   border-color: var(--color-line-soft);
   background: rgba(255, 255, 255, 0.04);
@@ -410,32 +409,6 @@ html[data-desktop-runtime='electrobun'] .sidebar {
   -webkit-line-clamp: 2;
 }
 
-.sidebar-nav {
-  display: grid;
-  flex-shrink: 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border-bottom: 1px solid var(--color-line-dim);
-}
-
-.sidebar-tab {
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  padding: 0.65rem 0.55rem;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
-}
-
-.sidebar-tab.is-active {
-  border-bottom-color: var(--color-accent);
-  color: var(--color-accent);
-}
-
 .sidebar-scrollable,
 .code-panels,
 .command-palette-results {
@@ -474,6 +447,20 @@ html[data-desktop-runtime='electrobun'] .sidebar {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.project-sidebar {
+  padding-top: 0.1rem;
+}
+
+.project-config-card {
+  background:
+    linear-gradient(180deg, rgba(212, 160, 48, 0.06), transparent 45%),
+    var(--color-bg-card);
+}
+
+.project-sidebar-hidden {
+  display: none;
 }
 
 .card,
@@ -601,7 +588,6 @@ html[data-desktop-runtime='electrobun'] .sidebar {
 .field input:focus-visible,
 .tabs button:focus-visible,
 .code-tabs button:focus-visible,
-.sidebar-tab:focus-visible,
 .command-palette-close:focus-visible {
   outline: none;
   border-color: var(--color-accent);
@@ -682,7 +668,10 @@ html[data-desktop-runtime='electrobun'] .sidebar {
   font-family: var(--font-mono);
   font-size: 0.68rem;
   line-height: 1.4;
-  word-break: break-word;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .content {
@@ -908,8 +897,7 @@ html[data-desktop-runtime='electrobun'] .shared-ai-chat-status {
     padding: 0.8rem;
   }
 
-  .mode-row,
-  .sidebar-nav {
+  .mode-row {
     grid-template-columns: 1fr;
   }
 

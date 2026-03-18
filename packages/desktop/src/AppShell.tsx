@@ -1,6 +1,6 @@
 import { createSignal, onCleanup, onMount } from 'solid-js';
 
-import { AiConnectionPanel, AiWorkspacePanel } from '@editorts/starter-shared/AiPanels';
+import { AiWorkspacePanel } from '@editorts/starter-shared/AiPanels';
 
 import type {
   ProjectFilesystemPermissionReply,
@@ -80,7 +80,6 @@ const toCompactUrl = (value: string): string => {
 };
 
 export default function AppShell(props: AppShellProps) {
-  const [activeSidebarTab, setActiveSidebarTab] = createSignal<'workspace' | 'ai' | 'structure'>('workspace');
   const [activeMainTab, setActiveMainTab] = createSignal<'chat' | 'editor' | 'code'>('editor');
   let observer: MutationObserver | undefined;
 
@@ -245,39 +244,12 @@ export default function AppShell(props: AppShellProps) {
             </section>
           </div>
 
-          <nav class="sidebar-nav" aria-label="Filesystem sidebar sections">
-            <button
-              type="button"
-              class={cx('sidebar-tab', activeSidebarTab() === 'workspace' && 'is-active')}
-              aria-pressed={activeSidebarTab() === 'workspace'}
-              onClick={() => setActiveSidebarTab('workspace')}
-            >
-              Workspace
-            </button>
-            <button
-              type="button"
-              class={cx('sidebar-tab', activeSidebarTab() === 'ai' && 'is-active')}
-              aria-pressed={activeSidebarTab() === 'ai'}
-              onClick={() => setActiveSidebarTab('ai')}
-            >
-              AI
-            </button>
-            <button
-              type="button"
-              class={cx('sidebar-tab', activeSidebarTab() === 'structure' && 'is-active')}
-              aria-pressed={activeSidebarTab() === 'structure'}
-              onClick={() => setActiveSidebarTab('structure')}
-            >
-              Structure
-            </button>
-          </nav>
-
           <div class="sidebar-scrollable">
-            <div class="panel-stack" hidden={activeSidebarTab() !== 'workspace'}>
-              <section class="card controls-card">
+            <div class="panel-stack project-sidebar">
+              <section class="card controls-card project-config-card">
                 <div class="card-heading">
-                  <strong class="section-title">Workspace</strong>
-                  <span class="section-chip">filesystem</span>
+                  <strong class="section-title">Project</strong>
+                  <span class="section-chip">{modeSummary()}</span>
                 </div>
 
                 <div class="mode-row">
@@ -332,54 +304,8 @@ export default function AppShell(props: AppShellProps) {
                   />
                 </label>
                 <p>
-                  Optional. Point this at the app dev server or preview server when you want the canvas to boot the real app instead of the derived page preview.
+                  Point this at the app dev server or preview server when you want the canvas to boot the real app instead of the derived page preview.
                 </p>
-
-                <div class={cx('permission-panel', props.permissionRequest && 'active')}>
-                  <div class="card-heading">
-                    <strong class="section-title">Permissions</strong>
-                    <span class="section-chip">guard</span>
-                  </div>
-                  {props.permissionRequest ? (
-                    <>
-                      <div class="permission-details">
-                        <div>
-                          <span class="permission-key">Action</span>
-                          <span class="permission-value">{props.permissionRequest.permission}</span>
-                        </div>
-                        <div>
-                          <span class="permission-key">Targets</span>
-                          <span class="permission-value">{props.permissionRequest.paths.join(', ')}</span>
-                        </div>
-                      </div>
-                      <div class="permission-actions">
-                        <button
-                          type="button"
-                          class="button button-small button-danger"
-                          onClick={() => props.onPermissionReply('reject')}
-                        >
-                          Deny
-                        </button>
-                        <button
-                          type="button"
-                          class="button button-small button-secondary"
-                          onClick={() => props.onPermissionReply('always')}
-                        >
-                          Allow Always
-                        </button>
-                        <button
-                          type="button"
-                          class="button button-small button-primary"
-                          onClick={() => props.onPermissionReply('once')}
-                        >
-                          Allow Once
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <p class="permission-idle">No pending permission requests.</p>
-                  )}
-                </div>
 
                 {!props.fsSupported && (
                   <p class="warning">
@@ -400,6 +326,7 @@ export default function AppShell(props: AppShellProps) {
                         type="button"
                         class="recent-project"
                         onClick={() => props.onOpenRecentProject(project.path)}
+                        title={project.path}
                       >
                         <span class="recent-project-label">
                           {project.label ?? project.path.split('/').filter(Boolean).at(-1) ?? project.path}
@@ -412,53 +339,65 @@ export default function AppShell(props: AppShellProps) {
               )}
 
               <section class="card">
-                <strong class="section-title">Pages</strong>
+                <div class="card-heading">
+                  <strong class="section-title">Pages</strong>
+                  <span class="section-chip">routes</span>
+                </div>
                 <div id="pages-container" />
               </section>
 
-              <section class="card">
-                <strong class="section-title">Selected</strong>
+              <section class={cx('permission-panel', props.permissionRequest && 'active')}>
+                <div class="card-heading">
+                  <strong class="section-title">Permissions</strong>
+                  <span class="section-chip">guard</span>
+                </div>
+                {props.permissionRequest ? (
+                  <>
+                    <div class="permission-details">
+                      <div>
+                        <span class="permission-key">Action</span>
+                        <span class="permission-value">{props.permissionRequest.permission}</span>
+                      </div>
+                      <div>
+                        <span class="permission-key">Targets</span>
+                        <span class="permission-value">{props.permissionRequest.paths.join(', ')}</span>
+                      </div>
+                    </div>
+                    <div class="permission-actions">
+                      <button
+                        type="button"
+                        class="button button-small button-danger"
+                        onClick={() => props.onPermissionReply('reject')}
+                      >
+                        Deny
+                      </button>
+                      <button
+                        type="button"
+                        class="button button-small button-secondary"
+                        onClick={() => props.onPermissionReply('always')}
+                      >
+                        Allow Always
+                      </button>
+                      <button
+                        type="button"
+                        class="button button-small button-primary"
+                        onClick={() => props.onPermissionReply('once')}
+                      >
+                        Allow Once
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p class="permission-idle">No pending permission requests.</p>
+                )}
+              </section>
+
+              <div class="project-sidebar-hidden">
                 <div id="selected-info" />
-              </section>
-
-              <section class="card">
-                <strong class="section-title">Stats</strong>
                 <div id="stats-container" />
-              </section>
-            </div>
-
-            <div class="panel-stack" hidden={activeSidebarTab() !== 'ai'}>
-              <AiConnectionPanel aiBaseUrl={props.aiBaseUrl} onAiBaseUrlChange={props.onAiBaseUrlChange} />
-
-              <section class="card">
-                <strong class="section-title">AI workspace</strong>
-                <label class="field">
-                  <span class="field-caption">AI Working Directory</span>
-                  <input
-                    type="text"
-                    value={props.aiDirectory}
-                    onInput={(event) => props.onAiDirectoryChange(event.currentTarget.value)}
-                    placeholder={props.mode === 'server-routes' ? props.projectRoot || '/home/user/my-project' : '/absolute/path/to/project'}
-                  />
-                </label>
-                <p>
-                  {props.nativeRuntime
-                    ? 'OpenCode needs a real absolute project path to scope sessions and edits. Native folder connections reuse the selected project path automatically, but you can still override it here.'
-                    : 'OpenCode needs a real absolute project path to scope sessions and edits. In Server Routes mode this should match the project root. In Browser Folder mode, enter the actual local path manually because the browser does not expose it.'}
-                </p>
-              </section>
-            </div>
-
-            <div class="panel-stack" hidden={activeSidebarTab() !== 'structure'}>
-              <section class="card">
-                <strong class="section-title">Layers</strong>
                 <div id="layers-container" />
-              </section>
-
-              <section class="card">
-                <strong class="section-title">Components</strong>
                 <div id="component-palette" />
-              </section>
+              </div>
             </div>
           </div>
         </div>
