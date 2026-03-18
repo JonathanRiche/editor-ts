@@ -5,7 +5,7 @@
   border: 1px solid var(--color-line-soft);
   border-radius: 12px;
   background: var(--color-bg-card);
-  box-shadow: inset 0 1px 0 rgba(245, 230, 200, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   backdrop-filter: blur(14px);
   padding: 0.85rem;
 }
@@ -15,7 +15,7 @@
 }
 
 .shared-ai-connection-card {
-  background: linear-gradient(180deg, rgba(212, 160, 48, 0.03) 0%, var(--color-bg-card) 100%);
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.03) 0%, var(--color-bg-card) 100%);
 }
 
 .shared-ai-header {
@@ -83,8 +83,8 @@ select.shared-ai-input {
   min-height: 2.8rem;
   padding-right: 2.6rem;
   background-image:
-    linear-gradient(45deg, transparent 50%, rgba(245, 230, 200, 0.88) 50%),
-    linear-gradient(135deg, rgba(245, 230, 200, 0.88) 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, rgba(255, 255, 255, 0.88) 50%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.88) 50%, transparent 50%);
   background-position:
     calc(100% - 1.05rem) calc(50% + 0.05rem),
     calc(100% - 0.72rem) calc(50% + 0.05rem);
@@ -109,7 +109,12 @@ select.shared-ai-input {
 .editorts-ai-session-item:focus-visible {
   outline: none;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px rgba(212, 160, 48, 0.15);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.shared-ai-input:focus-visible,
+.shared-ai-textarea:focus-visible {
+  background: rgba(26, 26, 30, 0.95);
 }
 
 .shared-ai-actions {
@@ -137,6 +142,10 @@ select.shared-ai-input {
   opacity: 0.35;
 }
 
+.shared-ai-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
 .shared-ai-button-primary {
   border-color: var(--color-accent);
   background: var(--color-accent);
@@ -144,8 +153,8 @@ select.shared-ai-input {
 }
 
 .shared-ai-button-primary:hover:not(:disabled) {
-  border-color: #e0ad3a;
-  background: #e0ad3a;
+  border-color: #60a5fa;
+  background: #60a5fa;
 }
 
 .shared-ai-button-secondary {
@@ -309,7 +318,7 @@ select.shared-ai-input {
   margin-right: 0.5rem;
   border-radius: 999px;
   background: var(--color-text-muted);
-  box-shadow: 0 0 0 0 rgba(212, 160, 48, 0);
+  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
 }
 
 .shared-ai-chat-status[data-state='loading'],
@@ -320,7 +329,7 @@ select.shared-ai-input {
 .shared-ai-chat-status[data-state='loading']::before,
 .shared-ai-chat-status[data-state='streaming']::before {
   background: var(--color-accent);
-  box-shadow: 0 0 0 0 rgba(212, 160, 48, 0.35);
+  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.35);
   animation: shared-ai-pulse 1.2s infinite;
 }
 
@@ -338,7 +347,7 @@ select.shared-ai-input {
   gap: 0.75rem;
   border: 1px solid var(--color-line-dim);
   border-radius: 8px;
-  background: rgba(12, 16, 24, 0.4);
+  background: rgba(20, 20, 20, 0.4);
   padding: 0.75rem;
 }
 
@@ -384,7 +393,7 @@ select.shared-ai-input {
   overflow: auto;
   border: 1px solid var(--color-line-dim);
   border-radius: 4px;
-  background: rgba(8, 12, 18, 0.7);
+  background: rgba(15, 15, 15, 0.75);
   padding: 0.75rem;
 }
 
@@ -396,7 +405,7 @@ select.shared-ai-input {
   justify-content: center;
   border: 1px dashed var(--color-line-soft);
   border-radius: 4px;
-  background: rgba(12, 16, 24, 0.4);
+  background: rgba(20, 20, 20, 0.4);
   padding: 1rem;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
@@ -409,8 +418,8 @@ select.shared-ai-input {
   overflow: hidden;
   border: 1px solid var(--color-line-soft);
   border-radius: 10px;
-  background: rgba(9, 13, 20, 0.88);
-  box-shadow: inset 0 1px 0 rgba(245, 230, 200, 0.04);
+  background: rgba(17, 17, 17, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .shared-ai-diff-file-header {
@@ -458,7 +467,7 @@ select.shared-ai-input {
   overflow: auto;
   border: 1px solid var(--color-line-dim);
   border-radius: 6px;
-  background: rgba(12, 16, 24, 0.55);
+  background: rgba(20, 20, 20, 0.55);
   padding: 0.75rem;
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
@@ -484,20 +493,21 @@ select.shared-ai-input {
 }
 
 .editorts-ai-session-item-active {
-  border-color: rgba(212, 160, 48, 0.3);
-  background: rgba(212, 160, 48, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
+  border-left: 2px solid var(--color-accent);
+  background: rgba(59, 130, 246, 0.12);
   color: var(--color-text-bright);
 }
 
 @keyframes shared-ai-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(212, 160, 48, 0.35);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.35);
   }
   70% {
-    box-shadow: 0 0 0 0.4rem rgba(212, 160, 48, 0);
+    box-shadow: 0 0 0 0.4rem rgba(59, 130, 246, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(212, 160, 48, 0);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
   }
 }
 

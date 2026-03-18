@@ -1,4 +1,6 @@
 import { BrowserWindow, BuildConfig, GlobalShortcut, PATHS } from 'electrobun/bun';
+import * as fs from 'node:fs/promises';
+import path from 'node:path';
 
 import { createDesktopRpc } from './desktopRpc';
 import { openDesktopDatabase } from './storage';
@@ -9,17 +11,106 @@ const buildConfig = await BuildConfig.get();
 const bundledRendererEntry = typeof buildConfig.runtime?.desktopRendererEntry === 'string'
   ? buildConfig.runtime.desktopRendererEntry.trim()
   : '';
-const usingBundledRenderer = bundledRendererEntry.length > 0 && !process.env.EDITORTS_DESKTOP_URL;
+const usingBundledRenderer = bundledRendererEntry === 'bundled' && !process.env.EDITORTS_DESKTOP_URL;
+
+const viewsRoot = PATHS.VIEWS_FOLDER;
+
+const getContentType = (filePath: string): string => {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case '.html':
+      return 'text/html; charset=utf-8';
+    case '.js':
+      return 'text/javascript; charset=utf-8';
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
+    case '.ico':
+      return 'image/x-icon';
+    case '.woff':
+      return 'font/woff';
+    case '.woff2':
+      return 'font/woff2';
+    case '.ttf':
+      return 'font/ttf';
+    case '.map':
+      return 'application/json; charset=utf-8';
+    default:
+      return 'application/octet-stream';
+  }
+};
+
+const resolveBundledAssetPath = (requestPathname: string): string => {
+  const normalized = requestPathname === '/' ? '/index.html' : requestPathname;
+  const decoded = decodeURIComponent(normalized);
+  const relativePath = decoded.replace(/^\/+/, '');
+  const absolutePath = path.resolve(viewsRoot, relativePath);
+  const relativeFromRoot = path.relative(viewsRoot, absolutePath);
+
+  if (relativeFromRoot.startsWith('..') || path.isAbsolute(relativeFromRoot)) {
+    return path.resolve(viewsRoot, 'index.html');
+  }
+
+  return absolutePath;
+};
+
+const bundledRendererServer = usingBundledRenderer
+  ? Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: async (request: Request): Promise<Response> => {
+        const url = new URL(request.url);
+        const assetPath = resolveBundledAssetPath(url.pathname);
+
+        try {
+          const stat = await fs.stat(assetPath);
+          if (stat.isDirectory()) {
+            const indexPath = path.join(assetPath, 'index.html');
+            return new Response(Bun.file(indexPath), {
+              headers: {
+                'content-type': 'text/html; charset=utf-8',
+                'cache-control': 'no-store',
+              },
+            });
+          }
+
+          return new Response(Bun.file(assetPath), {
+            headers: {
+              'content-type': getContentType(assetPath),
+              'cache-control': assetPath.endsWith('.html') ? 'no-store' : 'public, max-age=31536000, immutable',
+            },
+          });
+        } catch {
+          const fallbackPath = path.resolve(viewsRoot, 'index.html');
+          return new Response(Bun.file(fallbackPath), {
+            headers: {
+              'content-type': 'text/html; charset=utf-8',
+              'cache-control': 'no-store',
+            },
+          });
+        }
+      },
+    })
+  : null;
 
 const { db, sqlitePath, userDataPath } = openDesktopDatabase();
-const desktopRpc = createDesktopRpc({
-  db,
-  sqlitePath,
-  userDataPath,
-});
 
 const rendererUrl = (process.env.EDITORTS_DESKTOP_URL
-  ?? (usingBundledRenderer ? bundledRendererEntry : DEFAULT_DESKTOP_RENDERER_URL)).trim();
+  ?? (usingBundledRenderer && bundledRendererServer
+    ? `http://${bundledRendererServer.hostname}:${bundledRendererServer.port}/index.html`
+    : DEFAULT_DESKTOP_RENDERER_URL)).trim();
 const configuredZoom = Number(process.env.EDITORTS_DESKTOP_ZOOM ?? '');
 const pageZoom = Number.isFinite(configuredZoom) && configuredZoom > 0
   ? configuredZoom
@@ -53,7 +144,7 @@ const preloadScript = `
 const mainWindow = new BrowserWindow({
   title: 'EditorTs Desktop',
   url: rendererUrl,
-  viewsRoot: usingBundledRenderer ? PATHS.VIEWS_FOLDER : null,
+  viewsRoot: null,
   frame: {
     x: 60,
     y: 40,
@@ -111,6 +202,21 @@ const toggleWindowDevTools = (): void => {
   mainWindow.webview?.toggleDevTools();
 };
 
+const isWaylandDesktop = (): boolean => {
+  if (process.platform !== 'linux') {
+    return false;
+  }
+
+  return Boolean(process.env.WAYLAND_DISPLAY) || process.env.XDG_SESSION_TYPE === 'wayland';
+};
+
+const desktopRpc = createDesktopRpc({
+  db,
+  sqlitePath,
+  userDataPath,
+  onToggleDevTools: toggleWindowDevTools,
+});
+
 const registerWindowShortcut = (accelerator: string, handler: () => void): void => {
   const registered = GlobalShortcut.register(accelerator, handler);
   if (!registered) {
@@ -122,15 +228,22 @@ applyWindowZoom();
 mainWindow.webview?.on('dom-ready', applyWindowZoom);
 mainWindow.webview?.on('did-navigate', applyWindowZoom);
 mainWindow.webview?.on('did-navigate-in-page', applyWindowZoom);
-registerWindowShortcut('CommandOrControl+R', reloadWindow);
-registerWindowShortcut('CommandOrControl+Shift+R', reloadWindow);
-registerWindowShortcut('F5', reloadWindow);
-registerWindowShortcut('CommandOrControl+Shift+I', toggleWindowDevTools);
+if (isWaylandDesktop()) {
+  console.log('[desktop-shortcuts] skipping native global shortcuts on Wayland');
+} else {
+  registerWindowShortcut('CommandOrControl+R', reloadWindow);
+  registerWindowShortcut('CommandOrControl+Shift+R', reloadWindow);
+  registerWindowShortcut('F5', reloadWindow);
+  registerWindowShortcut('CommandOrControl+Shift+I', toggleWindowDevTools);
+}
 
 process.on('exit', () => {
   if (pendingReloadTimer !== null) {
     clearTimeout(pendingReloadTimer);
   }
-  GlobalShortcut.unregisterAll();
+  if (!isWaylandDesktop()) {
+    GlobalShortcut.unregisterAll();
+  }
+  bundledRendererServer?.stop(true);
   db.close();
 });

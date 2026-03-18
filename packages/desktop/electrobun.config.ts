@@ -1,7 +1,7 @@
 export default {
   app: {
-    identifier: 'com.editorts.desktop',
-    name: 'EditorTs Desktop',
+    identifier: 'com.blink.desktop',
+    name: 'Blink',
     version: '0.0.0',
   },
   build: {
@@ -13,7 +13,7 @@ export default {
     },
   },
   runtime: {
-    desktopRendererEntry: 'views://index.html',
+    desktopRendererEntry: 'bundled',
   },
   scripts: {
     preBuild: 'scripts/prebuild-native.ts',

@@ -243,7 +243,7 @@ const opencodeBrowserAliasPlugin = (): Plugin => {
   };
 };
 
-export default defineConfig({
+export default defineConfig(() => ({
   base: './',
   plugins: [opencodeBrowserAliasPlugin(), solid(), fsRoutesPlugin()],
   build: {
@@ -307,4 +307,4 @@ export default defineConfig({
     port: 2050,
     strictPort: true,
   },
-});
+}));

@@ -105,6 +105,11 @@ export const sendRendererLog = async (payload: DesktopRendererLogMessage): Promi
   client.sendProxy.rendererLog(payload);
 };
 
+export const toggleNativeDesktopDevTools = async (): Promise<void> => {
+  const client = await getDesktopRpcClient();
+  await client.requestProxy.toggleDesktopDevTools();
+};
+
 export const createNativeProjectProvider = (root: string): ProjectFilesystemProvider => {
   const normalizedRoot = root.trim();
   let cachedFiles: string[] | null = null;

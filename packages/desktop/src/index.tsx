@@ -1,6 +1,6 @@
 import { render } from 'solid-js/web';
 import App from './App';
-import { isNativeDesktopRuntime, sendRendererLog } from './desktopNativeRpc';
+import { isNativeDesktopRuntime, sendRendererLog, toggleNativeDesktopDevTools } from './desktopNativeRpc';
 import './styles.css';
 
 const isDesktopAiDebugEnabled = (): boolean => {
@@ -152,6 +152,13 @@ const installDesktopReloadShortcut = (): void => {
   window.addEventListener('keydown', (event) => {
     const key = event.key.toLowerCase();
     const wantsReload = key === 'f5' || (key === 'r' && (event.ctrlKey || event.metaKey));
+    const wantsDevTools = key === 'i' && (event.ctrlKey || event.metaKey) && event.shiftKey;
+    if (wantsDevTools) {
+      event.preventDefault();
+      event.stopPropagation();
+      void toggleNativeDesktopDevTools();
+      return;
+    }
     if (!wantsReload) {
       return;
     }

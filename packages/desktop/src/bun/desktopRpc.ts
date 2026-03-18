@@ -9,6 +9,7 @@ type DesktopRpcOptions = {
   db: Database;
   sqlitePath: string;
   userDataPath: string;
+  onToggleDevTools?: () => void;
 };
 
 const rpcDebugEnabled = (): boolean => {
@@ -76,6 +77,10 @@ export const createDesktopRpc = (options: DesktopRpcOptions) => {
         listProjectFiles: wrapRequest('listProjectFiles', (params) => service.listProjectFiles(params)),
         readProjectFile: wrapRequest('readProjectFile', (params) => service.readProjectFile(params)),
         writeProjectFile: wrapRequest('writeProjectFile', (params) => service.writeProjectFile(params)),
+        toggleDesktopDevTools: wrapRequest('toggleDesktopDevTools', () => {
+          options.onToggleDevTools?.();
+          return { ok: true as const };
+        }),
       },
       messages: {
         rendererLog: (payload) => {

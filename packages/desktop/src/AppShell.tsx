@@ -83,18 +83,6 @@ export default function AppShell(props: AppShellProps) {
   const [activeMainTab, setActiveMainTab] = createSignal<'chat' | 'editor' | 'code'>('editor');
   let observer: MutationObserver | undefined;
 
-  const workspaceDescription = () => {
-    if (props.nativeRuntime && props.mode === 'browser-folder') {
-      return 'Open a native project directory through the Electrobun shell. EditorTs will use the desktop RPC filesystem provider instead of the browser File System Access API.';
-    }
-
-    if (props.mode === 'browser-folder') {
-      return 'Pick a local folder to grant EditorTs file access through the browser File System Access API.';
-    }
-
-    return 'Connect through HTTP endpoints that read and write files on the host runtime.';
-  };
-
   const modeSummary = () => {
     if (props.nativeRuntime && props.mode === 'browser-folder') {
       return 'Native folder';
@@ -177,14 +165,9 @@ export default function AppShell(props: AppShellProps) {
                   {'</>'}
                 </span>
                 <div class="brand-copy">
-                  <span class="eyebrow">Blink</span>
-                  <h1>Editor TS</h1>
+                  <h1>Blink</h1>
                 </div>
               </div>
-
-              <p class="hero-text">
-                Open a project folder
-              </p>
 
               <div class="hero-actions">
                 <button
@@ -208,7 +191,7 @@ export default function AppShell(props: AppShellProps) {
                   disabled={!props.hasProject}
                   onClick={props.onReloadProject}
                 >
-                  Reload Project
+                  Reload
                 </button>
               </div>
 
@@ -236,11 +219,7 @@ export default function AppShell(props: AppShellProps) {
                 <p class="status-message" title={props.statusText}>{props.statusText}</p>
               </div>
 
-              <p class="hero-note">
-                {props.nativeRuntime
-                  ? 'Native mode uses the Electrobun shell for folder access and desktop persistence.'
-                  : `Folder mode needs Chromium.${!props.fsSupported ? ' This browser does not expose folder picking.' : ''}`}
-              </p>
+
             </section>
           </div>
 
@@ -268,8 +247,6 @@ export default function AppShell(props: AppShellProps) {
                     Server Routes
                   </button>
                 </div>
-
-                <p>{workspaceDescription()}</p>
 
                 {props.mode === 'server-routes' && (
                   <div class="server-fields">
@@ -303,10 +280,6 @@ export default function AppShell(props: AppShellProps) {
                     placeholder="http://127.0.0.1:4173"
                   />
                 </label>
-                <p>
-                  Point this at the app dev server or preview server when you want the canvas to boot the real app instead of the derived page preview.
-                </p>
-
                 {!props.fsSupported && (
                   <p class="warning">
                     Browser-folder mode requires File System Access API. Use latest Chrome or Edge, or switch to Server Routes mode.
@@ -388,7 +361,7 @@ export default function AppShell(props: AppShellProps) {
                     </div>
                   </>
                 ) : (
-                  <p class="permission-idle">No pending permission requests.</p>
+                  <p class="permission-idle">No pending requests.</p>
                 )}
               </section>
 

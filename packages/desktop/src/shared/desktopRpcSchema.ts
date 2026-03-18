@@ -96,6 +96,12 @@ export type DesktopRpcSchema = {
           ok: true;
         };
       };
+      toggleDesktopDevTools: {
+        params: undefined;
+        response: {
+          ok: true;
+        };
+      };
     };
     messages: {
       rendererLog: DesktopRendererLogMessage;

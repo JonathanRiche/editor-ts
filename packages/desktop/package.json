@@ -9,7 +9,9 @@
     "dev:native:shell": "bun x electrobun dev",
     "build": "bun run build:native",
     "build:web": "vite build",
-    "build:native": "bun x electrobun build",
+    "build:native": "bunx electrobun build",
+    "build:canary": "bunx electrobun build --env=canary",
+    "build:stable": "bunx electrobun build --env=stable",
     "preview": "vite preview"
   },
   "dependencies": {
