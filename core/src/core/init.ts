@@ -1755,6 +1755,7 @@ export function init(config: InitConfig): EditorTsEditor {
 
   type RuntimeCodeEditorOptions = {
     readOnly?: boolean;
+    filePath?: string;
   };
 
   function createTextareaCodeEditor(
@@ -1977,7 +1978,7 @@ export function init(config: InitConfig): EditorTsEditor {
       json: 'page.json',
     };
 
-    const initialPath = defaultPathByLanguage[language];
+    const initialPath = options?.filePath ?? defaultPathByLanguage[language];
     const model = await openFile(initialPath, initialValue ?? '');
 
     editor.setModel(model);
@@ -2153,9 +2154,10 @@ export function init(config: InitConfig): EditorTsEditor {
       <div style="display:flex; flex-direction:column; gap:0.5rem; height:100%;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex:0 0 auto;">
           <div style="display:flex; flex-direction:column; gap:0.125rem;">
-            <strong>Preview</strong>
+            <strong>Code</strong>
             <div data-editorts-field="viewer-path" style="font-size:0.85rem; opacity:0.8;"></div>
           </div>
+          <button data-editorts-action="save-viewer" type="button">Save</button>
         </div>
         <div data-editorts-field="viewer-editor" style="flex:1 1 auto; min-height:0;"></div>
       </div>
@@ -2269,7 +2271,6 @@ export function init(config: InitConfig): EditorTsEditor {
   };
 
   const expandedFileTreeDirectories = new Set<string>();
-  const discoveredRootDirectories = new Set<string>();
 
   const sortFileTreeChildren = (children: FileTreeNode[]): FileTreeNode[] => {
     return children.sort((left, right) => {
@@ -2395,15 +2396,7 @@ export function init(config: InitConfig): EditorTsEditor {
     });
   };
 
-  const syncDefaultExpandedDirectories = (root: FileTreeDirectoryNode): void => {
-    root.children.forEach((child) => {
-      if (child.kind !== 'directory') return;
-      if (discoveredRootDirectories.has(child.path)) return;
-
-      discoveredRootDirectories.add(child.path);
-      expandedFileTreeDirectories.add(child.path);
-    });
-
+  const syncExpandedDirectories = (): void => {
     if (viewerPath) {
       expandAncestorDirectories(viewerPath);
     }
@@ -2411,16 +2404,27 @@ export function init(config: InitConfig): EditorTsEditor {
 
   let viewerEditor: RuntimeCodeEditor | null = null;
   let viewerPath: string | null = null;
+  let viewerEditorPath: string | null = null;
+  let viewerEditorReadOnly = true;
 
-  const setViewerHeader = (path: string | null) => {
+  const setViewerHeader = (path: string | null, readOnly = true) => {
     if (!viewerEditorContainer) return;
     const header = viewerEditorContainer.querySelector('[data-editorts-field="viewer-path"]') as HTMLElement | null;
     if (!header) return;
 
-    header.textContent = path ? `Viewing: ${path}` : '';
+    header.textContent = path ? `${path}${readOnly ? ' [read-only]' : ''}` : '';
   };
 
-  const ensureViewerReady = async (path: string, content: string) => {
+  const syncViewerSaveButton = (path: string | null, readOnly: boolean) => {
+    if (!viewerEditorContainer) return;
+    const btn = viewerEditorContainer.querySelector('[data-editorts-action="save-viewer"]') as HTMLButtonElement | null;
+    if (!btn) return;
+
+    const canSave = !!path && !readOnly && contentAdapter.capabilities?.writable !== false;
+    btn.disabled = !canSave;
+  };
+
+  const ensureViewerReady = async (path: string, content: string, readOnly = true) => {
     if (!shouldEnableViewer || !viewerEditorContainer) return;
 
     const host = viewerEditorContainer.querySelector('[data-editorts-field="viewer-editor"]') as HTMLElement | null;
@@ -2433,36 +2437,50 @@ export function init(config: InitConfig): EditorTsEditor {
             path.endsWith('.ts') || path.endsWith('.tsx') || path.endsWith('.jsx') ? 'typescript' :
               'typescript';
 
-    if (!viewerEditor) {
-      viewerEditor = await createCodeEditor(host, content, language, { readOnly: true });
+    const shouldRecreateViewer = !viewerEditor || viewerEditorPath !== path || viewerEditorReadOnly !== readOnly;
+
+    if (shouldRecreateViewer) {
+      viewerEditor?.dispose();
+      viewerEditor = await createCodeEditor(host, content, language, { readOnly, filePath: path });
     } else {
       viewerEditor.setValue(content);
     }
 
     viewerPath = path;
-    setViewerHeader(path);
+    viewerEditorPath = path;
+    viewerEditorReadOnly = readOnly;
+    setViewerHeader(path, readOnly);
+    syncViewerSaveButton(path, readOnly);
   };
 
   let filesListRenderNonce = 0;
 
-  const openWorkspacePath = async (path: string): Promise<void> => {
+  const openWorkspacePath = async (path: string, readOnly = false): Promise<void> => {
     viewerPath = path;
     expandAncestorDirectories(path);
     void renderFilesList();
 
-    const targetTab: CodeTab =
-      path === 'styles.css' ? 'css'
-        : path === 'page.json' ? 'json'
-          : path.startsWith('components/') && path.endsWith('.js') ? 'js'
-            : 'viewer';
+    const useDedicatedCssEditor = path === 'styles.css' && shouldEnableCssEditor;
+    const useDedicatedJsonEditor = path === 'page.json' && shouldEnableJsonEditor;
+    const useDedicatedJsEditor = path.startsWith('components/') && path.endsWith('.js') && shouldEnableJsEditor;
 
-    // Switch tabs immediately so the user sees something happen.
-    // Also ensures Monaco hosts are visible before editor creation.
-    setCodeTab?.(targetTab);
+    const targetTab: CodeTab = useDedicatedCssEditor
+      ? 'css'
+      : useDedicatedJsonEditor
+        ? 'json'
+        : useDedicatedJsEditor
+          ? 'js'
+          : 'viewer';
 
-    // For the viewer tab, show a quick placeholder while loading.
+    if (setCodeTab) {
+      // Switch tabs immediately so the user sees something happen.
+      // Also ensures Monaco hosts are visible before editor creation.
+      setCodeTab(targetTab);
+    }
+
     if (targetTab === 'viewer' && viewerEditorContainer) {
-      setViewerHeader(path);
+      setViewerHeader(path, readOnly);
+      syncViewerSaveButton(path, readOnly);
       const host = viewerEditorContainer.querySelector('[data-editorts-field="viewer-editor"]') as HTMLElement | null;
       if (host && !viewerEditor) {
         host.innerHTML = '<pre style="margin:0; opacity:0.8;">Loading...</pre>';
@@ -2475,21 +2493,21 @@ export function init(config: InitConfig): EditorTsEditor {
       return;
     }
 
-    if (path === 'styles.css') {
+    if (useDedicatedCssEditor) {
       await ensureCssEditorReady();
       cssEditor?.setValue(value);
       cssEditor?.focus();
       return;
     }
 
-    if (path === 'page.json') {
+    if (useDedicatedJsonEditor) {
       await ensureJsonEditorReady();
       jsonEditor?.setValue(value);
       jsonEditor?.focus();
       return;
     }
 
-    if (path.startsWith('components/') && path.endsWith('.js')) {
+    if (useDedicatedJsEditor) {
       const id = path.slice('components/'.length, -3);
       const component = page.components.findById(id);
       if (component) {
@@ -2503,7 +2521,7 @@ export function init(config: InitConfig): EditorTsEditor {
       return;
     }
 
-    await ensureViewerReady(path, value);
+    await ensureViewerReady(path, value, readOnly);
     viewerEditor?.focus();
     void renderFilesList();
   };
@@ -2531,7 +2549,7 @@ export function init(config: InitConfig): EditorTsEditor {
     if (renderNonce !== filesListRenderNonce) return;
 
     const tree = buildFileTree(files);
-    syncDefaultExpandedDirectories(tree);
+    syncExpandedDirectories();
 
     const filteredTree = filterFileTree(tree, filter);
 
@@ -2619,7 +2637,7 @@ export function init(config: InitConfig): EditorTsEditor {
       btn.style.background = viewerPath === node.path ? 'rgba(59, 130, 246, 0.10)' : 'transparent';
       btn.style.cursor = 'pointer';
       btn.addEventListener('click', () => {
-        void openWorkspacePath(node.path).catch((err: unknown) => {
+        void openWorkspacePath(node.path, node.readOnly === true).catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
           console.warn(`Failed to open adapter file ${node.path}:`, message);
         });
@@ -2791,6 +2809,38 @@ export function init(config: InitConfig): EditorTsEditor {
     const filterInput = filesViewerContainer.querySelector('[data-editorts-field="files-filter"]') as HTMLInputElement | null;
     addManagedEventListener(filterInput, 'input', () => {
       void renderFilesList();
+    });
+  }
+  if (shouldEnableViewer && viewerEditorContainer) {
+    const btn = viewerEditorContainer.querySelector('[data-editorts-action="save-viewer"]') as HTMLButtonElement | null;
+    syncViewerSaveButton(null, true);
+    addManagedEventListener(btn, 'click', async () => {
+      if (!viewerEditor || !viewerPath || viewerEditorReadOnly) return;
+
+      const nextValue = viewerEditor.getValue();
+      await contentAdapter.writeFile(viewerPath, nextValue);
+
+      if (workspace) {
+        await workspace.fs.writeFile(viewerPath, nextValue, { isModelContentChange: true });
+      }
+
+      if (viewerPath === 'styles.css') {
+        page.setCSS(nextValue);
+        await commitSnapshot({ source: 'user', message: 'edit css file' });
+        refresh();
+        refreshLayers();
+      } else if (viewerPath === 'page.json') {
+        applyPayload(nextValue);
+        await commitSnapshot({ source: 'user', message: 'edit json file' });
+        refresh();
+        refreshLayers();
+      } else if (viewerPath.startsWith('components/') && viewerPath.endsWith('.js')) {
+        const id = viewerPath.slice('components/'.length, -3);
+        page.components.updateComponent(id, { script: nextValue });
+        await commitSnapshot({ source: 'user', message: 'edit component script file' });
+        refresh();
+        refreshLayers();
+      }
     });
   }
   if (shouldEnableJsxEditor && jsxEditorContainer) {

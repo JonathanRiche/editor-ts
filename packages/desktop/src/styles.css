@@ -759,30 +759,58 @@ html[data-desktop-runtime='electrobun'] .sidebar {
   gap: 0.5rem;
 }
 
-.code-tabs {
-  padding-bottom: 0.1rem;
-}
-
-.code-tabs .tab-btn,
 .tabs .tab-btn {
   min-width: 0;
 }
 
-.code-panels {
+.code-shell-toolbar {
   display: flex;
+  justify-content: flex-end;
+}
+
+.code-workspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: 0.7rem;
   min-height: 0;
   flex: 1 1 auto;
-  flex-direction: column;
-  gap: 0.7rem;
   border: 1px solid var(--color-line-dim);
   border-radius: 10px;
   background: rgba(17, 17, 17, 0.85);
   padding: 0.85rem;
+  overflow: hidden;
 }
 
-.code-panels > div {
+.code-workspace.is-collapsed {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.code-explorer-panel,
+.code-editor-panel {
   min-height: 0;
-  flex: 1 1 auto;
+}
+
+.code-explorer-panel {
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--color-line-dim);
+  padding-right: 0.7rem;
+}
+
+.code-workspace.is-collapsed .code-explorer-panel {
+  border-right: 0;
+  padding-right: 0;
+}
+
+.code-editor-panel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.code-explorer-panel > div,
+.code-editor-panel > div {
+  height: 100%;
+  min-height: 0;
 }
 
 .command-palette-card {
@@ -917,7 +945,6 @@ html[data-desktop-runtime='electrobun'] .shared-ai-chat-status {
 
   .hero-actions,
   .tabs,
-  .code-tabs,
   .permission-actions {
     flex-direction: column;
   }
@@ -927,5 +954,18 @@ html[data-desktop-runtime='electrobun'] .shared-ai-chat-status {
   .mode-btn,
   .command-palette-close {
     width: 100%;
+  }
+
+  .code-workspace,
+  .code-workspace.is-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .code-explorer-panel,
+  .code-workspace.is-collapsed .code-explorer-panel {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-line-dim);
+    padding-right: 0;
+    padding-bottom: 0.7rem;
   }
 }

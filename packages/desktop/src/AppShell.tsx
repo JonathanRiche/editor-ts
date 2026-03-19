@@ -81,6 +81,7 @@ const toCompactUrl = (value: string): string => {
 
 export default function AppShell(props: AppShellProps) {
   const [activeMainTab, setActiveMainTab] = createSignal<'chat' | 'editor' | 'code'>('editor');
+  const [filesCollapsed, setFilesCollapsed] = createSignal(false);
   let observer: MutationObserver | undefined;
 
   const modeSummary = () => {
@@ -445,13 +446,15 @@ export default function AppShell(props: AppShellProps) {
           <iframe id="preview-iframe" class="preview-frame" title="Canvas preview" />
 
           <div class="code-shell">
-            <div class="code-tabs">
-              <button id="code-tab-files" type="button" class="tab-btn">Files</button>
-              <button id="code-tab-viewer" type="button" class="tab-btn">View</button>
-              <button id="code-tab-js" type="button" class="tab-btn">JS</button>
-              <button id="code-tab-css" type="button" class="tab-btn">CSS</button>
-              <button id="code-tab-json" type="button" class="tab-btn">JSON</button>
-              <button id="code-tab-jsx" type="button" class="tab-btn">JSX</button>
+            <div class="code-shell-toolbar">
+              <button
+                type="button"
+                class="button button-small button-secondary"
+                aria-pressed={!filesCollapsed()}
+                onClick={() => setFilesCollapsed((collapsed) => !collapsed)}
+              >
+                {filesCollapsed() ? 'Show Files' : 'Hide Files'}
+              </button>
             </div>
 
             {!props.advancedUiReady && activeMainTab() === 'code' ? (
@@ -460,13 +463,13 @@ export default function AppShell(props: AppShellProps) {
                 <p>Loading files, code editors, and workspace tools for this project.</p>
               </section>
             ) : (
-              <div class="code-panels">
-                <div id="files-viewer-container" />
-                <div id="viewer-editor-container" />
-                <div id="js-editor-container" />
-                <div id="css-editor-container" />
-                <div id="json-editor-container" />
-                <div id="jsx-editor-container" />
+              <div class={cx('code-workspace', filesCollapsed() && 'is-collapsed')}>
+                <aside class="code-explorer-panel">
+                  <div id="files-viewer-container" />
+                </aside>
+                <section class="code-editor-panel">
+                  <div id="viewer-editor-container" />
+                </section>
               </div>
             )}
           </div>

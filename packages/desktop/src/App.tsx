@@ -548,24 +548,11 @@ export default function App() {
         editors: {
           files: { containerId: 'files-viewer-container', enabled: true },
           viewer: { containerId: 'viewer-editor-container', enabled: true },
-          js: { containerId: 'js-editor-container', enabled: true },
-          css: { containerId: 'css-editor-container', enabled: true },
-          json: { containerId: 'json-editor-container', enabled: true },
-          jsx: { containerId: 'jsx-editor-container', enabled: true },
         },
         viewTabs: {
           editorButtonId: 'tab-editor',
           codeButtonId: 'tab-code',
           defaultView: advancedView(),
-        },
-        codeTabs: {
-          filesButtonId: 'code-tab-files',
-          viewerButtonId: 'code-tab-viewer',
-          jsButtonId: 'code-tab-js',
-          cssButtonId: 'code-tab-css',
-          jsonButtonId: 'code-tab-json',
-          jsxButtonId: 'code-tab-jsx',
-          defaultTab: 'files',
         },
         aiChat: {
           rootId: SHARED_AI_UI_IDS.chatRoot,
