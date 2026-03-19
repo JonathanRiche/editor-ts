@@ -14,7 +14,7 @@ import {
 } from '../shared/keyboard';
 import type { DesktopZoomAction } from '../shared/desktopRpcSchema';
 import { createDesktopRpc } from './desktopRpc';
-import { openDesktopDatabase } from './storage';
+import { getAppStateValue, openDesktopDatabase, setAppStateValue } from './storage';
 
 const DEFAULT_DESKTOP_RENDERER_URL = 'http://localhost:2050';
 
@@ -164,16 +164,33 @@ const bundledRendererServer = usingBundledRenderer
 
 const { db, sqlitePath, userDataPath } = openDesktopDatabase();
 
+const readStoredPageZoom = (): number | null => {
+  const rawValue = getAppStateValue(db, DESKTOP_ZOOM_STORAGE_KEY);
+  if (typeof rawValue !== 'string') {
+    return null;
+  }
+
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+};
+
 const rendererUrl = (process.env.EDITORTS_DESKTOP_URL
   ?? (usingBundledRenderer && bundledRendererServer
     ? `http://${bundledRendererServer.hostname}:${bundledRendererServer.port}/index.html`
     : DEFAULT_DESKTOP_RENDERER_URL)).trim();
 const configuredZoom = Number(process.env.EDITORTS_DESKTOP_ZOOM ?? '');
+const storedPageZoom = readStoredPageZoom();
 const pageZoom = Number.isFinite(configuredZoom) && configuredZoom > 0
   ? configuredZoom
-  : process.platform === 'linux'
-    ? 0.8
-    : 1;
+  : storedPageZoom !== null
+    ? storedPageZoom
+    : process.platform === 'linux'
+      ? 0.8
+      : 1;
 const DESKTOP_ZOOM_STEP = 0.1;
 const DESKTOP_ZOOM_MIN = 0.3;
 const DESKTOP_ZOOM_MAX = 3;
@@ -188,6 +205,7 @@ const initialProjectRoot = parseInitialProjectRoot(process.argv.slice(2));
 const DESKTOP_RELOAD_DELAY_MS = 140;
 const DESKTOP_SHORTCUT_RELOAD_DELAY_MS = 320;
 const DESKTOP_ZOOM_DEDUP_MS = 80;
+const DESKTOP_ZOOM_STORAGE_KEY = 'pageZoom';
 const VERDE_CONFIG_RELATIVE_PATH = path.join('.config', 'verde', 'verde.json');
 
 if (initialProjectRoot.length > 0) {
@@ -313,6 +331,7 @@ const applyWindowZoom = (): void => {
 
 const setWindowZoom = (value: number): void => {
   currentPageZoom = clampPageZoom(Number(value.toFixed(2)));
+  setAppStateValue(db, DESKTOP_ZOOM_STORAGE_KEY, String(currentPageZoom));
   applyWindowZoom();
 };
 
