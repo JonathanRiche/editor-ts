@@ -1,6 +1,7 @@
 import { render } from 'solid-js/web';
 import App from './App';
 import { isNativeDesktopRuntime, sendRendererLog, toggleNativeDesktopDevTools } from './desktopNativeRpc';
+import { getDefaultDesktopKeyboardConfig, matchesDesktopActionKeybind } from './shared/keyboard';
 import './styles.css';
 
 const isDesktopAiDebugEnabled = (): boolean => {
@@ -137,6 +138,7 @@ const installDesktopReloadShortcut = (): void => {
     return;
   }
 
+  const keyboard = window.__EDITORTS_DESKTOP__?.keyboard ?? getDefaultDesktopKeyboardConfig();
   let pendingReloadTimer: number | null = null;
   const scheduleReload = () => {
     if (pendingReloadTimer !== null) {
@@ -150,9 +152,8 @@ const installDesktopReloadShortcut = (): void => {
   };
 
   window.addEventListener('keydown', (event) => {
-    const key = event.key.toLowerCase();
-    const wantsReload = key === 'f5' || (key === 'r' && (event.ctrlKey || event.metaKey));
-    const wantsDevTools = key === 'i' && (event.ctrlKey || event.metaKey) && event.shiftKey;
+    const wantsReload = matchesDesktopActionKeybind(event, keyboard, 'refresh');
+    const wantsDevTools = matchesDesktopActionKeybind(event, keyboard, 'toggleDevTools');
     if (wantsDevTools) {
       event.preventDefault();
       event.stopPropagation();

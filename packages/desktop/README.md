@@ -119,6 +119,31 @@ Electrobun RPC. The renderer uses that native RPC path for:
 - recent-project tracking
 - automatic restore of the last connected native project
 
+Desktop keyboard shortcuts are resolved from a user config file at
+`~/.config/verde/verde.json` (or `$XDG_CONFIG_HOME/verde/verde.json` when set).
+The desktop app starts with built-in defaults and lets users override them under
+the `keybinds` object:
+
+```json
+{
+  "keybinds": {
+    "modKey": "default",
+    "refresh": ["<Mod-r>", "<Mod-S-r>", "<F5>"],
+    "toggleDevTools": "<Mod-S-i>"
+  }
+}
+```
+
+Config uses Vim-style key notation. Examples: `<Mod-r>`, `<C-r>`, `<D-r>`,
+`<M-Enter>`, `<S-Tab>`, `<F5>`.
+
+`modKey` controls what `<Mod-...>` expands to. Supported values are `default`,
+`ctrl`, `cmd`, `alt`, and `super`. `default` maps to `cmd` on macOS and `ctrl`
+everywhere else.
+
+Set a shortcut to `null`, `""`, or `[]` to disable that action entirely. Legacy
+accelerator strings like `CommandOrControl+R` are still accepted for compatibility.
+
 Changing the AI working directory no longer forces a full editor rebuild. New AI
 requests pick up the latest configured path through a live resolver in the library.
 

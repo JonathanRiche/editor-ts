@@ -1,3 +1,5 @@
+import type { DesktopKeyboardConfig } from './shared/keyboard';
+
 export {};
 
 declare global {
@@ -11,6 +13,7 @@ declare global {
       debugAi?: boolean;
       bundledRenderer?: boolean;
       initialProjectRoot?: string;
+      keyboard: DesktopKeyboardConfig;
     };
   }
 }

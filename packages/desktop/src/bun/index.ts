@@ -1,7 +1,16 @@
 import { BrowserWindow, BuildConfig, GlobalShortcut, PATHS } from 'electrobun/bun';
 import * as fs from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 
+import {
+  DESKTOP_KEYBOARD_ACTIONS,
+  type DesktopKeyboardAction,
+  type DesktopKeyboardConfig,
+  getDefaultDesktopKeyboardConfig,
+  keybindToAccelerator,
+  resolveDesktopKeyboardConfig,
+} from '../shared/keyboard';
 import { createDesktopRpc } from './desktopRpc';
 import { openDesktopDatabase } from './storage';
 
@@ -173,10 +182,57 @@ const debugAi = process.env.EDITORTS_AI_DEBUG === '1';
 const initialProjectRoot = parseInitialProjectRoot(process.argv.slice(2));
 const DESKTOP_RELOAD_DELAY_MS = 140;
 const DESKTOP_SHORTCUT_RELOAD_DELAY_MS = 320;
+const VERDE_CONFIG_RELATIVE_PATH = path.join('.config', 'verde', 'verde.json');
 
 if (initialProjectRoot.length > 0) {
   console.log('[desktop-startup] initial project root:', initialProjectRoot);
 }
+
+const isErrorWithCode = (error: unknown, code: string): boolean => {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
+};
+
+const resolveVerdeConfigPath = (): string => {
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+  if (xdgConfigHome && xdgConfigHome.length > 0) {
+    return path.join(xdgConfigHome, 'verde', 'verde.json');
+  }
+
+  return path.join(homedir(), VERDE_CONFIG_RELATIVE_PATH);
+};
+
+const loadDesktopKeyboardConfig = async (): Promise<DesktopKeyboardConfig> => {
+  const configPath = resolveVerdeConfigPath();
+
+  let rawConfig: string;
+  try {
+    rawConfig = await fs.readFile(configPath, 'utf8');
+  } catch (error: unknown) {
+    if (isErrorWithCode(error, 'ENOENT')) {
+      return getDefaultDesktopKeyboardConfig();
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[desktop-keyboard] failed to read ${configPath}: ${message}`);
+    return getDefaultDesktopKeyboardConfig();
+  }
+
+  try {
+    const parsed = JSON.parse(rawConfig) as unknown;
+    const { warnings, ...keyboard } = resolveDesktopKeyboardConfig(parsed);
+    for (const warning of warnings) {
+      console.warn(`[desktop-keyboard] ${warning}`);
+    }
+    console.log(`[desktop-keyboard] loaded keybinds from ${configPath}`);
+    return keyboard;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[desktop-keyboard] failed to parse ${configPath}: ${message}`);
+    return getDefaultDesktopKeyboardConfig();
+  }
+};
+
+const desktopKeyboard = await loadDesktopKeyboardConfig();
 
 const desktopBoot = {
   runtime: 'electrobun',
@@ -187,6 +243,7 @@ const desktopBoot = {
   debugAi,
   bundledRenderer: usingBundledRenderer,
   initialProjectRoot: initialProjectRoot || undefined,
+  keyboard: desktopKeyboard,
 } as const;
 
 const preloadScript = `
@@ -276,6 +333,33 @@ const registerWindowShortcut = (accelerator: string, handler: () => void): void 
   }
 };
 
+const registerConfiguredShortcuts = (keyboard: DesktopKeyboardConfig): void => {
+  const handlers: Record<DesktopKeyboardAction, () => void> = {
+    refresh: reloadWindow,
+    toggleDevTools: toggleWindowDevTools,
+  };
+  const seen = new Set<string>();
+
+  for (const action of DESKTOP_KEYBOARD_ACTIONS) {
+    for (const binding of keyboard.keybinds[action]) {
+      const accelerator = keybindToAccelerator(binding, keyboard.modKey);
+      if (accelerator === null) {
+        console.warn(`[desktop-shortcuts] invalid keybind ignored: ${binding}`);
+        continue;
+      }
+
+      const normalizedAccelerator = accelerator.toLowerCase();
+      if (seen.has(normalizedAccelerator)) {
+        console.warn(`[desktop-shortcuts] duplicate accelerator ignored: ${binding}`);
+        continue;
+      }
+
+      seen.add(normalizedAccelerator);
+      registerWindowShortcut(accelerator, handlers[action]);
+    }
+  }
+};
+
 applyWindowZoom();
 mainWindow.webview?.on('dom-ready', applyWindowZoom);
 mainWindow.webview?.on('did-navigate', applyWindowZoom);
@@ -283,10 +367,7 @@ mainWindow.webview?.on('did-navigate-in-page', applyWindowZoom);
 if (isWaylandDesktop()) {
   console.log('[desktop-shortcuts] skipping native global shortcuts on Wayland');
 } else {
-  registerWindowShortcut('CommandOrControl+R', reloadWindow);
-  registerWindowShortcut('CommandOrControl+Shift+R', reloadWindow);
-  registerWindowShortcut('F5', reloadWindow);
-  registerWindowShortcut('CommandOrControl+Shift+I', toggleWindowDevTools);
+  registerConfiguredShortcuts(desktopKeyboard);
 }
 
 process.on('exit', () => {
