@@ -127,22 +127,20 @@ the `keybinds` object:
 ```json
 {
   "keybinds": {
-    "modKey": "default",
-    "refresh": ["<Mod-r>", "<Mod-S-r>", "<F5>"],
-    "toggleDevTools": "<Mod-S-i>"
+    "refresh": ["CommandOrControl+R", "CommandOrControl+Shift+R", "F5"],
+    "toggleDevTools": "CommandOrControl+Shift+I",
+    "zoomIn": "CommandOrControl+=",
+    "zoomOut": "CommandOrControl+-",
+    "zoomReset": "CommandOrControl+0"
   }
 }
 ```
 
-Config uses Vim-style key notation. Examples: `<Mod-r>`, `<C-r>`, `<D-r>`,
-`<M-Enter>`, `<S-Tab>`, `<F5>`.
+Config uses Electrobun accelerator strings, matching the `GlobalShortcut`
+documentation. Examples: `CommandOrControl+R`, `CommandOrControl+-`,
+`CommandOrControl+=`, `CommandOrControl+0`, `Alt+Enter`, `F5`.
 
-`modKey` controls what `<Mod-...>` expands to. Supported values are `default`,
-`ctrl`, `cmd`, `alt`, and `super`. `default` maps to `cmd` on macOS and `ctrl`
-everywhere else.
-
-Set a shortcut to `null`, `""`, or `[]` to disable that action entirely. Legacy
-accelerator strings like `CommandOrControl+R` are still accepted for compatibility.
+Set a shortcut to `null`, `""`, or `[]` to disable that action entirely.
 
 Changing the AI working directory no longer forces a full editor rebuild. New AI
 requests pick up the latest configured path through a live resolver in the library.

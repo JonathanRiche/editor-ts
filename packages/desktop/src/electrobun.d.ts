@@ -14,6 +14,7 @@ declare global {
       bundledRenderer?: boolean;
       initialProjectRoot?: string;
       keyboard: DesktopKeyboardConfig;
+      nativeShortcutsAvailable?: boolean;
     };
   }
 }

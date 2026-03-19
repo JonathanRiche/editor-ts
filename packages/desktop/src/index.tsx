@@ -1,8 +1,10 @@
 import { render } from 'solid-js/web';
 import App from './App';
-import { isNativeDesktopRuntime, sendRendererLog, toggleNativeDesktopDevTools } from './desktopNativeRpc';
+import { adjustNativeDesktopZoom, isNativeDesktopRuntime, sendRendererLog, toggleNativeDesktopDevTools } from './desktopNativeRpc';
 import { getDefaultDesktopKeyboardConfig, matchesDesktopActionKeybind } from './shared/keyboard';
 import './styles.css';
+
+type DesktopKeyboardTarget = Pick<Document, 'addEventListener'> | Pick<Window, 'addEventListener'>;
 
 const isDesktopAiDebugEnabled = (): boolean => {
   return window.__EDITORTS_DESKTOP__?.debugAi === true;
@@ -133,13 +135,15 @@ const installDesktopErrorLogging = (): void => {
 
 installDesktopErrorLogging();
 
-const installDesktopReloadShortcut = (): void => {
+const installDesktopKeyboardFallback = (): void => {
   if (!isNativeDesktopRuntime()) {
     return;
   }
 
   const keyboard = window.__EDITORTS_DESKTOP__?.keyboard ?? getDefaultDesktopKeyboardConfig();
+  const nativeShortcutsAvailable = window.__EDITORTS_DESKTOP__?.nativeShortcutsAvailable !== false;
   let pendingReloadTimer: number | null = null;
+  const boundTargets = new WeakSet<object>();
   const scheduleReload = () => {
     if (pendingReloadTimer !== null) {
       window.clearTimeout(pendingReloadTimer);
@@ -151,15 +155,41 @@ const installDesktopReloadShortcut = (): void => {
     }, 140);
   };
 
-  window.addEventListener('keydown', (event) => {
+  const handleKeydown = (event: KeyboardEvent) => {
     const wantsReload = matchesDesktopActionKeybind(event, keyboard, 'refresh');
     const wantsDevTools = matchesDesktopActionKeybind(event, keyboard, 'toggleDevTools');
+    const wantsZoomIn = matchesDesktopActionKeybind(event, keyboard, 'zoomIn');
+    const wantsZoomOut = matchesDesktopActionKeybind(event, keyboard, 'zoomOut');
+    const wantsZoomReset = matchesDesktopActionKeybind(event, keyboard, 'zoomReset');
     if (wantsDevTools) {
       event.preventDefault();
       event.stopPropagation();
       void toggleNativeDesktopDevTools();
       return;
     }
+    if (wantsZoomIn) {
+      event.preventDefault();
+      event.stopPropagation();
+      void adjustNativeDesktopZoom('in');
+      return;
+    }
+    if (wantsZoomOut) {
+      event.preventDefault();
+      event.stopPropagation();
+      void adjustNativeDesktopZoom('out');
+      return;
+    }
+    if (wantsZoomReset) {
+      event.preventDefault();
+      event.stopPropagation();
+      void adjustNativeDesktopZoom('reset');
+      return;
+    }
+
+    if (nativeShortcutsAvailable) {
+      return;
+    }
+
     if (!wantsReload) {
       return;
     }
@@ -167,10 +197,43 @@ const installDesktopReloadShortcut = (): void => {
     event.preventDefault();
     event.stopPropagation();
     scheduleReload();
-  }, { capture: true });
+  };
+
+  const bindTarget = (target: DesktopKeyboardTarget | null | undefined): void => {
+    if (!target || boundTargets.has(target as object)) {
+      return;
+    }
+
+    target.addEventListener('keydown', handleKeydown, { capture: true });
+    boundTargets.add(target as object);
+  };
+
+  const bindPreviewIframe = (): void => {
+    const iframe = document.getElementById('preview-iframe');
+    if (!(iframe instanceof HTMLIFrameElement)) {
+      return;
+    }
+
+    bindTarget(iframe.contentDocument);
+    iframe.addEventListener('load', () => {
+      bindTarget(iframe.contentDocument);
+    });
+  };
+
+  bindTarget(window);
+  bindTarget(document);
+  bindPreviewIframe();
+
+  const observer = new MutationObserver(() => {
+    bindPreviewIframe();
+  });
+
+  if (document.documentElement) {
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
 };
 
-installDesktopReloadShortcut();
+installDesktopKeyboardFallback();
 
 const root = document.getElementById('app');
 

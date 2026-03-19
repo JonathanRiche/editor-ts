@@ -36,6 +36,8 @@ export type DesktopRendererLogMessage = {
   stack?: string;
 };
 
+export type DesktopZoomAction = 'in' | 'out' | 'reset';
+
 export type DesktopRpcSchema = {
   bun: {
     requests: {
@@ -98,6 +100,14 @@ export type DesktopRpcSchema = {
       };
       toggleDesktopDevTools: {
         params: undefined;
+        response: {
+          ok: true;
+        };
+      };
+      adjustDesktopZoom: {
+        params: {
+          action: DesktopZoomAction;
+        };
         response: {
           ok: true;
         };

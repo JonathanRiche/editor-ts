@@ -2,7 +2,7 @@ import { defineElectrobunRPC } from 'electrobun/bun';
 
 import type { Database } from 'bun:sqlite';
 
-import type { DesktopRendererLogMessage, DesktopRpcSchema } from '../shared/desktopRpcSchema';
+import type { DesktopRendererLogMessage, DesktopRpcSchema, DesktopZoomAction } from '../shared/desktopRpcSchema';
 import { createDesktopService } from './server';
 
 type DesktopRpcOptions = {
@@ -10,6 +10,7 @@ type DesktopRpcOptions = {
   sqlitePath: string;
   userDataPath: string;
   onToggleDevTools?: () => void;
+  onAdjustZoom?: (action: DesktopZoomAction) => void;
 };
 
 const rpcDebugEnabled = (): boolean => {
@@ -34,13 +35,13 @@ export const createDesktopRpc = (options: DesktopRpcOptions) => {
     return async (params: TParams): Promise<TResponse> => {
       const startedAt = Date.now();
       if (rpcDebugEnabled()) {
-        console.log(`[desktop-rpc] -> ${method} ${serializeLogValue(params)}`);
+        // console.log(`[desktop-rpc] -> ${method} ${serializeLogValue(params)}`);
       }
 
       try {
         const result = await handler(params);
         if (rpcDebugEnabled()) {
-          console.log(`[desktop-rpc] <- ${method} ${Date.now() - startedAt}ms ${serializeLogValue(result)}`);
+          // console.log(`[desktop-rpc] <- ${method} ${Date.now() - startedAt}ms ${serializeLogValue(result)}`);
         }
         return result;
       } catch (error: unknown) {
@@ -64,7 +65,7 @@ export const createDesktopRpc = (options: DesktopRpcOptions) => {
       console.warn(line);
       return;
     }
-    console.log(line);
+    // console.log(line);
   };
 
   return defineElectrobunRPC<DesktopRpcSchema>('bun', {
@@ -79,6 +80,10 @@ export const createDesktopRpc = (options: DesktopRpcOptions) => {
         writeProjectFile: wrapRequest('writeProjectFile', (params) => service.writeProjectFile(params)),
         toggleDesktopDevTools: wrapRequest('toggleDesktopDevTools', () => {
           options.onToggleDevTools?.();
+          return { ok: true as const };
+        }),
+        adjustDesktopZoom: wrapRequest('adjustDesktopZoom', (params) => {
+          options.onAdjustZoom?.(params.action);
           return { ok: true as const };
         }),
       },

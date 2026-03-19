@@ -7,6 +7,7 @@ import type {
   DesktopRendererLogMessage,
   DesktopRpcSchema,
   DesktopSettingKey,
+  DesktopZoomAction,
 } from './shared/desktopRpcSchema';
 
 const normalizePath = (path: string): string => path.replace(/^\.\//, '').replace(/\\/g, '/');
@@ -108,6 +109,11 @@ export const sendRendererLog = async (payload: DesktopRendererLogMessage): Promi
 export const toggleNativeDesktopDevTools = async (): Promise<void> => {
   const client = await getDesktopRpcClient();
   await client.requestProxy.toggleDesktopDevTools();
+};
+
+export const adjustNativeDesktopZoom = async (action: DesktopZoomAction): Promise<void> => {
+  const client = await getDesktopRpcClient();
+  await client.requestProxy.adjustDesktopZoom({ action });
 };
 
 export const createNativeProjectProvider = (root: string): ProjectFilesystemProvider => {

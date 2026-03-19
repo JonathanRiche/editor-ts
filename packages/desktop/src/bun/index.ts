@@ -9,8 +9,10 @@ import {
   type DesktopKeyboardConfig,
   getDefaultDesktopKeyboardConfig,
   keybindToAccelerator,
+  keybindToAccelerators,
   resolveDesktopKeyboardConfig,
 } from '../shared/keyboard';
+import type { DesktopZoomAction } from '../shared/desktopRpcSchema';
 import { createDesktopRpc } from './desktopRpc';
 import { openDesktopDatabase } from './storage';
 
@@ -123,41 +125,41 @@ const resolveBundledAssetPath = (requestPathname: string): string => {
 
 const bundledRendererServer = usingBundledRenderer
   ? Bun.serve({
-      port: 0,
-      hostname: '127.0.0.1',
-      fetch: async (request: Request): Promise<Response> => {
-        const url = new URL(request.url);
-        const assetPath = resolveBundledAssetPath(url.pathname);
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: async (request: Request): Promise<Response> => {
+      const url = new URL(request.url);
+      const assetPath = resolveBundledAssetPath(url.pathname);
 
-        try {
-          const stat = await fs.stat(assetPath);
-          if (stat.isDirectory()) {
-            const indexPath = path.join(assetPath, 'index.html');
-            return new Response(Bun.file(indexPath), {
-              headers: {
-                'content-type': 'text/html; charset=utf-8',
-                'cache-control': 'no-store',
-              },
-            });
-          }
-
-          return new Response(Bun.file(assetPath), {
-            headers: {
-              'content-type': getContentType(assetPath),
-              'cache-control': assetPath.endsWith('.html') ? 'no-store' : 'public, max-age=31536000, immutable',
-            },
-          });
-        } catch {
-          const fallbackPath = path.resolve(viewsRoot, 'index.html');
-          return new Response(Bun.file(fallbackPath), {
+      try {
+        const stat = await fs.stat(assetPath);
+        if (stat.isDirectory()) {
+          const indexPath = path.join(assetPath, 'index.html');
+          return new Response(Bun.file(indexPath), {
             headers: {
               'content-type': 'text/html; charset=utf-8',
               'cache-control': 'no-store',
             },
           });
         }
-      },
-    })
+
+        return new Response(Bun.file(assetPath), {
+          headers: {
+            'content-type': getContentType(assetPath),
+            'cache-control': assetPath.endsWith('.html') ? 'no-store' : 'public, max-age=31536000, immutable',
+          },
+        });
+      } catch {
+        const fallbackPath = path.resolve(viewsRoot, 'index.html');
+        return new Response(Bun.file(fallbackPath), {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'no-store',
+          },
+        });
+      }
+    },
+  })
   : null;
 
 const { db, sqlitePath, userDataPath } = openDesktopDatabase();
@@ -172,6 +174,9 @@ const pageZoom = Number.isFinite(configuredZoom) && configuredZoom > 0
   : process.platform === 'linux'
     ? 0.8
     : 1;
+const DESKTOP_ZOOM_STEP = 0.1;
+const DESKTOP_ZOOM_MIN = 0.3;
+const DESKTOP_ZOOM_MAX = 3;
 const configuredUiScale = Number(process.env.EDITORTS_DESKTOP_UI_SCALE ?? '');
 const uiScale = Number.isFinite(configuredUiScale) && configuredUiScale > 0
   ? configuredUiScale
@@ -182,6 +187,7 @@ const debugAi = process.env.EDITORTS_AI_DEBUG === '1';
 const initialProjectRoot = parseInitialProjectRoot(process.argv.slice(2));
 const DESKTOP_RELOAD_DELAY_MS = 140;
 const DESKTOP_SHORTCUT_RELOAD_DELAY_MS = 320;
+const DESKTOP_ZOOM_DEDUP_MS = 80;
 const VERDE_CONFIG_RELATIVE_PATH = path.join('.config', 'verde', 'verde.json');
 
 if (initialProjectRoot.length > 0) {
@@ -244,6 +250,7 @@ const desktopBoot = {
   bundledRenderer: usingBundledRenderer,
   initialProjectRoot: initialProjectRoot || undefined,
   keyboard: desktopKeyboard,
+  nativeShortcutsAvailable: !isWaylandDesktop(),
 } as const;
 
 const preloadScript = `
@@ -259,8 +266,91 @@ process.on('unhandledRejection', (reason: unknown) => {
   console.error('[desktop-bun:error] unhandledRejection', message);
 });
 
+let currentPageZoom = pageZoom;
+
+const clampPageZoom = (value: number): number => {
+  return Math.min(DESKTOP_ZOOM_MAX, Math.max(DESKTOP_ZOOM_MIN, value));
+};
+
+const applyRendererZoomFallback = (): void => {
+  const webview = mainWindow.webview;
+  if (!webview) {
+    return;
+  }
+
+  const script = `(() => {
+    const zoom = ${JSON.stringify(currentPageZoom)};
+    const applyZoom = (doc) => {
+      if (!doc || !doc.documentElement) {
+        return;
+      }
+
+      doc.documentElement.style.zoom = String(zoom);
+    };
+
+    applyZoom(document);
+
+    const preview = document.getElementById('preview-iframe');
+    if (preview instanceof HTMLIFrameElement) {
+      try {
+        applyZoom(preview.contentDocument);
+      } catch {}
+    }
+  })()`;
+
+  try {
+    webview.executeJavascript(script);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[desktop-shortcuts] renderer zoom fallback failed', message);
+  }
+};
+
 const applyWindowZoom = (): void => {
-  mainWindow.setPageZoom(pageZoom);
+  mainWindow.setPageZoom(currentPageZoom);
+  applyRendererZoomFallback();
+};
+
+const setWindowZoom = (value: number): void => {
+  currentPageZoom = clampPageZoom(Number(value.toFixed(2)));
+  applyWindowZoom();
+};
+
+const increaseWindowZoom = (): void => {
+  setWindowZoom(currentPageZoom + DESKTOP_ZOOM_STEP);
+};
+
+const decreaseWindowZoom = (): void => {
+  setWindowZoom(currentPageZoom - DESKTOP_ZOOM_STEP);
+};
+
+const resetWindowZoom = (): void => {
+  setWindowZoom(pageZoom);
+};
+
+let lastZoomAction: DesktopZoomAction | null = null;
+let lastZoomActionAt = 0;
+
+const performZoomAction = (action: DesktopZoomAction): void => {
+  const now = Date.now();
+  if (lastZoomAction === action && now - lastZoomActionAt < DESKTOP_ZOOM_DEDUP_MS) {
+    return;
+  }
+
+  lastZoomAction = action;
+  lastZoomActionAt = now;
+
+  switch (action) {
+    case 'in':
+      increaseWindowZoom();
+      break;
+    case 'out':
+      decreaseWindowZoom();
+      break;
+    case 'reset':
+      resetWindowZoom();
+      break;
+  }
 };
 
 let pendingReloadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -297,19 +387,20 @@ const toggleWindowDevTools = (): void => {
   mainWindow.webview?.toggleDevTools();
 };
 
-const isWaylandDesktop = (): boolean => {
+function isWaylandDesktop(): boolean {
   if (process.platform !== 'linux') {
     return false;
   }
 
   return Boolean(process.env.WAYLAND_DISPLAY) || process.env.XDG_SESSION_TYPE === 'wayland';
-};
+}
 
 const desktopRpc = createDesktopRpc({
   db,
   sqlitePath,
   userDataPath,
   onToggleDevTools: toggleWindowDevTools,
+  onAdjustZoom: performZoomAction,
 });
 
 const mainWindow = new BrowserWindow({
@@ -326,8 +417,16 @@ const mainWindow = new BrowserWindow({
   rpc: desktopRpc,
 });
 
-const registerWindowShortcut = (accelerator: string, handler: () => void): void => {
-  const registered = GlobalShortcut.register(accelerator, handler);
+const registerWindowShortcut = (
+  accelerator: string,
+  action: DesktopKeyboardAction,
+  handler: () => void,
+): void => {
+  console.log('[desktop-shortcuts] registering', accelerator);
+  const registered = GlobalShortcut.register(accelerator, () => {
+    console.log('[desktop-shortcuts] fired', action, accelerator);
+    handler();
+  });
   if (!registered) {
     console.warn('[desktop-shortcuts] failed to register', accelerator);
   }
@@ -337,25 +436,29 @@ const registerConfiguredShortcuts = (keyboard: DesktopKeyboardConfig): void => {
   const handlers: Record<DesktopKeyboardAction, () => void> = {
     refresh: reloadWindow,
     toggleDevTools: toggleWindowDevTools,
+    zoomIn: () => performZoomAction('in'),
+    zoomOut: () => performZoomAction('out'),
+    zoomReset: () => performZoomAction('reset'),
   };
   const seen = new Set<string>();
 
   for (const action of DESKTOP_KEYBOARD_ACTIONS) {
     for (const binding of keyboard.keybinds[action]) {
-      const accelerator = keybindToAccelerator(binding, keyboard.modKey);
-      if (accelerator === null) {
+      const accelerators = keybindToAccelerators(binding);
+      if (accelerators.length === 0) {
         console.warn(`[desktop-shortcuts] invalid keybind ignored: ${binding}`);
         continue;
       }
 
-      const normalizedAccelerator = accelerator.toLowerCase();
-      if (seen.has(normalizedAccelerator)) {
-        console.warn(`[desktop-shortcuts] duplicate accelerator ignored: ${binding}`);
-        continue;
-      }
+      for (const accelerator of accelerators) {
+        const normalizedAccelerator = accelerator.toLowerCase();
+        if (seen.has(normalizedAccelerator)) {
+          continue;
+        }
 
-      seen.add(normalizedAccelerator);
-      registerWindowShortcut(accelerator, handlers[action]);
+        seen.add(normalizedAccelerator);
+        registerWindowShortcut(accelerator, action, handlers[action]);
+      }
     }
   }
 };
@@ -367,8 +470,10 @@ mainWindow.webview?.on('did-navigate-in-page', applyWindowZoom);
 if (isWaylandDesktop()) {
   console.log('[desktop-shortcuts] skipping native global shortcuts on Wayland');
 } else {
-  registerConfiguredShortcuts(desktopKeyboard);
+  // registerConfiguredShortcuts(desktopKeyboard);
 }
+
+registerConfiguredShortcuts(desktopKeyboard);
 
 process.on('exit', () => {
   if (pendingReloadTimer !== null) {
