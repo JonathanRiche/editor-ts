@@ -186,7 +186,9 @@ const Storage = struct {
         };
         defer allocator.free(bytes);
 
-        return try std.json.parseFromSlice(PersistedState, allocator, bytes, .{});
+        return try std.json.parseFromSlice(PersistedState, allocator, bytes, .{
+            .allocate = .alloc_always,
+        });
     }
 
     fn save(self: *const Storage, state: *const AppState) !void {
@@ -321,7 +323,6 @@ const AppState = struct {
         try self.addProject(label, path, 0);
         self.selected_project_index = self.projects.items.len - 1;
         self.next_project_number += 1;
-        try self.seedProjectConversation(self.currentProjectMutable(), true);
         self.syncRenameBuffer();
         self.show_project_creator = false;
         self.markDirty();
@@ -345,7 +346,6 @@ const AppState = struct {
         const label = projectLabelFromPath(resolved);
         try self.addProject(label, resolved, 0);
         self.selected_project_index = self.projects.items.len - 1;
-        try self.seedProjectConversation(self.currentProjectMutable(), true);
         self.clearImportPath();
         self.syncRenameBuffer();
         self.setSidebarNotice("Project imported.");
@@ -474,10 +474,6 @@ const AppState = struct {
                         .body = try self.dupeZ(message.body),
                     });
                 }
-            }
-
-            if (loaded.messages.items.len == 0) {
-                try self.seedProjectConversation(&loaded, false);
             }
 
             try self.projects.append(self.allocator, loaded);
@@ -650,29 +646,6 @@ const AppState = struct {
 
         if (maybe_worker) |worker| {
             worker.join();
-        }
-    }
-
-    fn seedProjectConversation(self: *AppState, project: *Project, include_user_prompt: bool) !void {
-        if (project.messages.items.len > 0) return;
-
-        try project.messages.append(self.allocator, .{
-            .role = .system,
-            .author = try self.dupeZ("Workspace"),
-            .body = try self.dupeZ("Native shell prototype active. Canvas and code tabs are intentionally omitted in this first pass."),
-        });
-        try project.messages.append(self.allocator, .{
-            .role = .assistant,
-            .author = try self.dupeZ(providerLabel(project.provider)),
-            .body = try self.dupeZ("Pick a project from the left rail, choose a provider and harness, then start a chat workflow here."),
-        });
-        if (include_user_prompt) {
-            try project.messages.append(self.allocator, .{
-                .role = .user,
-                .author = try self.dupeZ("You"),
-                .body = try self.dupeZ("Let us start with the native chat shell and keep the rest of the workbench out of scope."),
-            });
-            project.setDraft("Sketch the app shell with a simple left rail, project add button, and a chat-first layout.");
         }
     }
 
@@ -996,6 +969,12 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
         .child_flags = .{ .border = true },
     });
     defer zgui.endChild();
+
+    if (state.currentProject().messages.items.len == 0) {
+        zgui.textColored(COLOR_WHITE, "No messages yet", .{});
+        zgui.textColored(COLOR_TEXT_MUTED, "Choose a provider, type a prompt below, and start the first chat for this directory.", .{});
+        return;
+    }
 
     for (state.currentProject().messages.items, 0..) |message, index| {
         const bubble_color = messageBubbleColor(message.role);
