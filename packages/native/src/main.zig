@@ -1017,7 +1017,6 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         defer zgui.popId();
 
         const is_selected = state.selected_project_index == index;
-        const thread = project.currentThread();
         if (is_selected) {
             zgui.pushStyleColor4f(.{ .idx = .header, .c = darken(COLOR_GREEN, 0.10) });
             zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = COLOR_GREEN });
@@ -1052,19 +1051,20 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
             zgui.popStyleColor(.{ .count = 3 });
         }
 
+        const active_thread = state.projects.items[index].currentThread();
         zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{project.path});
         zgui.textColored(COLOR_TEXT_MUTED, "{s}  |  {s}", .{
-            providerLabel(thread.provider),
-            harnessLabel(thread.harness),
+            providerLabel(active_thread.provider),
+            harnessLabel(active_thread.harness),
         });
         zgui.textColored(COLOR_TEXT_SUBTLE, "{d} threads  |  {d} messages", .{
             project.threads.items.len,
-            thread.messages.items.len,
+            active_thread.messages.items.len,
         });
-        if (thread.messages.items.len > 0) {
+        if (active_thread.messages.items.len > 0) {
             zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{lastMessagePreview(&project)});
         } else {
-            zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{thread.title});
+            zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{active_thread.title});
         }
         if (project.unread_count > 0) {
             zgui.sameLine(.{ .spacing = 10.0 });
