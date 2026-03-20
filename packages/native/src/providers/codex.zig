@@ -152,7 +152,7 @@ pub const Client = struct {
 
         if (self.child) |*child| {
             if (self.owns_child) {
-                child.kill() catch {};
+                _ = child.kill() catch {};
                 _ = child.wait() catch {};
             }
             self.child = null;
@@ -218,8 +218,8 @@ pub const Client = struct {
                     return err;
                 }
 
-                const backoff_ms = @min(@as(u64, 50) * (@as(u64, 1) << @intCast(@min(attempt, 5))), 800);
-                std.Thread.sleep(backoff_ms * std.time.ns_per_ms);
+                const backoff_ms: u64 = @min(@as(u64, 50) * (@as(u64, 1) << @intCast(@min(attempt, 5))), 800);
+                std.Thread.sleep(backoff_ms * @as(u64, std.time.ns_per_ms));
             }
         }
     }
@@ -309,12 +309,10 @@ pub const Client = struct {
     }
 
     fn startThread(self: *Client, allocator: std.mem.Allocator, cwd: ?[]const u8) ![]u8 {
-        const params = if (cwd) |working_dir|
-            .{ .cwd = working_dir }
+        const payload = if (cwd) |working_dir|
+            try self.callRpcForResultAlloc("thread/start", .{ .cwd = working_dir })
         else
-            .{};
-
-        const payload = try self.callRpcForResultAlloc("thread/start", params);
+            try self.callRpcForResultAlloc("thread/start", .{});
         defer self.allocator.free(payload);
 
         var parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, payload, .{});
@@ -356,19 +354,17 @@ pub const Client = struct {
         thread_id: []const u8,
         request: provider_types.SendPromptRequest,
     ) ![]u8 {
-        const params = if (request.cwd) |working_dir|
-            .{
+        const request_id = if (request.cwd) |working_dir|
+            try self.sendRequest("turn/start", .{
                 .threadId = thread_id,
                 .cwd = working_dir,
                 .input = &.{.{ .type = "text", .text = request.prompt }},
-            }
+            })
         else
-            .{
+            try self.sendRequest("turn/start", .{
                 .threadId = thread_id,
                 .input = &.{.{ .type = "text", .text = request.prompt }},
-            };
-
-        const request_id = try self.sendRequest("turn/start", params);
+            });
         var turn_started = false;
         var reply: std.ArrayList(u8) = .empty;
         defer reply.deinit(allocator);
@@ -436,8 +432,8 @@ pub const Client = struct {
             } else |err| switch (err) {
                 error.ServerOverloaded => {
                     if (attempt + 1 >= MAX_RPC_RETRIES) return err;
-                    const backoff_ms = @min(@as(u64, 100) * (@as(u64, 1) << @intCast(attempt)), 1500);
-                    std.Thread.sleep(backoff_ms * std.time.ns_per_ms);
+                    const backoff_ms: u64 = @min(@as(u64, 100) * (@as(u64, 1) << @intCast(attempt)), 1500);
+                    std.Thread.sleep(backoff_ms * @as(u64, std.time.ns_per_ms));
                     continue;
                 },
                 else => return err,
@@ -547,7 +543,11 @@ const Frame = struct {
 fn stringifyAlloc(allocator: std.mem.Allocator, value: anytype) ![]u8 {
     var writer: std.Io.Writer.Allocating = .init(allocator);
     errdefer writer.deinit();
-    try std.json.stringify(value, .{}, writer.writer());
+    var stringify: std.json.Stringify = .{
+        .writer = &writer.writer,
+        .options = .{},
+    };
+    try stringify.write(value);
     return writer.toOwnedSlice();
 }
 
@@ -627,7 +627,7 @@ fn writeClientFrame(
     var header: [14]u8 = undefined;
     var index: usize = 0;
 
-    header[index] = 0x80 | @intFromEnum(opcode);
+    header[index] = @as(u8, 0x80) | @as(u8, @intCast(@intFromEnum(opcode)));
     index += 1;
 
     if (payload.len <= 125) {
@@ -636,12 +636,16 @@ fn writeClientFrame(
     } else if (payload.len <= std.math.maxInt(u16)) {
         header[index] = 0x80 | 126;
         index += 1;
-        std.mem.writeInt(u16, header[index .. index + 2], @intCast(payload.len), .big);
+        var len16: [2]u8 = undefined;
+        std.mem.writeInt(u16, &len16, @intCast(payload.len), .big);
+        @memcpy(header[index .. index + len16.len], &len16);
         index += 2;
     } else {
         header[index] = 0x80 | 127;
         index += 1;
-        std.mem.writeInt(u64, header[index .. index + 8], payload.len, .big);
+        var len64: [8]u8 = undefined;
+        std.mem.writeInt(u64, &len64, payload.len, .big);
+        @memcpy(header[index .. index + len64.len], &len64);
         index += 8;
     }
 

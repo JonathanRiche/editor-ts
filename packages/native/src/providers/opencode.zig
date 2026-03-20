@@ -37,7 +37,7 @@ pub const Client = struct {
     pub fn deinit(self: *Client) void {
         if (self.child) |*child| {
             if (self.owns_child) {
-                child.kill() catch {};
+                _ = child.kill() catch {};
                 _ = child.wait() catch {};
             }
             self.child = null;
@@ -279,7 +279,11 @@ const HttpResponse = struct {
 fn stringifyAlloc(allocator: std.mem.Allocator, value: anytype) ![]u8 {
     var writer: std.Io.Writer.Allocating = .init(allocator);
     errdefer writer.deinit();
-    try std.json.stringify(value, .{}, writer.writer());
+    var stringify: std.json.Stringify = .{
+        .writer = &writer.writer,
+        .options = .{},
+    };
+    try stringify.write(value);
     return writer.toOwnedSlice();
 }
 
