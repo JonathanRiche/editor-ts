@@ -321,6 +321,7 @@ export default function App() {
   const nativeBoot = typeof window !== 'undefined' ? window.__EDITORTS_DESKTOP__ : undefined;
   const nativeDesktop = isNativeDesktopRuntime();
   let editor: ReturnType<typeof init> | null = null;
+  let canvasPreviewActivated = false;
   let activeProjectConnection: {
     fs: ProjectFilesystemProvider;
     connectedMessage: string;
@@ -419,6 +420,7 @@ export default function App() {
       sessionNamespaceSuffix,
     });
     clearPermissionRequests();
+    canvasPreviewActivated = false;
     activeProjectConnection = {
       fs,
       connectedMessage,
@@ -456,6 +458,9 @@ export default function App() {
 
     const editorConfig: InitConfig = {
       iframeId: 'preview-iframe',
+      preview: {
+        deferInitialLoad: true,
+      },
       codeEditor: {
         provider: 'modern-monaco',
         workspace: {
@@ -744,6 +749,26 @@ export default function App() {
     });
   };
 
+  const activateCanvasPreview = async (): Promise<void> => {
+    if (!editor || canvasPreviewActivated === true) {
+      return;
+    }
+
+    canvasPreviewActivated = true;
+    setStatusText('Loading canvas preview...');
+
+    try {
+      await measureRendererAsync('activateCanvasPreview', async () => {
+        await editor?.preview.refresh();
+      });
+      setStatusText('Canvas preview ready.');
+    } catch (error: unknown) {
+      canvasPreviewActivated = false;
+      const message = error instanceof Error ? error.message : String(error);
+      setStatusText(`Canvas preview failed to load: ${message}`);
+    }
+  };
+
   const hydrateNativeDesktopState = async (options?: { restoreProject?: boolean }): Promise<void> => {
     if (!nativeDesktop) return;
 
@@ -1003,6 +1028,11 @@ export default function App() {
       onAiBaseUrlChange={handleAiBaseUrlChange}
       onAiDirectoryChange={handleAiDirectoryChange}
       onMainTabActivate={(tab) => {
+        if (tab === 'editor') {
+          void activateCanvasPreview();
+          return;
+        }
+
         if (tab === 'chat' || tab === 'code') {
           void enableAdvancedWorkspaceUi(tab);
         }

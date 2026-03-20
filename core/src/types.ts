@@ -495,6 +495,15 @@ export interface InitConfig {
   /** Optional: iframe head configuration (runtime only). */
   iframe?: IframeHeadConfig;
 
+  /** Optional: preview lifecycle configuration (runtime only). */
+  preview?: {
+    /**
+     * Start with the iframe blank and wait for an explicit `preview.refresh()`
+     * call before loading canvas content.
+     */
+    deferInitialLoad?: boolean;
+  };
+
   // Optional: vim mode defaults to false
   vimMode?: boolean;
 

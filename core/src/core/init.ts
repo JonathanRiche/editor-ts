@@ -2089,6 +2089,7 @@ export function init(config: InitConfig): EditorTsEditor {
   let lastAppliedPreviewMode: 'page-srcdoc' | 'app-url' | null = null;
   let lastAppliedPreviewUrl: string | null = null;
   let previewSyncVersion = 0;
+  let previewDeferred = config.preview?.deferInitialLoad === true;
 
   const applyIframeSrc = (url: string): void => {
     const target = iframe as HTMLIFrameElement & { src?: string; srcdoc?: string; removeAttribute?: (name: string) => void };
@@ -2110,6 +2111,10 @@ export function init(config: InitConfig): EditorTsEditor {
     target.srcdoc = srcdoc;
   };
 
+  const clearIframePreview = (): void => {
+    applyIframeSrcdoc('<!DOCTYPE html><html><head><meta charset="utf-8" /></head><body></body></html>');
+  };
+
   const resolvePreviewDescriptor = async (): Promise<ContentAdapterPreviewDescriptor | null> => {
     if (typeof contentAdapter.describePreview === 'function') {
       return contentAdapter.describePreview();
@@ -2129,6 +2134,10 @@ export function init(config: InitConfig): EditorTsEditor {
   };
 
   const syncIframePreview = async (forceReload: boolean): Promise<void> => {
+    if (previewDeferred) {
+      return;
+    }
+
     const syncVersion = previewSyncVersion + 1;
     previewSyncVersion = syncVersion;
 
@@ -2165,13 +2174,20 @@ export function init(config: InitConfig): EditorTsEditor {
 
   const navigatePreview = async (path: string | null): Promise<void> => {
     activePreviewPath = normalizePreviewPath(path);
+    previewDeferred = false;
     await syncIframePreview(true);
   };
 
   // Load content into iframe
-  applyIframeSrcdoc(buildIframeContent());
-  lastAppliedPreviewMode = 'page-srcdoc';
-  void syncIframePreview(true);
+  if (previewDeferred) {
+    clearIframePreview();
+    lastAppliedPreviewMode = null;
+    lastAppliedPreviewUrl = null;
+  } else {
+    applyIframeSrcdoc(buildIframeContent());
+    lastAppliedPreviewMode = 'page-srcdoc';
+    void syncIframePreview(true);
+  }
 
   // multipage dropdown is rendered after helpers are defined
 
@@ -3854,6 +3870,22 @@ export function init(config: InitConfig): EditorTsEditor {
 
   // Refresh iframe and layer panel
   function refresh() {
+    if (previewDeferred) {
+      void syncWorkspaceFiles();
+      refreshLayers();
+      renderStats();
+      renderPagesDropdown();
+      void ensureCssEditorReady();
+      void ensureJsonEditorReady();
+      void ensureJsxEditorReady();
+      void renderFilesList();
+
+      const selected = selectedComponentId ? page.components.findById(selectedComponentId) : null;
+      void ensureJsEditorReadyFor(selected);
+      renderJsFileList();
+      return;
+    }
+
     if (lastAppliedPreviewMode !== 'app-url') {
       applyIframeSrcdoc(buildIframeContent());
       lastAppliedPreviewMode = 'page-srcdoc';
@@ -4519,6 +4551,7 @@ export function init(config: InitConfig): EditorTsEditor {
         await navigatePreview(path);
       },
       refresh: async () => {
+        previewDeferred = false;
         await syncIframePreview(true);
       },
     },

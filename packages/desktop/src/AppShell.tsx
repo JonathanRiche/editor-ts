@@ -80,7 +80,7 @@ const toCompactUrl = (value: string): string => {
 };
 
 export default function AppShell(props: AppShellProps) {
-  const [activeMainTab, setActiveMainTab] = createSignal<'chat' | 'editor' | 'code'>('editor');
+  const [activeMainTab, setActiveMainTab] = createSignal<'chat' | 'editor' | 'code'>('chat');
   const [filesCollapsed, setFilesCollapsed] = createSignal(false);
   let observer: MutationObserver | undefined;
 
