@@ -1,7 +1,7 @@
 //! Codex provider harness backed by `codex app-server`.
 
 const std = @import("std");
-const harness = @import("../harness.zig");
+const provider_types = @import("../provider_types.zig");
 
 pub const Transport = enum(u8) {
     websocket,
@@ -33,21 +33,21 @@ pub const Client = struct {
         _ = self;
     }
 
-    pub fn authState(self: *Client) !harness.AuthState {
+    pub fn authState(self: *Client) !provider_types.AuthState {
         _ = self;
         return .unknown;
     }
 
-    pub fn listThreads(self: *Client, allocator: std.mem.Allocator) ![]harness.ChatThreadSummary {
+    pub fn listThreads(self: *Client, allocator: std.mem.Allocator) ![]provider_types.ChatThreadSummary {
         _ = self;
-        return allocator.alloc(harness.ChatThreadSummary, 0);
+        return allocator.alloc(provider_types.ChatThreadSummary, 0);
     }
 
     pub fn sendPrompt(
         self: *Client,
         allocator: std.mem.Allocator,
-        request: harness.SendPromptRequest,
-    ) !harness.SendPromptResult {
+        request: provider_types.SendPromptRequest,
+    ) !provider_types.SendPromptResult {
         _ = self;
         _ = request;
         return .{

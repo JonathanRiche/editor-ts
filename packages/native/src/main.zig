@@ -44,6 +44,7 @@ const ChatMessage = struct {
 const ChatThread = struct {
     title: [:0]const u8,
     committed: bool = false,
+    last_activity_at: i64 = 0,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     messages: std.ArrayList(ChatMessage),
@@ -53,6 +54,7 @@ const ChatThread = struct {
         return .{
             .title = try allocator.dupeZ(u8, title),
             .committed = false,
+            .last_activity_at = 0,
             .provider = .opencode,
             .harness = .local_cli,
             .messages = .empty,
@@ -81,9 +83,14 @@ const ChatThread = struct {
 
     fn commitFromPrompt(self: *ChatThread, allocator: std.mem.Allocator, prompt: []const u8) !void {
         self.committed = true;
+        self.last_activity_at = std.time.timestamp();
         const next_title = try makeThreadTitle(allocator, prompt);
         allocator.free(self.title);
         self.title = next_title;
+    }
+
+    fn touch(self: *ChatThread) void {
+        self.last_activity_at = std.time.timestamp();
     }
 
     fn deinit(self: *ChatThread, allocator: std.mem.Allocator) void {
@@ -197,6 +204,7 @@ const PersistedProject = struct {
 const PersistedThread = struct {
     title: []const u8,
     committed: bool = true,
+    last_activity_at: ?i64 = null,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     draft: []const u8 = "",
@@ -230,6 +238,7 @@ const SaveProject = struct {
 const SaveThread = struct {
     title: []const u8,
     committed: bool,
+    last_activity_at: i64,
     provider: Provider,
     harness: Harness,
     draft: []const u8,
@@ -330,6 +339,8 @@ const Storage = struct {
                 try stringify.write(thread.title);
                 try stringify.objectField("committed");
                 try stringify.write(thread.committed);
+                try stringify.objectField("last_activity_at");
+                try stringify.write(thread.last_activity_at);
                 try stringify.objectField("provider");
                 try stringify.write(thread.provider);
                 try stringify.objectField("harness");
@@ -429,6 +440,7 @@ const AppState = struct {
             .author = try self.dupeZ(author),
             .body = try self.dupeZ(body),
         });
+        thread.touch();
         self.markDirty();
     }
 
@@ -581,6 +593,7 @@ const AppState = struct {
                 for (threads) |persisted_thread| {
                     var thread = try ChatThread.init(self.allocator, persisted_thread.title);
                     thread.committed = persisted_thread.committed;
+                    thread.last_activity_at = persisted_thread.last_activity_at orelse 0;
                     thread.provider = persisted_thread.provider;
                     thread.harness = persisted_thread.harness;
                     thread.setDraft(persisted_thread.draft);
@@ -591,6 +604,9 @@ const AppState = struct {
                             .body = try self.dupeZ(message.body),
                         });
                     }
+                    if (thread.last_activity_at == 0 and thread.messages.items.len > 0) {
+                        thread.touch();
+                    }
                     try loaded.threads.append(self.allocator, thread);
                 }
                 if (loaded.threads.items.len == 0) {
@@ -600,6 +616,7 @@ const AppState = struct {
             } else {
                 var thread = try ChatThread.init(self.allocator, "New thread");
                 thread.committed = project.messages.len > 0;
+                thread.last_activity_at = if (thread.committed) std.time.timestamp() else 0;
                 thread.provider = project.provider;
                 thread.harness = project.harness;
                 thread.setDraft(project.draft);
@@ -1064,12 +1081,12 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.08) });
         zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.14) });
-        if (zgui.button("N", .{ .w = 28.0, .h = 28.0 })) {
+        if (zgui.smallButton("+")) {
             state.createThreadForProject(index);
         }
         if (zgui.isItemHovered(.{ .delay_normal = true })) {
             _ = zgui.beginTooltip();
-            zgui.textUnformatted("New thread");
+            zgui.textUnformatted("Start a new chat");
             zgui.endTooltip();
         }
         zgui.popStyleColor(.{ .count = 3 });
@@ -1079,15 +1096,7 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         }
 
         const active_thread = state.projects.items[index].currentThread();
-        zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{project.path});
-        zgui.textColored(COLOR_TEXT_MUTED, "{s}  |  {s}", .{
-            providerLabel(active_thread.provider),
-            harnessLabel(active_thread.harness),
-        });
-        zgui.textColored(COLOR_TEXT_SUBTLE, "{d} threads  |  {d} messages", .{
-            project.committedThreadCount(),
-            active_thread.messages.items.len,
-        });
+        zgui.textDisabled("{d} saved chats", .{project.committedThreadCount()});
         if (is_selected) {
             zgui.indent(.{ .indent_w = 12.0 });
             for (project.threads.items, 0..) |thread, thread_index| {
@@ -1097,31 +1106,44 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
                 const thread_selected = project.selected_thread_index == thread_index;
                 var thread_label_buf = std.mem.zeroes([64:0]u8);
                 const thread_label = formatThreadListLabel(&thread_label_buf, &thread);
+                var time_buf: [24]u8 = undefined;
+                const relative_time = formatRelativeTime(&time_buf, thread.last_activity_at);
                 if (thread_selected) {
                     zgui.pushStyleColor4f(.{ .idx = .header, .c = COLOR_PANEL_ALT });
                     zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = lighten(COLOR_PANEL_ALT, 0.06) });
                     zgui.pushStyleColor4f(.{ .idx = .header_active, .c = lighten(COLOR_PANEL_ALT, 0.12) });
                 }
+                zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 6.0, 5.0 } });
                 if (zgui.selectable(thread_label, .{
                     .selected = thread_selected,
-                    .w = width - 44.0,
-                    .h = 28.0,
+                    .w = width - 86.0,
+                    .h = 24.0,
                 })) {
                     state.selected_project_index = index;
                     state.projects.items[index].selected_thread_index = thread_index;
                     state.syncRenameBuffer();
                     state.markDirty();
                 }
+                zgui.popStyleVar(.{ .count = 1 });
+                zgui.sameLine(.{ .spacing = 8.0 });
+                zgui.textDisabled("{s}", .{relative_time});
+                var preview_buf = std.mem.zeroes([72:0]u8);
+                const preview = formatThreadPreview(&preview_buf, &thread);
+                zgui.textColored(if (thread_selected) COLOR_TEXT_MUTED else COLOR_TEXT_SUBTLE, "{s}", .{preview});
                 if (thread_selected) {
                     zgui.popStyleColor(.{ .count = 3 });
                 }
+                zgui.dummy(.{ .w = 0.0, .h = 2.0 });
             }
             if (!active_thread.committed) {
                 zgui.textColored(COLOR_TEXT_SUBTLE, "New chat will appear here after the first prompt.", .{});
             }
             zgui.unindent(.{ .indent_w = 12.0 });
         } else if (active_thread.messages.items.len > 0) {
+            var time_buf: [24]u8 = undefined;
+            const relative_time = formatRelativeTime(&time_buf, active_thread.last_activity_at);
             zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{lastMessagePreview(&project)});
+            zgui.textDisabled("{s}", .{relative_time});
         } else if (active_thread.committed) {
             zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{active_thread.title});
         } else {
@@ -1350,6 +1372,40 @@ fn formatThreadListLabel(buffer: *[64:0]u8, thread: *const ChatThread) [:0]const
     @memcpy(buffer[prefix_len..max_len], "...");
     buffer[max_len] = 0;
     return buffer[0..max_len :0];
+}
+
+fn formatThreadPreview(buffer: *[72:0]u8, thread: *const ChatThread) [:0]const u8 {
+    if (thread.messages.items.len == 0) return "Awaiting first prompt";
+    const body = thread.messages.items[0].body;
+    const max_len = @min(buffer.len - 1, @as(usize, 34));
+    const source = std.mem.trim(u8, body, &std.ascii.whitespace);
+    if (source.len <= max_len) {
+        @memcpy(buffer[0..source.len], source);
+        buffer[source.len] = 0;
+        return buffer[0..source.len :0];
+    }
+    if (max_len <= 3) return "...";
+    const prefix_len = max_len - 3;
+    @memcpy(buffer[0..prefix_len], source[0..prefix_len]);
+    @memcpy(buffer[prefix_len..max_len], "...");
+    buffer[max_len] = 0;
+    return buffer[0..max_len :0];
+}
+
+fn formatRelativeTime(buffer: []u8, timestamp: i64) []const u8 {
+    if (timestamp <= 0) return "now";
+    const elapsed = @max(std.time.timestamp() - timestamp, 0);
+    if (elapsed < 60) return "now";
+    if (elapsed < 3600) {
+        const minutes = @divFloor(elapsed, 60);
+        return std.fmt.bufPrint(buffer, "{d}m ago", .{minutes}) catch "recent";
+    }
+    if (elapsed < 86_400) {
+        const hours = @divFloor(elapsed, 3600);
+        return std.fmt.bufPrint(buffer, "{d}h ago", .{hours}) catch "recent";
+    }
+    const days = @divFloor(elapsed, 86_400);
+    return std.fmt.bufPrint(buffer, "{d}d ago", .{days}) catch "recent";
 }
 
 fn sanitizeChatRole(role: *ChatRole) void {

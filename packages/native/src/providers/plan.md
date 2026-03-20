@@ -13,6 +13,7 @@ The package should reuse each tool's existing local auth, config, and workspace 
 
 ## File Layout
 
+- `../provider_types.zig`: shared provider-neutral request/response types
 - `../harness.zig`: shared provider-neutral interface used by the native UI
 - `opencode.zig`: OpenCode transport and response mapping
 - `codex.zig`: Codex transport and response mapping
