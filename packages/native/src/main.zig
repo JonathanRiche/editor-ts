@@ -43,6 +43,7 @@ const ChatMessage = struct {
 
 const ChatThread = struct {
     title: [:0]const u8,
+    committed: bool = false,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     messages: std.ArrayList(ChatMessage),
@@ -51,6 +52,7 @@ const ChatThread = struct {
     fn init(allocator: std.mem.Allocator, title: []const u8) !ChatThread {
         return .{
             .title = try allocator.dupeZ(u8, title),
+            .committed = false,
             .provider = .opencode,
             .harness = .local_cli,
             .messages = .empty,
@@ -75,6 +77,13 @@ const ChatThread = struct {
 
     fn clearDraft(self: *ChatThread) void {
         self.draft_storage[0] = 0;
+    }
+
+    fn commitFromPrompt(self: *ChatThread, allocator: std.mem.Allocator, prompt: []const u8) !void {
+        self.committed = true;
+        const next_title = try makeThreadTitle(allocator, prompt);
+        allocator.free(self.title);
+        self.title = next_title;
     }
 
     fn deinit(self: *ChatThread, allocator: std.mem.Allocator) void {
@@ -133,9 +142,7 @@ const Project = struct {
     }
 
     fn addThread(self: *Project, allocator: std.mem.Allocator) !void {
-        var title_buf: [64]u8 = undefined;
-        const title = try std.fmt.bufPrint(&title_buf, "Thread {d}", .{self.threads.items.len + 1});
-        try self.threads.append(allocator, try ChatThread.init(allocator, title));
+        try self.threads.append(allocator, try ChatThread.init(allocator, "New thread"));
         self.selected_thread_index = self.threads.items.len - 1;
     }
 
@@ -153,6 +160,14 @@ const Project = struct {
                 sanitizeChatRole(&message.role);
             }
         }
+    }
+
+    fn committedThreadCount(self: *const Project) usize {
+        var count: usize = 0;
+        for (self.threads.items) |thread| {
+            if (thread.committed) count += 1;
+        }
+        return count;
     }
 
     fn deinit(self: *Project, allocator: std.mem.Allocator) void {
@@ -181,6 +196,7 @@ const PersistedProject = struct {
 
 const PersistedThread = struct {
     title: []const u8,
+    committed: bool = true,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     draft: []const u8 = "",
@@ -213,6 +229,7 @@ const SaveProject = struct {
 
 const SaveThread = struct {
     title: []const u8,
+    committed: bool,
     provider: Provider,
     harness: Harness,
     draft: []const u8,
@@ -292,6 +309,7 @@ const Storage = struct {
         try stringify.objectField("projects");
         try stringify.beginArray();
         for (state.projects.items) |project| {
+            const selected_save_index = selectedCommittedThreadIndex(&project);
             try stringify.beginObject();
             try stringify.objectField("id");
             try stringify.write(project.id);
@@ -302,13 +320,16 @@ const Storage = struct {
             try stringify.objectField("unread_count");
             try stringify.write(project.unread_count);
             try stringify.objectField("selected_thread_index");
-            try stringify.write(project.selected_thread_index);
+            try stringify.write(selected_save_index);
             try stringify.objectField("threads");
             try stringify.beginArray();
             for (project.threads.items) |thread| {
+                if (!thread.committed) continue;
                 try stringify.beginObject();
                 try stringify.objectField("title");
                 try stringify.write(thread.title);
+                try stringify.objectField("committed");
+                try stringify.write(thread.committed);
                 try stringify.objectField("provider");
                 try stringify.write(thread.provider);
                 try stringify.objectField("harness");
@@ -520,8 +541,12 @@ const AppState = struct {
         const draft = self.currentDraft();
         if (draft.len == 0) return;
 
-        try self.appendMessage(.user, "You", draft);
+        const trimmed_title = std.mem.trim(u8, draft, &std.ascii.whitespace);
         const thread = self.currentThreadMutable();
+        if (!thread.committed) {
+            try thread.commitFromPrompt(self.allocator, trimmed_title);
+        }
+        try self.appendMessage(.user, "You", draft);
         const response = switch (thread.provider) {
             .opencode => "OpenCode would receive this message through the selected harness and return the next tool-aware reply here.",
             .codex => "Codex would receive this message through the selected harness and stream its response into this transcript.",
@@ -555,6 +580,7 @@ const AppState = struct {
             if (project.threads) |threads| {
                 for (threads) |persisted_thread| {
                     var thread = try ChatThread.init(self.allocator, persisted_thread.title);
+                    thread.committed = persisted_thread.committed;
                     thread.provider = persisted_thread.provider;
                     thread.harness = persisted_thread.harness;
                     thread.setDraft(persisted_thread.draft);
@@ -572,7 +598,8 @@ const AppState = struct {
                 }
                 loaded.selected_thread_index = @min(project.selected_thread_index, loaded.threads.items.len - 1);
             } else {
-                var thread = try ChatThread.init(self.allocator, "Thread 1");
+                var thread = try ChatThread.init(self.allocator, "New thread");
+                thread.committed = project.messages.len > 0;
                 thread.provider = project.provider;
                 thread.harness = project.harness;
                 thread.setDraft(project.draft);
@@ -1058,13 +1085,47 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
             harnessLabel(active_thread.harness),
         });
         zgui.textColored(COLOR_TEXT_SUBTLE, "{d} threads  |  {d} messages", .{
-            project.threads.items.len,
+            project.committedThreadCount(),
             active_thread.messages.items.len,
         });
-        if (active_thread.messages.items.len > 0) {
+        if (is_selected) {
+            zgui.indent(.{ .indent_w = 12.0 });
+            for (project.threads.items, 0..) |thread, thread_index| {
+                if (!thread.committed) continue;
+                zgui.pushIntId(@intCast(thread_index + 1000));
+                defer zgui.popId();
+                const thread_selected = project.selected_thread_index == thread_index;
+                var thread_label_buf = std.mem.zeroes([64:0]u8);
+                const thread_label = formatThreadListLabel(&thread_label_buf, &thread);
+                if (thread_selected) {
+                    zgui.pushStyleColor4f(.{ .idx = .header, .c = COLOR_PANEL_ALT });
+                    zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = lighten(COLOR_PANEL_ALT, 0.06) });
+                    zgui.pushStyleColor4f(.{ .idx = .header_active, .c = lighten(COLOR_PANEL_ALT, 0.12) });
+                }
+                if (zgui.selectable(thread_label, .{
+                    .selected = thread_selected,
+                    .w = width - 44.0,
+                    .h = 28.0,
+                })) {
+                    state.selected_project_index = index;
+                    state.projects.items[index].selected_thread_index = thread_index;
+                    state.syncRenameBuffer();
+                    state.markDirty();
+                }
+                if (thread_selected) {
+                    zgui.popStyleColor(.{ .count = 3 });
+                }
+            }
+            if (!active_thread.committed) {
+                zgui.textColored(COLOR_TEXT_SUBTLE, "New chat will appear here after the first prompt.", .{});
+            }
+            zgui.unindent(.{ .indent_w = 12.0 });
+        } else if (active_thread.messages.items.len > 0) {
             zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{lastMessagePreview(&project)});
-        } else {
+        } else if (active_thread.committed) {
             zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{active_thread.title});
+        } else {
+            zgui.textColored(COLOR_TEXT_SUBTLE, "No saved threads yet", .{});
         }
         if (project.unread_count > 0) {
             zgui.sameLine(.{ .spacing = 10.0 });
@@ -1102,9 +1163,9 @@ fn renderWorkspaceHeader(state: *AppState) void {
     const thread = state.currentThread();
     zgui.textColored(COLOR_WHITE, "{s}", .{project.label});
     zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{project.path});
-    zgui.textColored(COLOR_TEXT_SUBTLE, "{s}  |  {d} total threads", .{
-        thread.title,
-        project.threads.items.len,
+    zgui.textColored(COLOR_TEXT_SUBTLE, "{s}  |  {d} saved threads", .{
+        if (thread.committed) thread.title else "New chat",
+        project.committedThreadCount(),
     });
 
     const editable_thread = state.currentThreadMutable();
@@ -1239,6 +1300,56 @@ fn lastMessagePreview(project: *const Project) []const u8 {
 fn projectLabelFromPath(path: []const u8) []const u8 {
     const basename = std.fs.path.basename(path);
     return if (basename.len == 0) path else basename;
+}
+
+fn selectedCommittedThreadIndex(project: *const Project) usize {
+    var committed_index: usize = 0;
+    var fallback_index: usize = 0;
+    for (project.threads.items, 0..) |thread, index| {
+        if (!thread.committed) continue;
+        if (index == project.selected_thread_index) return committed_index;
+        committed_index += 1;
+        fallback_index = committed_index - 1;
+    }
+    return if (committed_index == 0) 0 else fallback_index;
+}
+
+fn makeThreadTitle(allocator: std.mem.Allocator, prompt: []const u8) ![:0]const u8 {
+    const trimmed = std.mem.trim(u8, prompt, &std.ascii.whitespace);
+    if (trimmed.len == 0) return try allocator.dupeZ(u8, "New chat");
+
+    var compact: [96]u8 = undefined;
+    var count: usize = 0;
+    var saw_space = false;
+    for (trimmed) |char| {
+        const normalized = if (std.ascii.isWhitespace(char)) ' ' else char;
+        if (normalized == ' ') {
+            if (count == 0 or saw_space) continue;
+            saw_space = true;
+        } else {
+            saw_space = false;
+        }
+        if (count == compact.len) break;
+        compact[count] = normalized;
+        count += 1;
+    }
+
+    while (count > 0 and compact[count - 1] == ' ') {
+        count -= 1;
+    }
+    if (count == 0) return try allocator.dupeZ(u8, "New chat");
+    return try allocator.dupeZ(u8, compact[0..count]);
+}
+
+fn formatThreadListLabel(buffer: *[64:0]u8, thread: *const ChatThread) [:0]const u8 {
+    const max_len = @min(buffer.len - 1, @as(usize, 28));
+    if (thread.title.len <= max_len) return thread.title;
+    if (max_len <= 3) return "...";
+    const prefix_len = max_len - 3;
+    @memcpy(buffer[0..prefix_len], thread.title[0..prefix_len]);
+    @memcpy(buffer[prefix_len..max_len], "...");
+    buffer[max_len] = 0;
+    return buffer[0..max_len :0];
 }
 
 fn sanitizeChatRole(role: *ChatRole) void {
