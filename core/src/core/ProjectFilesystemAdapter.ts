@@ -414,6 +414,10 @@ const extractBodyMarkup = (html: string): string => {
   return html;
 };
 
+const stripExecutableBodyMarkup = (html: string): string => {
+  return html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+};
+
 const extractTitle = (html: string): string | null => {
   const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = match?.[1]?.trim();
@@ -1388,7 +1392,7 @@ export class ProjectFilesystemAdapter implements ContentAdapter {
     if (htmlPath) {
       const htmlText = await this.readFile(htmlPath);
       if (htmlText) {
-        page.body.html = extractBodyMarkup(htmlText);
+        page.body.html = stripExecutableBodyMarkup(extractBodyMarkup(htmlText));
         const title = extractTitle(htmlText);
         if (title) page.title = title;
       }

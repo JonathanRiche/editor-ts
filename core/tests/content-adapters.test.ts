@@ -148,6 +148,24 @@ describe('content adapters', () => {
     expect(page.body.css).toBe('main { color: blue; }');
   });
 
+  it('ProjectFilesystemAdapter strips body scripts when loading project html', async () => {
+    const { provider } = createMemoryFs({
+      'index.html': '<!DOCTYPE html><html><head><title>Project Title</title></head><body><main id="app">hello</main><script type="module" src="/src/main.ts"></script><script>window.boot()</script></body></html>',
+      'styles.css': 'main { color: blue; }',
+    });
+
+    const adapter = new ProjectFilesystemAdapter({
+      fs: provider,
+      loadStrategy: 'project-files',
+    });
+
+    const snapshot = await adapter.load();
+    const page = getActivePage(snapshot.data);
+
+    expect(page.body.html).toBe('<main id="app">hello</main>');
+    expect(page.body.html).not.toContain('<script');
+  });
+
   it('ProjectFilesystemAdapter auto mode prefers project files over page.json', async () => {
     const pageJson = JSON.stringify({
       title: 'From JSON',
