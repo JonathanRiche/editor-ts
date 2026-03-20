@@ -42,6 +42,7 @@ const ChatMessage = struct {
 };
 
 const Project = struct {
+    id: [:0]const u8,
     label: [:0]const u8,
     path: [:0]const u8,
     unread_count: u8 = 0,
@@ -50,8 +51,9 @@ const Project = struct {
     messages: std.ArrayList(ChatMessage),
     draft_storage: [AppState.DRAFT_CAPACITY:0]u8,
 
-    fn init(allocator: std.mem.Allocator, label: []const u8, path: []const u8, unread_count: u8) !Project {
+    fn init(allocator: std.mem.Allocator, id: []const u8, label: []const u8, path: []const u8, unread_count: u8) !Project {
         return .{
+            .id = try allocator.dupeZ(u8, id),
             .label = try allocator.dupeZ(u8, label),
             .path = try allocator.dupeZ(u8, path),
             .unread_count = unread_count,
@@ -82,6 +84,7 @@ const Project = struct {
     }
 
     fn deinit(self: *Project, allocator: std.mem.Allocator) void {
+        allocator.free(self.id);
         allocator.free(self.label);
         allocator.free(self.path);
         for (self.messages.items) |message| {
@@ -93,6 +96,7 @@ const Project = struct {
 };
 
 const PersistedProject = struct {
+    id: ?[]const u8 = null,
     label: []const u8,
     path: []const u8,
     unread_count: u8 = 0,
@@ -118,6 +122,7 @@ const PersistedState = struct {
 };
 
 const SaveProject = struct {
+    id: []const u8,
     label: []const u8,
     path: []const u8,
     unread_count: u8,
@@ -169,37 +174,6 @@ const Storage = struct {
     }
 
     fn save(self: *const Storage, state: *const AppState) !void {
-        var projects: std.ArrayList(SaveProject) = .empty;
-        defer projects.deinit(self.allocator);
-
-        for (state.projects.items) |project| {
-            var messages: std.ArrayList(SaveMessage) = .empty;
-            defer messages.deinit(self.allocator);
-
-            for (project.messages.items) |message| {
-                try messages.append(self.allocator, .{
-                    .role = message.role,
-                    .author = message.author,
-                    .body = message.body,
-                });
-            }
-
-            try projects.append(self.allocator, .{
-                .label = project.label,
-                .path = project.path,
-                .unread_count = project.unread_count,
-                .provider = project.provider,
-                .harness = project.harness,
-                .draft = project.currentDraft(),
-                .messages = messages.items,
-            });
-        }
-
-        const snapshot: SaveState = .{
-            .selected_project_index = state.selected_project_index,
-            .projects = projects.items,
-        };
-
         var buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer buffer.deinit();
 
@@ -207,7 +181,44 @@ const Storage = struct {
             .writer = &buffer.writer,
             .options = .{ .whitespace = .indent_2 },
         };
-        try stringify.write(snapshot);
+        try stringify.beginObject();
+        try stringify.objectField("selected_project_index");
+        try stringify.write(state.selected_project_index);
+        try stringify.objectField("projects");
+        try stringify.beginArray();
+        for (state.projects.items) |project| {
+            try stringify.beginObject();
+            try stringify.objectField("id");
+            try stringify.write(project.id);
+            try stringify.objectField("label");
+            try stringify.write(project.label);
+            try stringify.objectField("path");
+            try stringify.write(project.path);
+            try stringify.objectField("unread_count");
+            try stringify.write(project.unread_count);
+            try stringify.objectField("provider");
+            try stringify.write(project.provider);
+            try stringify.objectField("harness");
+            try stringify.write(project.harness);
+            try stringify.objectField("draft");
+            try stringify.write(project.currentDraft());
+            try stringify.objectField("messages");
+            try stringify.beginArray();
+            for (project.messages.items) |message| {
+                try stringify.beginObject();
+                try stringify.objectField("role");
+                try stringify.write(message.role);
+                try stringify.objectField("author");
+                try stringify.write(message.author);
+                try stringify.objectField("body");
+                try stringify.write(message.body);
+                try stringify.endObject();
+            }
+            try stringify.endArray();
+            try stringify.endObject();
+        }
+        try stringify.endArray();
+        try stringify.endObject();
 
         const json_bytes = try buffer.toOwnedSlice();
         defer self.allocator.free(json_bytes);
@@ -230,6 +241,10 @@ const AppState = struct {
     projects: std.ArrayList(Project),
     selected_project_index: usize,
     next_project_number: usize,
+    import_path_storage: [DRAFT_CAPACITY:0]u8,
+    rename_storage: [256:0]u8,
+    sidebar_notice_storage: [256:0]u8,
+    show_project_creator: bool,
     dirty: bool,
 
     fn init(allocator: std.mem.Allocator, storage: *const Storage) !AppState {
@@ -239,6 +254,10 @@ const AppState = struct {
             .projects = .empty,
             .selected_project_index = 0,
             .next_project_number = 4,
+            .import_path_storage = std.mem.zeroes([DRAFT_CAPACITY:0]u8),
+            .rename_storage = std.mem.zeroes([256:0]u8),
+            .sidebar_notice_storage = std.mem.zeroes([256:0]u8),
+            .show_project_creator = false,
             .dirty = false,
         };
 
@@ -252,7 +271,9 @@ const AppState = struct {
     }
 
     fn addProject(self: *AppState, label: []const u8, path: []const u8, unread_count: u8) !void {
-        try self.projects.append(self.allocator, try Project.init(self.allocator, label, path, unread_count));
+        const id = try self.deriveProjectId(path);
+        defer self.allocator.free(id);
+        try self.projects.append(self.allocator, try Project.init(self.allocator, id, label, path, unread_count));
         self.markDirty();
     }
 
@@ -283,6 +304,84 @@ const AppState = struct {
         self.selected_project_index = self.projects.items.len - 1;
         self.next_project_number += 1;
         try self.seedProjectConversation(self.currentProjectMutable(), true);
+        self.syncRenameBuffer();
+        self.show_project_creator = false;
+        self.markDirty();
+    }
+
+    fn importProjectFromInput(self: *AppState) !void {
+        const trimmed = std.mem.trim(u8, self.importPath(), &std.ascii.whitespace);
+        if (trimmed.len == 0) {
+            self.setSidebarNotice("Enter a project directory path first.");
+            return;
+        }
+
+        const resolved = try self.resolveProjectPath(trimmed);
+        defer self.allocator.free(resolved);
+
+        if (self.findProjectIndexByPath(resolved) != null) {
+            self.setSidebarNotice("That directory is already in the project rail.");
+            return;
+        }
+
+        const label = projectLabelFromPath(resolved);
+        try self.addProject(label, resolved, 0);
+        self.selected_project_index = self.projects.items.len - 1;
+        try self.seedProjectConversation(self.currentProjectMutable(), true);
+        self.clearImportPath();
+        self.syncRenameBuffer();
+        self.setSidebarNotice("Project imported.");
+        self.show_project_creator = false;
+        self.markDirty();
+    }
+
+    fn openSystemFileExplorer(self: *AppState) void {
+        const target_path = self.defaultExplorerPath() catch |err| {
+            self.setSidebarNotice(@errorName(err));
+            return;
+        };
+        defer self.allocator.free(target_path);
+
+        openFileExplorer(self.allocator, target_path) catch |err| {
+            self.setSidebarNotice(@errorName(err));
+            return;
+        };
+        self.setSidebarNotice("Explorer opened. Paste the directory path here to import it.");
+    }
+
+    fn renameSelectedProject(self: *AppState) void {
+        if (self.projects.items.len == 0) return;
+        const trimmed = std.mem.trim(u8, self.renameInput(), &std.ascii.whitespace);
+        if (trimmed.len == 0) {
+            self.setSidebarNotice("Project name cannot be empty.");
+            return;
+        }
+
+        const project = self.currentProjectMutable();
+        self.allocator.free(project.label);
+        project.label = self.allocator.dupeZ(u8, trimmed) catch {
+            self.setSidebarNotice("Rename failed.");
+            return;
+        };
+        self.setSidebarNotice("Project renamed.");
+        self.markDirty();
+    }
+
+    fn removeSelectedProject(self: *AppState) void {
+        if (self.projects.items.len == 0) return;
+        var removed = self.projects.orderedRemove(self.selected_project_index);
+        removed.deinit(self.allocator);
+
+        if (self.projects.items.len == 0) {
+            self.seedDefaultState() catch |err| {
+                log.err("failed to seed default state: {s}", .{@errorName(err)});
+            };
+        } else if (self.selected_project_index >= self.projects.items.len) {
+            self.selected_project_index = self.projects.items.len - 1;
+        }
+
+        self.syncRenameBuffer();
+        self.setSidebarNotice("Project removed from recents.");
         self.markDirty();
     }
 
@@ -307,7 +406,13 @@ const AppState = struct {
         }
 
         for (persisted.projects, 0..) |project, index| {
-            var loaded = try Project.init(self.allocator, project.label, project.path, project.unread_count);
+            const project_id = if (project.id) |persisted_id|
+                try self.allocator.dupe(u8, persisted_id)
+            else
+                try self.deriveProjectId(project.path);
+            defer self.allocator.free(project_id);
+
+            var loaded = try Project.init(self.allocator, project_id, project.label, project.path, project.unread_count);
             loaded.provider = project.provider;
             loaded.harness = project.harness;
             loaded.setDraft(project.draft);
@@ -342,6 +447,7 @@ const AppState = struct {
 
         self.selected_project_index = @min(persisted.selected_project_index, self.projects.items.len - 1);
         self.next_project_number = self.projects.items.len + 1;
+        self.syncRenameBuffer();
         self.dirty = false;
     }
 
@@ -353,6 +459,7 @@ const AppState = struct {
         for (self.projects.items) |*project| {
             try self.seedProjectConversation(project, true);
         }
+        self.syncRenameBuffer();
         self.dirty = true;
     }
 
@@ -384,6 +491,47 @@ const AppState = struct {
 
     fn markDirty(self: *AppState) void {
         self.dirty = true;
+    }
+
+    fn importPath(self: *const AppState) []const u8 {
+        return std.mem.sliceTo(self.import_path_storage[0..], 0);
+    }
+
+    fn importPathBuffer(self: *AppState) [:0]u8 {
+        return self.import_path_storage[0 .. self.import_path_storage.len - 1 :0];
+    }
+
+    fn clearImportPath(self: *AppState) void {
+        self.import_path_storage[0] = 0;
+    }
+
+    fn renameInput(self: *const AppState) []const u8 {
+        return std.mem.sliceTo(self.rename_storage[0..], 0);
+    }
+
+    fn renameBuffer(self: *AppState) [:0]u8 {
+        return self.rename_storage[0 .. self.rename_storage.len - 1 :0];
+    }
+
+    fn syncRenameBuffer(self: *AppState) void {
+        if (self.projects.items.len == 0) {
+            self.rename_storage[0] = 0;
+            return;
+        }
+        @memset(&self.rename_storage, 0);
+        const label = self.currentProject().label;
+        const len = @min(label.len, self.rename_storage.len - 1);
+        @memcpy(self.rename_storage[0..len], label[0..len]);
+    }
+
+    fn sidebarNotice(self: *const AppState) []const u8 {
+        return std.mem.sliceTo(self.sidebar_notice_storage[0..], 0);
+    }
+
+    fn setSidebarNotice(self: *AppState, value: []const u8) void {
+        @memset(&self.sidebar_notice_storage, 0);
+        const len = @min(value.len, self.sidebar_notice_storage.len - 1);
+        @memcpy(self.sidebar_notice_storage[0..len], value[0..len]);
     }
 
     fn flushIfDirty(self: *AppState) void {
@@ -428,6 +576,53 @@ const AppState = struct {
             });
             project.setDraft("Sketch the app shell with a simple left rail, project add button, and a chat-first layout.");
         }
+    }
+
+    fn resolveProjectPath(self: *AppState, raw_path: []const u8) ![]u8 {
+        const expanded = if (std.mem.startsWith(u8, raw_path, "~/")) blk: {
+            const home = std.posix.getenv("HOME") orelse return error.EnvironmentVariableNotFound;
+            break :blk try std.fmt.allocPrint(self.allocator, "{s}/{s}", .{ home, raw_path[2..] });
+        } else try self.allocator.dupe(u8, raw_path);
+        defer self.allocator.free(expanded);
+
+        const resolved = if (std.fs.path.isAbsolute(expanded))
+            try std.fs.realpathAlloc(self.allocator, expanded)
+        else blk: {
+            const cwd = std.fs.cwd();
+            break :blk try cwd.realpathAlloc(self.allocator, expanded);
+        };
+
+        var dir = try std.fs.openDirAbsolute(resolved, .{});
+        dir.close();
+        return resolved;
+    }
+
+    fn findProjectIndexByPath(self: *const AppState, path: []const u8) ?usize {
+        for (self.projects.items, 0..) |project, index| {
+            if (std.mem.eql(u8, project.path, path)) return index;
+        }
+        return null;
+    }
+
+    fn deriveProjectId(self: *AppState, path: []const u8) ![]u8 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(path);
+        return std.fmt.allocPrint(self.allocator, "{x}", .{hasher.final()});
+    }
+
+    fn defaultExplorerPath(self: *AppState) ![]u8 {
+        if (self.importPath().len > 0) {
+            return self.resolveProjectPath(std.mem.trim(u8, self.importPath(), &std.ascii.whitespace));
+        }
+
+        if (self.projects.items.len > 0) {
+            if (self.resolveProjectPath(self.currentProject().path)) |resolved| {
+                return resolved;
+            } else |_| {}
+        }
+
+        const home = std.posix.getenv("HOME") orelse return self.allocator.dupe(u8, ".");
+        return self.allocator.dupe(u8, home);
     }
 };
 
@@ -540,18 +735,75 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
     });
     defer zgui.endChild();
 
-    zgui.textColored(COLOR_WHITE, "Projects", .{});
-    zgui.sameLine(.{ .spacing = width - 96.0 });
-    if (zgui.button("+", .{ .w = 28.0, .h = 28.0 })) {
-        state.addProjectFromDraft() catch |err| {
-            log.err("failed to add project: {s}", .{@errorName(err)});
-        };
+    zgui.textColored(COLOR_TEXT_MUTED, "PROJECTS", .{});
+    zgui.sameLine(.{ .spacing = width - 82.0 });
+    if (state.show_project_creator) {
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.06) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.12) });
+        if (zgui.button("x", .{ .w = 24.0, .h = 24.0 })) {
+            state.show_project_creator = false;
+            state.clearImportPath();
+            state.setSidebarNotice("");
+        }
+        zgui.popStyleColor(.{ .count = 3 });
+    } else if (zgui.button("+", .{ .w = 24.0, .h = 24.0 })) {
+        state.show_project_creator = true;
+        state.setSidebarNotice("");
     }
 
-    zgui.separator();
-    zgui.textColored(COLOR_TEXT_MUTED, "Verde", .{});
-    zgui.textWrapped("A compact native rail for project switching. The desktop shell starts here, not with the browser canvas.", .{});
-    zgui.spacing();
+    if (state.show_project_creator) {
+        zgui.dummy(.{ .w = 0.0, .h = 6.0 });
+        zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 12.0, 10.0 } });
+        zgui.pushStyleVar2f(.{ .idx = .item_spacing, .v = .{ 8.0, 8.0 } });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.05) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .border, .c = lighten(COLOR_PANEL_MUTED, 0.08) });
+        if (zgui.button("[]  Browse for folder", .{ .w = width - 18.0, .h = 40.0 })) {
+            state.openSystemFileExplorer();
+        }
+        zgui.popStyleColor(.{ .count = 4 });
+
+        zgui.pushItemWidth(width - 88.0);
+        _ = zgui.inputTextWithHint("##project-import", .{
+            .hint = "/path/to/project",
+            .buf = state.importPathBuffer(),
+        });
+        zgui.popItemWidth();
+        zgui.sameLine(.{ .spacing = 8.0 });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_GREEN });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_GREEN, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_GREEN, 0.10) });
+        if (zgui.button("Add", .{ .w = 56.0, .h = 40.0 })) {
+            state.importProjectFromInput() catch |err| {
+                state.setSidebarNotice(@errorName(err));
+            };
+        }
+        zgui.popStyleColor(.{ .count = 3 });
+
+        if (state.sidebarNotice().len > 0) {
+            zgui.textColored(COLOR_YELLOW, "{s}", .{state.sidebarNotice()});
+        }
+        zgui.popStyleVar(.{ .count = 2 });
+        zgui.dummy(.{ .w = 0.0, .h = 4.0 });
+    }
+
+    if (state.projects.items.len > 0) {
+        zgui.separatorText("Selected");
+        _ = zgui.inputTextWithHint("##project-rename", .{
+            .hint = "Project label",
+            .buf = state.renameBuffer(),
+        });
+        if (zgui.button("Rename", .{ .w = 76.0, .h = 28.0 })) {
+            state.renameSelectedProject();
+        }
+        zgui.sameLine(.{ .spacing = 10.0 });
+        if (zgui.button("Remove", .{ .w = 76.0, .h = 28.0 })) {
+            state.removeSelectedProject();
+        }
+        zgui.spacing();
+    }
 
     for (state.projects.items, 0..) |project, index| {
         const is_selected = state.selected_project_index == index;
@@ -567,6 +819,7 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
             .h = 44.0,
         })) {
             state.selected_project_index = index;
+            state.syncRenameBuffer();
             state.markDirty();
         }
 
@@ -575,6 +828,17 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         }
 
         zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{project.path});
+        zgui.textColored(COLOR_TEXT_MUTED, "{s}  |  {s}", .{
+            providerLabel(project.provider),
+            harnessLabel(project.harness),
+        });
+        zgui.textColored(COLOR_TEXT_SUBTLE, "{d} messages  |  {d} draft chars", .{
+            project.messages.items.len,
+            project.currentDraft().len,
+        });
+        if (project.messages.items.len > 0) {
+            zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{lastMessagePreview(&project)});
+        }
         if (project.unread_count > 0) {
             zgui.sameLine(.{ .spacing = 10.0 });
             zgui.textColored(COLOR_YELLOW, "{d} pending", .{project.unread_count});
@@ -711,6 +975,41 @@ fn providerLabel(provider: Provider) [:0]const u8 {
         .opencode => "OpenCode",
         .codex => "Codex",
     };
+}
+
+fn harnessLabel(harness: Harness) [:0]const u8 {
+    return switch (harness) {
+        .local_cli => "Local CLI",
+        .remote_session => "Remote Session",
+    };
+}
+
+fn lastMessagePreview(project: *const Project) []const u8 {
+    const message = project.messages.items[project.messages.items.len - 1];
+    const body = message.body;
+    if (body.len <= 44) return body;
+    return body[0..44];
+}
+
+fn projectLabelFromPath(path: []const u8) []const u8 {
+    const basename = std.fs.path.basename(path);
+    return if (basename.len == 0) path else basename;
+}
+
+fn openFileExplorer(allocator: std.mem.Allocator, target_path: []const u8) !void {
+    const argv: []const []const u8 = switch (@import("builtin").os.tag) {
+        .linux, .freebsd, .netbsd, .openbsd, .dragonfly => &.{ "xdg-open", target_path },
+        .macos => &.{ "open", target_path },
+        .windows => &.{ "explorer.exe", target_path },
+        else => return error.UnsupportedOperatingSystem,
+    };
+
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv,
+    });
+    allocator.free(result.stdout);
+    allocator.free(result.stderr);
 }
 
 fn messageBubbleColor(role: ChatRole) [4]f32 {
