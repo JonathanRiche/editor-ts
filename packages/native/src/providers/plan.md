@@ -62,33 +62,44 @@ Use the OpenCode HTTP server directly.
 
 Use `codex app-server` directly from Zig.
 
-1. Start with `stdio` JSONL transport, not WebSocket.
-2. Spawn `codex app-server` from Zig using `std.process.Child`.
-3. Build a small JSON-RPC client:
+1. Start with WebSocket transport as the primary path.
+2. Spawn `codex app-server --listen ws://127.0.0.1:4500` from Zig using `std.process.Child`.
+3. Build a small WebSocket client in Zig that can:
+   - open and close the socket cleanly
+   - send one JSON-RPC message per text frame
+   - receive request responses and notifications on the same stream
+   - reconnect or fail cleanly if the socket drops
+4. Build a small JSON-RPC client layer on top:
    - incrementing request ids
    - request/response correlation
    - notification routing
    - graceful shutdown
-4. Implement initialization flow:
+5. Implement initialization flow:
    - send `initialize`
    - send `initialized`
-5. Implement auth/account flow:
+6. Implement auth/account flow:
    - `account/read`
    - `account/login/start` when explicit login UX is added
    - `account/logout`
-6. Implement thread and turn flow:
+7. Implement thread and turn flow:
    - `thread/start`
    - `turn/start`
    - consume streamed notifications until completion
-7. Map final assistant output into `harness.SendPromptResult`.
-8. Add handling for approvals and server requests later:
+   - handle `item/agentMessage/delta` and final turn completion
+8. Add backpressure handling for WebSocket mode:
+   - detect JSON-RPC `-32001`
+   - retry with exponential backoff and jitter
+   - avoid flooding the socket with overlapping requests
+9. Map final assistant output into `harness.SendPromptResult`.
+10. Add handling for approvals and server requests later:
    - `tool/requestUserInput`
    - `serverRequest/*`
-9. Consider WebSocket only after stdio is stable.
+11. Keep `stdio` JSONL as a fallback transport for debugging and protocol comparison.
 
 ### Codex Notes
 
-- `stdio` is the documented default transport and is less work than WebSocket.
+- The official app-server docs still describe WebSocket as experimental, so the implementation should expect protocol churn and queue limits.
+- WebSocket is still a good fit for a native rich client if we own reconnect, retry, and message routing explicitly.
 - Auth should ride through the installed Codex binary rather than adding a second auth stack in native code.
 - We need explicit process lifecycle handling so the UI does not leak child processes.
 
@@ -125,5 +136,5 @@ After the transport code exists:
 
 1. Flesh out `harness.zig` with thread/model/event APIs once the first transport is wired.
 2. Implement OpenCode first to establish the harness shape against a simpler protocol.
-3. Implement Codex stdio JSON-RPC second.
+3. Implement Codex WebSocket JSON-RPC second, with `stdio` retained as a fallback path.
 4. Only then wire `main.zig` to the new harness.

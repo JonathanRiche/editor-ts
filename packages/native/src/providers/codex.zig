@@ -4,16 +4,16 @@ const std = @import("std");
 const harness = @import("../harness.zig");
 
 pub const Transport = enum(u8) {
-    stdio_jsonl,
     websocket,
+    stdio_jsonl,
 };
 
 pub const Config = struct {
     allocator: std.mem.Allocator,
     executable: []const u8 = "codex",
     cwd: ?[]const u8 = null,
-    transport: Transport = .stdio_jsonl,
-    websocket_url: ?[]const u8 = null,
+    transport: Transport = .websocket,
+    websocket_url: ?[]const u8 = "ws://127.0.0.1:4500",
     launch_on_connect: bool = true,
 };
 
