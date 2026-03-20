@@ -1,8 +1,10 @@
 //! Minimal native shell prototype for the desktop chat workflow.
 
 const std = @import("std");
+const keybinds = @import("keybinds.zig");
 const zgui = @import("zgui");
 const sdl = @import("zsdl3");
+const ai_harness = @import("harness.zig");
 
 const log = std.log.scoped(.native_shell);
 const ORG_NAME: [:0]const u8 = "Verde";
@@ -45,6 +47,7 @@ const ChatThread = struct {
     title: [:0]const u8,
     committed: bool = false,
     last_activity_at: i64 = 0,
+    provider_thread_id: ?[:0]const u8 = null,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     messages: std.ArrayList(ChatMessage),
@@ -95,6 +98,7 @@ const ChatThread = struct {
 
     fn deinit(self: *ChatThread, allocator: std.mem.Allocator) void {
         allocator.free(self.title);
+        if (self.provider_thread_id) |thread_id| allocator.free(thread_id);
         for (self.messages.items) |message| {
             allocator.free(message.author);
             allocator.free(message.body);
@@ -205,6 +209,7 @@ const PersistedThread = struct {
     title: []const u8,
     committed: bool = true,
     last_activity_at: ?i64 = null,
+    provider_thread_id: ?[]const u8 = null,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     draft: []const u8 = "",
@@ -239,6 +244,7 @@ const SaveThread = struct {
     title: []const u8,
     committed: bool,
     last_activity_at: i64,
+    provider_thread_id: ?[]const u8,
     provider: Provider,
     harness: Harness,
     draft: []const u8,
@@ -341,6 +347,8 @@ const Storage = struct {
                 try stringify.write(thread.committed);
                 try stringify.objectField("last_activity_at");
                 try stringify.write(thread.last_activity_at);
+                try stringify.objectField("provider_thread_id");
+                try stringify.write(thread.provider_thread_id);
                 try stringify.objectField("provider");
                 try stringify.write(thread.provider);
                 try stringify.objectField("harness");
@@ -559,12 +567,52 @@ const AppState = struct {
             try thread.commitFromPrompt(self.allocator, trimmed_title);
         }
         try self.appendMessage(.user, "You", draft);
-        const response = switch (thread.provider) {
-            .opencode => "OpenCode would receive this message through the selected harness and return the next tool-aware reply here.",
-            .codex => "Codex would receive this message through the selected harness and stream its response into this transcript.",
-        };
-        try self.appendMessage(.assistant, providerLabel(thread.provider), response);
+        const result = try self.sendPromptViaHarness(draft);
+        defer self.allocator.free(result.thread_id);
+        defer self.allocator.free(result.reply_text);
+
+        const current_thread = self.currentThreadMutable();
+        if (current_thread.provider_thread_id) |thread_id| {
+            self.allocator.free(thread_id);
+        }
+        current_thread.provider_thread_id = try self.allocator.dupeZ(u8, result.thread_id);
+        try self.appendMessage(.assistant, providerLabel(current_thread.provider), result.reply_text);
         self.clearDraft();
+        self.setSidebarNotice("Provider session updated.");
+    }
+
+    fn sendPromptViaHarness(self: *AppState, prompt: []const u8) !ai_harness.SendPromptResult {
+        const project = self.currentProject();
+        const thread = self.currentThread();
+
+        if (thread.harness != .local_cli) {
+            return error.UnsupportedHarnessMode;
+        }
+
+        const provider_config = switch (thread.provider) {
+            .opencode => ai_harness.ProviderConfig{
+                .opencode = .{
+                    .allocator = self.allocator,
+                    .working_directory = project.path,
+                    .launch_if_missing = true,
+                },
+            },
+            .codex => ai_harness.ProviderConfig{
+                .codex = .{
+                    .cwd = project.path,
+                    .launch_on_connect = true,
+                },
+            },
+        };
+
+        var client = try ai_harness.connect(self.allocator, provider_config);
+        defer client.deinit();
+
+        return client.sendPrompt(self.allocator, .{
+            .thread_id = if (thread.provider_thread_id) |thread_id| thread_id else null,
+            .prompt = prompt,
+            .cwd = project.path,
+        });
     }
 
     fn applyPersisted(self: *AppState, persisted: PersistedState) !void {
@@ -594,6 +642,10 @@ const AppState = struct {
                     var thread = try ChatThread.init(self.allocator, persisted_thread.title);
                     thread.committed = persisted_thread.committed;
                     thread.last_activity_at = persisted_thread.last_activity_at orelse 0;
+                    thread.provider_thread_id = if (persisted_thread.provider_thread_id) |thread_id|
+                        try self.allocator.dupeZ(u8, thread_id)
+                    else
+                        null;
                     thread.provider = persisted_thread.provider;
                     thread.harness = persisted_thread.harness;
                     thread.setDraft(persisted_thread.draft);
@@ -758,15 +810,27 @@ const AppState = struct {
         self.dirty = false;
     }
 
+    fn reloadFromStorage(self: *AppState) !void {
+        self.flushIfDirty();
+        self.clearProjects();
+
+        if (try self.storage.load(self.allocator)) |persisted| {
+            defer persisted.deinit();
+            try self.applyPersisted(persisted.value);
+        } else {
+            try self.seedDefaultState();
+        }
+
+        self.setSidebarNotice("App refreshed from disk.");
+    }
+
     fn dupeZ(self: *AppState, value: []const u8) ![:0]const u8 {
         return try self.allocator.dupeZ(u8, value);
     }
 
     fn deinit(self: *AppState) void {
         self.finishPickerThread();
-        for (self.projects.items) |*project| {
-            project.deinit(self.allocator);
-        }
+        self.clearProjects();
         self.projects.deinit(self.allocator);
     }
 
@@ -860,6 +924,19 @@ const AppState = struct {
         return std.fmt.allocPrint(self.allocator, "{x}", .{hasher.final()});
     }
 
+    fn clearProjects(self: *AppState) void {
+        for (self.projects.items) |*project| {
+            project.deinit(self.allocator);
+        }
+        self.projects.clearRetainingCapacity();
+        self.selected_project_index = 0;
+        self.next_project_number = 1;
+        self.show_project_creator = false;
+        self.clearImportPath();
+        self.rename_storage[0] = 0;
+        self.dirty = false;
+    }
+
     fn defaultExplorerPath(self: *AppState) ![]u8 {
         if (self.importPath().len > 0) {
             return self.resolveProjectPath(std.mem.trim(u8, self.importPath(), &std.ascii.whitespace));
@@ -922,10 +999,12 @@ pub fn main() !void {
 
     var state = try AppState.init(allocator, &storage);
     defer state.deinit();
+    var keyboard = try keybinds.NativeKeyboardConfig.load(allocator);
+    defer keyboard.deinit();
 
     var running = true;
     while (running) {
-        running = processEvents();
+        running = processEvents(&state, &keyboard);
         state.pollPicker();
 
         var fb_width: c_int = 0;
@@ -943,17 +1022,48 @@ pub fn main() !void {
     }
 }
 
-fn processEvents() bool {
+fn processEvents(state: *AppState, keyboard: *keybinds.NativeKeyboardConfig) bool {
     var event: sdl.Event = undefined;
     while (sdl.pollEvent(&event)) {
         _ = zgui.backend.processEvent(&event);
         switch (event.type) {
             .quit => return false,
+            .key_down => {
+                const action = keyboard.actionForEvent(&event.key) orelse continue;
+                handleKeyboardAction(state, keyboard, action);
+            },
             else => {},
         }
     }
 
     return true;
+}
+
+fn handleKeyboardAction(
+    state: *AppState,
+    keyboard: *keybinds.NativeKeyboardConfig,
+    action: keybinds.NativeKeyboardAction,
+) void {
+    switch (action) {
+        .refresh => reloadApplication(state, keyboard),
+    }
+}
+
+fn reloadApplication(state: *AppState, keyboard: *keybinds.NativeKeyboardConfig) void {
+    state.reloadFromStorage() catch |err| {
+        log.err("failed to refresh native app state: {s}", .{@errorName(err)});
+        state.setSidebarNotice("Refresh failed.");
+        return;
+    };
+
+    const next_keyboard = keybinds.NativeKeyboardConfig.load(state.allocator) catch |err| {
+        log.err("failed to refresh native keybinds: {s}", .{@errorName(err)});
+        state.setSidebarNotice("App refreshed, but keybinds failed to reload.");
+        return;
+    };
+    keyboard.deinit();
+    keyboard.* = next_keyboard;
+    state.setSidebarNotice("App and keybinds refreshed.");
 }
 
 fn renderRoot(state: *AppState, width: f32, height: f32) void {

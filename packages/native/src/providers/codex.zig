@@ -33,17 +33,20 @@ pub const Client = struct {
     stream: ?std.net.Stream = null,
     initialized: bool = false,
     next_request_id: u64 = 1,
+    loaded_threads: std.StringHashMap(void),
 
     pub fn init(allocator: std.mem.Allocator, config: Config) !Client {
         var client: Client = .{
             .allocator = allocator,
             .config = config,
+            .loaded_threads = std.StringHashMap(void).init(allocator),
         };
         try client.ensureConnected();
         return client;
     }
 
     pub fn deinit(self: *Client) void {
+        self.loaded_threads.deinit();
         self.closeConnection();
     }
 
@@ -113,6 +116,8 @@ pub const Client = struct {
             try self.startThread(allocator, request.cwd);
         errdefer allocator.free(thread_id);
 
+        try self.ensureThreadLoaded(thread_id);
+
         const reply = try self.startTurnAndCollectReply(allocator, thread_id, request);
         errdefer allocator.free(reply);
 
@@ -143,6 +148,7 @@ pub const Client = struct {
         }
 
         self.initialized = false;
+        self.loaded_threads.clearRetainingCapacity();
 
         if (self.child) |*child| {
             if (self.owns_child) {
@@ -316,7 +322,32 @@ pub const Client = struct {
 
         const thread = getObjectField(parsed.value, "thread") orelse return error.MissingThreadId;
         const id = getOptionalObjectString(thread, "id") orelse return error.MissingThreadId;
+        try self.rememberLoadedThread(id);
         return allocator.dupe(u8, id);
+    }
+
+    fn ensureThreadLoaded(self: *Client, thread_id: []const u8) !void {
+        if (self.loaded_threads.contains(thread_id)) return;
+
+        const params = .{
+            .threadId = thread_id,
+        };
+        const payload = try self.callRpcForResultAlloc("thread/resume", params);
+        defer self.allocator.free(payload);
+
+        try self.rememberLoadedThread(thread_id);
+    }
+
+    fn rememberLoadedThread(self: *Client, thread_id: []const u8) !void {
+        const owned = try self.allocator.dupe(u8, thread_id);
+        errdefer self.allocator.free(owned);
+
+        const gop = try self.loaded_threads.getOrPut(owned);
+        if (gop.found_existing) {
+            self.allocator.free(owned);
+            return;
+        }
+        gop.value_ptr.* = {};
     }
 
     fn startTurnAndCollectReply(
