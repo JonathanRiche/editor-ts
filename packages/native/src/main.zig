@@ -1104,19 +1104,17 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
                 zgui.pushIntId(@intCast(thread_index + 1000));
                 defer zgui.popId();
                 const thread_selected = project.selected_thread_index == thread_index;
-                var thread_label_buf = std.mem.zeroes([64:0]u8);
-                const thread_label = formatThreadListLabel(&thread_label_buf, &thread);
-                var time_buf: [24]u8 = undefined;
-                const relative_time = formatRelativeTime(&time_buf, thread.last_activity_at);
+                var row_label_buf = std.mem.zeroes([96:0]u8);
+                const row_label = formatThreadRowLabel(&row_label_buf, &thread);
                 if (thread_selected) {
                     zgui.pushStyleColor4f(.{ .idx = .header, .c = COLOR_PANEL_ALT });
                     zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = lighten(COLOR_PANEL_ALT, 0.06) });
                     zgui.pushStyleColor4f(.{ .idx = .header_active, .c = lighten(COLOR_PANEL_ALT, 0.12) });
                 }
                 zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 6.0, 5.0 } });
-                if (zgui.selectable(thread_label, .{
+                if (zgui.selectable(row_label, .{
                     .selected = thread_selected,
-                    .w = width - 86.0,
+                    .w = width - 44.0,
                     .h = 24.0,
                 })) {
                     state.selected_project_index = index;
@@ -1125,11 +1123,11 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
                     state.markDirty();
                 }
                 zgui.popStyleVar(.{ .count = 1 });
-                zgui.sameLine(.{ .spacing = 8.0 });
-                zgui.textDisabled("{s}", .{relative_time});
                 var preview_buf = std.mem.zeroes([72:0]u8);
                 const preview = formatThreadPreview(&preview_buf, &thread);
-                zgui.textColored(if (thread_selected) COLOR_TEXT_MUTED else COLOR_TEXT_SUBTLE, "{s}", .{preview});
+                if (preview.len > 0) {
+                    zgui.textColored(if (thread_selected) COLOR_TEXT_MUTED else COLOR_TEXT_SUBTLE, "{s}", .{preview});
+                }
                 if (thread_selected) {
                     zgui.popStyleColor(.{ .count = 3 });
                 }
@@ -1363,22 +1361,12 @@ fn makeThreadTitle(allocator: std.mem.Allocator, prompt: []const u8) ![:0]const 
     return try allocator.dupeZ(u8, compact[0..count]);
 }
 
-fn formatThreadListLabel(buffer: *[64:0]u8, thread: *const ChatThread) [:0]const u8 {
-    const max_len = @min(buffer.len - 1, @as(usize, 28));
-    if (thread.title.len <= max_len) return thread.title;
-    if (max_len <= 3) return "...";
-    const prefix_len = max_len - 3;
-    @memcpy(buffer[0..prefix_len], thread.title[0..prefix_len]);
-    @memcpy(buffer[prefix_len..max_len], "...");
-    buffer[max_len] = 0;
-    return buffer[0..max_len :0];
-}
-
 fn formatThreadPreview(buffer: *[72:0]u8, thread: *const ChatThread) [:0]const u8 {
     if (thread.messages.items.len == 0) return "Awaiting first prompt";
     const body = thread.messages.items[0].body;
     const max_len = @min(buffer.len - 1, @as(usize, 34));
     const source = std.mem.trim(u8, body, &std.ascii.whitespace);
+    if (std.mem.eql(u8, source, thread.title)) return "";
     if (source.len <= max_len) {
         @memcpy(buffer[0..source.len], source);
         buffer[source.len] = 0;
@@ -1390,6 +1378,28 @@ fn formatThreadPreview(buffer: *[72:0]u8, thread: *const ChatThread) [:0]const u
     @memcpy(buffer[prefix_len..max_len], "...");
     buffer[max_len] = 0;
     return buffer[0..max_len :0];
+}
+
+fn formatThreadRowLabel(buffer: *[96:0]u8, thread: *const ChatThread) [:0]const u8 {
+    var time_buf: [24]u8 = undefined;
+    const relative_time = formatRelativeTime(&time_buf, thread.last_activity_at);
+    const max_title_len = if (relative_time.len + 4 >= buffer.len - 1) 8 else (buffer.len - 1) - (relative_time.len + 4);
+
+    var title_buf = std.mem.zeroes([64:0]u8);
+    const title = truncatedThreadTitle(&title_buf, thread.title, max_title_len);
+    const label = std.fmt.bufPrintZ(buffer, "{s}  {s}", .{ title, relative_time }) catch thread.title;
+    return label;
+}
+
+fn truncatedThreadTitle(buffer: *[64:0]u8, value: []const u8, max_len: usize) [:0]const u8 {
+    const bounded_max = @min(buffer.len - 1, max_len);
+    if (value.len <= bounded_max) return std.fmt.bufPrintZ(buffer, "{s}", .{value}) catch value[0..bounded_max :0];
+    if (bounded_max <= 3) return "...";
+    const prefix_len = bounded_max - 3;
+    @memcpy(buffer[0..prefix_len], value[0..prefix_len]);
+    @memcpy(buffer[prefix_len..bounded_max], "...");
+    buffer[bounded_max] = 0;
+    return buffer[0..bounded_max :0];
 }
 
 fn formatRelativeTime(buffer: []u8, timestamp: i64) []const u8 {
