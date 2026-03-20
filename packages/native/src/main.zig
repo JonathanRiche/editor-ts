@@ -335,18 +335,25 @@ const AppState = struct {
         self.markDirty();
     }
 
-    fn openSystemFileExplorer(self: *AppState) void {
+    fn browseForProjectDirectory(self: *AppState) void {
         const target_path = self.defaultExplorerPath() catch |err| {
             self.setSidebarNotice(@errorName(err));
             return;
         };
         defer self.allocator.free(target_path);
 
-        openFileExplorer(self.allocator, target_path) catch |err| {
-            self.setSidebarNotice(@errorName(err));
+        const selected_path = pickDirectory(self.allocator, target_path) catch |err| {
+            self.setSidebarNotice(switch (err) {
+                error.UserCancelled => "Folder selection cancelled.",
+                error.FolderPickerUnavailable => "No folder picker found. Paste a directory path manually.",
+                else => @errorName(err),
+            });
             return;
         };
-        self.setSidebarNotice("Explorer opened. Paste the directory path here to import it.");
+        defer self.allocator.free(selected_path);
+
+        self.setImportPath(selected_path);
+        self.setSidebarNotice("Folder selected.");
     }
 
     fn renameSelectedProject(self: *AppState) void {
@@ -373,9 +380,7 @@ const AppState = struct {
         removed.deinit(self.allocator);
 
         if (self.projects.items.len == 0) {
-            self.seedDefaultState() catch |err| {
-                log.err("failed to seed default state: {s}", .{@errorName(err)});
-            };
+            self.selected_project_index = 0;
         } else if (self.selected_project_index >= self.projects.items.len) {
             self.selected_project_index = self.projects.items.len - 1;
         }
@@ -401,7 +406,10 @@ const AppState = struct {
 
     fn applyPersisted(self: *AppState, persisted: PersistedState) !void {
         if (persisted.projects.len == 0) {
-            try self.seedDefaultState();
+            self.selected_project_index = 0;
+            self.next_project_number = 1;
+            self.syncRenameBuffer();
+            self.dirty = false;
             return;
         }
 
@@ -452,15 +460,10 @@ const AppState = struct {
     }
 
     fn seedDefaultState(self: *AppState) !void {
-        try self.addProject("Marketing Site", "~/work/marketing-site", 2);
-        try self.addProject("Verde Native", "~/development/blinkx-projects/editor-ts", 0);
-        try self.addProject("Docs Rewrite", "~/work/docs-rewrite", 1);
-
-        for (self.projects.items) |*project| {
-            try self.seedProjectConversation(project, true);
-        }
+        self.selected_project_index = 0;
+        self.next_project_number = 1;
         self.syncRenameBuffer();
-        self.dirty = true;
+        self.dirty = false;
     }
 
     fn currentProject(self: *const AppState) *const Project {
@@ -503,6 +506,12 @@ const AppState = struct {
 
     fn clearImportPath(self: *AppState) void {
         self.import_path_storage[0] = 0;
+    }
+
+    fn setImportPath(self: *AppState, value: []const u8) void {
+        @memset(&self.import_path_storage, 0);
+        const len = @min(value.len, self.import_path_storage.len - 1);
+        @memcpy(self.import_path_storage[0..len], value[0..len]);
     }
 
     fn renameInput(self: *const AppState) []const u8 {
@@ -761,7 +770,7 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.10) });
         zgui.pushStyleColor4f(.{ .idx = .border, .c = lighten(COLOR_PANEL_MUTED, 0.08) });
         if (zgui.button("[]  Browse for folder", .{ .w = width - 18.0, .h = 40.0 })) {
-            state.openSystemFileExplorer();
+            state.browseForProjectDirectory();
         }
         zgui.popStyleColor(.{ .count = 4 });
 
@@ -806,6 +815,9 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
     }
 
     for (state.projects.items, 0..) |project, index| {
+        zgui.pushIntId(@intCast(index));
+        defer zgui.popId();
+
         const is_selected = state.selected_project_index == index;
         if (is_selected) {
             zgui.pushStyleColor4f(.{ .idx = .header, .c = darken(COLOR_GREEN, 0.10) });
@@ -854,6 +866,12 @@ fn renderChatWorkspace(state: *AppState, width: f32, height: f32) void {
         .child_flags = .{ .border = true },
     });
     defer zgui.endChild();
+
+    if (state.projects.items.len == 0) {
+        zgui.textColored(COLOR_WHITE, "No projects yet", .{});
+        zgui.textColored(COLOR_TEXT_MUTED, "Use the + button in the left rail, browse to a folder, then add its path here.", .{});
+        return;
+    }
 
     renderWorkspaceHeader(state);
     zgui.separator();
@@ -996,20 +1014,102 @@ fn projectLabelFromPath(path: []const u8) []const u8 {
     return if (basename.len == 0) path else basename;
 }
 
-fn openFileExplorer(allocator: std.mem.Allocator, target_path: []const u8) !void {
-    const argv: []const []const u8 = switch (@import("builtin").os.tag) {
-        .linux, .freebsd, .netbsd, .openbsd, .dragonfly => &.{ "xdg-open", target_path },
-        .macos => &.{ "open", target_path },
-        .windows => &.{ "explorer.exe", target_path },
-        else => return error.UnsupportedOperatingSystem,
+fn pickDirectory(allocator: std.mem.Allocator, start_path: []const u8) ![]u8 {
+    return switch (@import("builtin").os.tag) {
+        .linux, .freebsd, .netbsd, .openbsd, .dragonfly => pickDirectoryLinux(allocator, start_path),
+        else => error.UnsupportedOperatingSystem,
     };
+}
 
+fn pickDirectoryLinux(allocator: std.mem.Allocator, start_path: []const u8) ![]u8 {
+    const argv = detectLinuxPicker(start_path) orelse return error.FolderPickerUnavailable;
     const result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv,
+        .max_output_bytes = 16 * 1024,
     });
-    allocator.free(result.stdout);
-    allocator.free(result.stderr);
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| {
+            if (code == 1) return error.UserCancelled;
+            if (code != 0) return error.ChildProcessFailed;
+        },
+        else => return error.ChildProcessFailed,
+    }
+
+    const trimmed = std.mem.trim(u8, result.stdout, &std.ascii.whitespace);
+    if (trimmed.len == 0) return error.UserCancelled;
+    return allocator.dupe(u8, trimmed);
+}
+
+fn detectLinuxPicker(start_path: []const u8) ?[]const []const u8 {
+    if (commandExists("zenity")) {
+        return &.{
+            "zenity",
+            "--file-selection",
+            "--directory",
+            "--filename",
+            start_path,
+            "--title",
+            "Select project folder",
+        };
+    }
+
+    if (commandExists("kdialog")) {
+        return &.{
+            "kdialog",
+            "--getexistingdirectory",
+            start_path,
+            "--title",
+            "Select project folder",
+        };
+    }
+
+    if (commandExists("yad")) {
+        return &.{
+            "yad",
+            "--file-selection",
+            "--directory",
+            "--filename",
+            start_path,
+            "--title",
+            "Select project folder",
+        };
+    }
+
+    if (commandExists("qarma")) {
+        return &.{
+            "qarma",
+            "--file-selection",
+            "--directory",
+            "--filename",
+            start_path,
+            "--title",
+            "Select project folder",
+        };
+    }
+
+    return null;
+}
+
+fn commandExists(name: []const u8) bool {
+    const path_env = std.posix.getenv("PATH") orelse return false;
+    var parts = std.mem.splitScalar(u8, path_env, ':');
+    while (parts.next()) |part| {
+        if (part.len == 0) continue;
+        const joined = std.fs.path.join(std.heap.page_allocator, &.{ part, name }) catch return false;
+        defer std.heap.page_allocator.free(joined);
+
+        const file = if (std.fs.path.isAbsolute(joined))
+            std.fs.openFileAbsolute(joined, .{}) catch continue
+        else
+            std.fs.cwd().openFile(joined, .{}) catch continue;
+        file.close();
+        return true;
+    }
+    return false;
 }
 
 fn messageBubbleColor(role: ChatRole) [4]f32 {
