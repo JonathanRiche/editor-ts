@@ -862,14 +862,71 @@ export function init(config: InitConfig): EditorTsEditor {
       await storage.savePage(keys.current, JSON.stringify(next.current));
     };
 
+    type AiChatLogEntry = {
+      label: string;
+      text: string;
+    };
+
+    const getAiChatLogText = (): string => {
+      if (!aiChatLog) return '';
+      return aiChatLog.dataset.rawText ?? '';
+    };
+
+    const parseAiChatLogText = (rawText: string): AiChatLogEntry[] => {
+      return rawText
+        .split(/\n\s*\n/)
+        .map((block) => block.trim())
+        .filter((block) => block.length > 0)
+        .map((block) => {
+          const match = block.match(/^([a-z]+):\s?([\s\S]*)$/i);
+          if (!match) {
+            return { label: 'assistant', text: block };
+          }
+
+          return {
+            label: match[1]?.toLowerCase() ?? 'assistant',
+            text: match[2] ?? '',
+          };
+        });
+    };
+
+    const renderAiChatLogText = (rawText: string) => {
+      if (!aiChatLog) return;
+
+      aiChatLog.dataset.rawText = rawText;
+      aiChatLog.innerHTML = '';
+
+      const entries = parseAiChatLogText(rawText);
+      if (entries.length === 0) return;
+
+      entries.forEach((entry) => {
+        const article = document.createElement('article');
+        article.className = `shared-ai-chat-entry shared-ai-chat-entry-${entry.label}`;
+
+        const meta = document.createElement('div');
+        meta.className = 'shared-ai-chat-entry-meta';
+        meta.textContent = entry.label;
+
+        const body = document.createElement('div');
+        body.className = 'shared-ai-chat-entry-body';
+        body.textContent = entry.text;
+
+        article.append(meta, body);
+        aiChatLog.appendChild(article);
+      });
+
+      aiChatLog.scrollTop = aiChatLog.scrollHeight;
+    };
+
     const appendAiChatLog = (label: string, text: string) => {
       if (!aiChatLog) return;
-      aiChatLog.textContent = `${aiChatLog.textContent ?? ''}${label}: ${text}\n\n`;
+      const nextRaw = `${getAiChatLogText()}${label}: ${text}\n\n`;
+      renderAiChatLogText(nextRaw);
     };
 
     const replaceAiChatStreamingMessage = (prefix: string, text: string) => {
       if (!aiChatLog) return;
-      aiChatLog.textContent = `${prefix}assistant: ${text}`;
+      renderAiChatLogText(`${prefix}assistant: ${text}`);
     };
 
     const extractTextFromParts = (parts: Array<{ type: string; text?: string }>): string => {
@@ -917,7 +974,7 @@ export function init(config: InitConfig): EditorTsEditor {
       if (!aiChatLog) return;
 
       if (!sessionId) {
-        aiChatLog.textContent = '';
+        renderAiChatLogText('');
         return;
       }
 
@@ -943,9 +1000,9 @@ export function init(config: InitConfig): EditorTsEditor {
           return left - right;
         });
 
-        aiChatLog.textContent = formatAiChatTranscript(ordered);
+        renderAiChatLogText(formatAiChatTranscript(ordered));
       } catch (err: unknown) {
-        aiChatLog.textContent = '';
+        renderAiChatLogText('');
         appendAiChatLog('error', err instanceof Error ? err.message : String(err));
       }
     };
@@ -1608,7 +1665,7 @@ export function init(config: InitConfig): EditorTsEditor {
           const created = await ai.sessions.create('EditorTs Chat');
           await ai.sessions.setCurrent(created.id);
           await refreshAiSessionSelect();
-          if (aiChatLog) aiChatLog.textContent = '';
+          if (aiChatLog) renderAiChatLogText('');
           if (aiChatInput) aiChatInput.value = '';
           lastAiReplacements = null;
           aiChatApplyButton?.toggleAttribute('disabled', true);
@@ -1621,7 +1678,7 @@ export function init(config: InitConfig): EditorTsEditor {
           if (!ai) return;
           await ai.sessions.reset();
           await refreshAiSessionSelect();
-          if (aiChatLog) aiChatLog.textContent = '';
+          if (aiChatLog) renderAiChatLogText('');
           if (aiChatInput) aiChatInput.value = '';
           if (aiHealthStatus) aiHealthStatus.textContent = '';
           lastAiReplacements = null;
@@ -1676,7 +1733,23 @@ export function init(config: InitConfig): EditorTsEditor {
             const selectedSessionId = aiSessionSelect?.value?.trim() || ai.sessions.current() || undefined;
 
             let streamedText = '';
-            const logPrefix = aiChatLog?.textContent ?? '';
+            const logPrefix = getAiChatLogText();
+            let rawStreamFrame: number | null = null;
+            let rawStreamRenderedText = '';
+            const flushRawStream = () => {
+              rawStreamFrame = null;
+              if (!isRawAiChatMode) return;
+              if (rawStreamRenderedText === streamedText) return;
+              rawStreamRenderedText = streamedText;
+              replaceAiChatStreamingMessage(logPrefix, rawStreamRenderedText);
+              setAiChatStatus('streaming', 'Streaming assistant reply...');
+            };
+            const scheduleRawStreamFlush = () => {
+              if (!isRawAiChatMode || rawStreamFrame !== null) return;
+              rawStreamFrame = window.requestAnimationFrame(() => {
+                flushRawStream();
+              });
+            };
             if (streamEnabled && aiChatLog) {
               replaceAiChatStreamingMessage(logPrefix, isRawAiChatMode ? '' : 'Preparing file replacements...');
               setAiChatStatus('streaming', isRawAiChatMode ? 'Streaming assistant reply...' : 'Streaming file changes...');
@@ -1702,8 +1775,7 @@ export function init(config: InitConfig): EditorTsEditor {
                   streamedText += delta;
                   setAiChatPending(false);
                   if (isRawAiChatMode) {
-                    replaceAiChatStreamingMessage(logPrefix, streamedText);
-                    setAiChatStatus('streaming', 'Streaming assistant reply...');
+                    scheduleRawStreamFlush();
                     return;
                   }
                   const streamedPaths = extractAiReplacementPaths(streamedText);
@@ -1725,8 +1797,13 @@ export function init(config: InitConfig): EditorTsEditor {
               ? result.rawText.trim()
               : summarizeAiAssistantText(result.rawText);
 
+            if (rawStreamFrame !== null) {
+              window.cancelAnimationFrame(rawStreamFrame);
+              flushRawStream();
+            }
+
             if (streamEnabled && aiChatLog) {
-              aiChatLog.textContent = logPrefix;
+              renderAiChatLogText(logPrefix);
               setAiChatPending(false);
               if (assistantSummary.trim()) {
                 appendAiChatLog('assistant', assistantSummary);

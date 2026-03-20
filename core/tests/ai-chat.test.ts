@@ -577,6 +577,218 @@ describe('aiChat helpers', () => {
     expect(result.replacements).toEqual([]);
   });
 
+  it('streams raw prompts from SDK events and preserves tool access', async () => {
+    const sessionId = 'session-raw-stream';
+    const messageId = 'message-raw-stream';
+    const createdAt = Date.now();
+    const deltas = ['I can ', 'remove ', 'those links.'];
+    const streamed: string[] = [];
+    let promptAsyncBody:
+      | { tools?: Record<string, boolean>; parts: Array<{ type: string; text?: string }> }
+      | undefined;
+
+    const assistantMessage = (completed?: number): Message => ({
+      id: messageId,
+      sessionID: sessionId,
+      role: 'assistant',
+      time: completed ? { created: createdAt, completed } : { created: createdAt },
+      parentID: 'user-message-1',
+      modelID: 'gpt-5.4',
+      providerID: 'openai',
+      mode: 'build',
+      path: {
+        cwd: '/tmp/project',
+        root: '/tmp/project',
+      },
+      cost: 0,
+      tokens: {
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: {
+          read: 0,
+          write: 0,
+        },
+      },
+    });
+
+    const client = {
+      event: {
+        subscribe: async () => ({
+          stream: (async function* () {
+            yield {
+              type: 'message.updated',
+              properties: {
+                info: assistantMessage(),
+              },
+            };
+
+            for (const delta of deltas) {
+              yield {
+                type: 'message.part.delta',
+                properties: {
+                  sessionID: sessionId,
+                  messageID: messageId,
+                  partID: `part-${delta}`,
+                  delta,
+                },
+              };
+            }
+
+            yield {
+              type: 'message.updated',
+              properties: {
+                info: assistantMessage(createdAt + 300),
+              },
+            };
+          })(),
+        }),
+      },
+      session: {
+        promptAsync: async (args: {
+          body: { tools?: Record<string, boolean>; parts: Array<{ type: string; text?: string }> };
+        }) => {
+          promptAsyncBody = args.body;
+          return { error: undefined };
+        },
+        messages: async () => ({
+          data: [
+            {
+              info: assistantMessage(createdAt + 300),
+              parts: [
+                {
+                  id: 'part-final',
+                  sessionID: sessionId,
+                  messageID: messageId,
+                  type: 'text',
+                  text: deltas.join(''),
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    } as unknown as OpencodeClient;
+
+    const result = await requestAiReplacements({
+      client,
+      prompt: 'Remove the social links from the main page.',
+      sessionId,
+      promptMode: 'raw',
+      model: {
+        providerID: 'openai',
+        modelID: 'gpt-5.4',
+      },
+      stream: true,
+      onStream: (delta) => {
+        streamed.push(delta);
+      },
+    });
+
+    expect(promptAsyncBody?.parts[0]?.text).toBe('Remove the social links from the main page.');
+    expect(promptAsyncBody && 'tools' in promptAsyncBody ? promptAsyncBody.tools : undefined).toBeUndefined();
+    expect(streamed).toEqual(deltas);
+    expect(result.responseMode).toBe('raw');
+    expect(result.rawText).toBe(deltas.join(''));
+  });
+
+  it('pushes the final raw assistant text when the transcript resolves after completion', async () => {
+    const sessionId = 'session-raw-finalize';
+    const messageId = 'message-raw-finalize';
+    const createdAt = Date.now();
+    const finalText = 'Added some footer copy for you.';
+    const streamed: string[] = [];
+    let messageReads = 0;
+
+    const assistantMessage = (completed?: number): Message => ({
+      id: messageId,
+      sessionID: sessionId,
+      role: 'assistant',
+      time: completed ? { created: createdAt, completed } : { created: createdAt },
+      parentID: 'user-message-1',
+      modelID: 'gpt-5.4',
+      providerID: 'openai',
+      mode: 'build',
+      path: {
+        cwd: '/tmp/project',
+        root: '/tmp/project',
+      },
+      cost: 0,
+      tokens: {
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: {
+          read: 0,
+          write: 0,
+        },
+      },
+    });
+
+    const client = {
+      event: {
+        subscribe: async () => ({
+          stream: (async function* () {
+            yield {
+              type: 'message.updated',
+              properties: {
+                info: assistantMessage(),
+              },
+            };
+
+            yield {
+              type: 'message.updated',
+              properties: {
+                info: assistantMessage(createdAt + 200),
+              },
+            };
+          })(),
+        }),
+      },
+      session: {
+        promptAsync: async () => ({ error: undefined }),
+        messages: async () => {
+          messageReads += 1;
+          return {
+            data: [
+              {
+                info: assistantMessage(createdAt + 200),
+                parts: [
+                  {
+                    id: 'part-final',
+                    sessionID: sessionId,
+                    messageID: messageId,
+                    type: 'text',
+                    text: finalText,
+                  },
+                ],
+              },
+            ],
+          };
+        },
+      },
+    } as unknown as OpencodeClient;
+
+    const result = await requestAiReplacements({
+      client,
+      prompt: 'Add some footer copy.',
+      sessionId,
+      promptMode: 'raw',
+      model: {
+        providerID: 'openai',
+        modelID: 'gpt-5.4',
+      },
+      stream: true,
+      onStream: (delta) => {
+        streamed.push(delta);
+      },
+    });
+
+    expect(messageReads).toBeGreaterThanOrEqual(1);
+    expect(streamed).toEqual([finalText]);
+    expect(result.rawText).toBe(finalText);
+  });
+
   it('applies replacements to storage handlers', async () => {
     const page = new Page(basePage);
     const applied: EditorTsAiChatReplacement[] = [];

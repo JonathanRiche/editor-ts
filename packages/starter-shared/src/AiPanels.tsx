@@ -16,6 +16,8 @@ type AiWorkspacePanelProps = {
   applyLabel?: string;
   newSessionLabel?: string;
   resetSessionLabel?: string;
+  showDiffPreview?: boolean;
+  showApplyButton?: boolean;
   hidden?: boolean;
 };
 
@@ -66,6 +68,9 @@ export function AiConnectionPanel(props: AiConnectionPanelProps) {
 }
 
 export function AiWorkspacePanel(props: AiWorkspacePanelProps) {
+  const showDiffPreview = props.showDiffPreview !== false;
+  const showApplyButton = props.showApplyButton !== false;
+
   return (
     <section class="shared-ai-workspace" hidden={props.hidden}>
       <aside class="shared-ai-card shared-ai-sessions">
@@ -89,14 +94,16 @@ export function AiWorkspacePanel(props: AiWorkspacePanelProps) {
           <div class="shared-ai-header">
             <strong class="shared-ai-section-title">OpenCode chat</strong>
             <div class="shared-ai-actions">
-              <button
-                id={SHARED_AI_UI_IDS.chatApplyButton}
-                type="button"
-                class="shared-ai-button shared-ai-button-small shared-ai-button-secondary"
-                disabled
-              >
-                {props.applyLabel ?? 'Apply Diff'}
-              </button>
+              {showApplyButton && (
+                <button
+                  id={SHARED_AI_UI_IDS.chatApplyButton}
+                  type="button"
+                  class="shared-ai-button shared-ai-button-small shared-ai-button-secondary"
+                  disabled
+                >
+                  {props.applyLabel ?? 'Apply Diff'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -124,24 +131,26 @@ export function AiWorkspacePanel(props: AiWorkspacePanelProps) {
         <div
           id={SHARED_AI_UI_IDS.chatRoot}
           data-editorts-ai-chat-root
-          class="shared-ai-root"
+          class={`shared-ai-root${showDiffPreview ? '' : ' shared-ai-root-transcript'}`}
         >
-          <pre id={SHARED_AI_UI_IDS.chatLog} class="shared-ai-chat-log" />
+          <div id={SHARED_AI_UI_IDS.chatLog} class="shared-ai-chat-log" />
 
-          <section class="shared-ai-card shared-ai-diff-card">
-            <div class="shared-ai-header">
-              <strong class="shared-ai-section-title">Pending diff</strong>
-              <span id={SHARED_AI_UI_IDS.diffSummary} class="shared-ai-diff-summary">
-                Awaiting AI changes
-              </span>
-            </div>
-
-            <div id={SHARED_AI_UI_IDS.diffViewer} class="shared-ai-diff-viewer">
-              <div data-ai-diff-empty="true" class="shared-ai-diff-empty">
-                {props.emptyDiffMessage ?? 'Generate a reply with file replacements to inspect it here before applying.'}
+          {showDiffPreview && (
+            <section class="shared-ai-card shared-ai-diff-card">
+              <div class="shared-ai-header">
+                <strong class="shared-ai-section-title">Pending diff</strong>
+                <span id={SHARED_AI_UI_IDS.diffSummary} class="shared-ai-diff-summary">
+                  Awaiting AI changes
+                </span>
               </div>
-            </div>
-          </section>
+
+              <div id={SHARED_AI_UI_IDS.diffViewer} class="shared-ai-diff-viewer">
+                <div data-ai-diff-empty="true" class="shared-ai-diff-empty">
+                  {props.emptyDiffMessage ?? 'Generate a reply with file replacements to inspect it here before applying.'}
+                </div>
+              </div>
+            </section>
+          )}
 
           <section class="shared-ai-card shared-ai-compose-card">
             <label class="shared-ai-field">

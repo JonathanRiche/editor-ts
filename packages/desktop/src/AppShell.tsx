@@ -152,6 +152,9 @@ export default function AppShell(props: AppShellProps) {
     };
 
     syncMainTab();
+    queueMicrotask(() => {
+      props.onMainTabActivate(activeMainTab());
+    });
     observer = new MutationObserver(syncMainTab);
     observer.observe(root, { attributes: true, attributeFilter: ['data-editorts-view'] });
   });
@@ -426,7 +429,13 @@ export default function AppShell(props: AppShellProps) {
           </div>
         </div>
 
-        <AiWorkspacePanel hidden={activeMainTab() !== 'chat'} />
+        <AiWorkspacePanel
+          hidden={activeMainTab() !== 'chat'}
+          showDiffPreview={false}
+          showApplyButton={false}
+          sendLabel="Send"
+          promptPlaceholder="Message OpenCode and keep working while it streams here..."
+        />
 
         {!props.advancedUiReady && activeMainTab() === 'chat' && (
           <section class="card">

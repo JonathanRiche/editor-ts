@@ -658,6 +658,14 @@ export const requestAiReplacements = async (args: {
     : prompt;
 
   const model = selectedModel ?? await chooseChatModel(client);
+  const promptBody = {
+    agent: 'build' as const,
+    ...(model ? { model } : {}),
+    ...(promptMode === 'raw' ? {} : { tools: { '*': false } }),
+    parts: [
+      { type: 'text' as const, text: requestText },
+    ],
+  };
   logAiDebug('prepared ai request', {
     sessionId,
     model,
@@ -699,6 +707,44 @@ export const requestAiReplacements = async (args: {
         assistantMessageHasText = false;
       }
       assistantMessageId = messageId;
+    };
+
+    const emitResolvedAssistantSuffix = (resolvedText: string) => {
+      if (!resolvedText.trim()) {
+        return;
+      }
+
+      if (resolvedText.startsWith(assembled)) {
+        const suffix = resolvedText.slice(assembled.length);
+        if (suffix.length > 0) {
+          assembled = resolvedText;
+          assistantMessageHasText = true;
+          onStream(suffix);
+        }
+        return;
+      }
+
+      if (!assembled.trim()) {
+        assembled = resolvedText;
+        assistantMessageHasText = true;
+        onStream(resolvedText);
+        return;
+      }
+
+      assembled = resolvedText;
+      assistantMessageHasText = true;
+    };
+
+    const waitForResolvedAssistantText = async (): Promise<string> => {
+      return waitForSettledAssistantText({
+        client,
+        sessionId,
+        minCreatedAt: streamStartedAt,
+        messageId: assistantMessageId,
+        maxWaitMs: promptMode === 'raw' ? 3_000 : 6_000,
+        pollMs: promptMode === 'raw' ? 150 : 250,
+        settleMs: promptMode === 'raw' ? 250 : 750,
+      });
     };
 
     const resolveAssistantText = async (): Promise<string> => {
@@ -782,13 +828,9 @@ export const requestAiReplacements = async (args: {
                 messageId: message.id,
                 completedAt: message.time.completed,
               });
-              const resolvedText = await waitForSettledAssistantText({
-                client,
-                sessionId,
-                minCreatedAt: streamStartedAt,
-                messageId: assistantMessageId,
-              });
+              const resolvedText = await waitForResolvedAssistantText();
               if (resolvedText.trim()) {
+                emitResolvedAssistantSuffix(resolvedText);
                 return resolvedText;
               }
             }
@@ -879,13 +921,9 @@ export const requestAiReplacements = async (args: {
               messageId: assistantMessageId,
               assembledLength: assembled.length,
             });
-            const resolvedText = await waitForSettledAssistantText({
-              client,
-              sessionId,
-              minCreatedAt: streamStartedAt,
-              messageId: assistantMessageId,
-            });
+            const resolvedText = await waitForResolvedAssistantText();
             if (resolvedText.trim()) {
+              emitResolvedAssistantSuffix(resolvedText);
               return resolvedText;
             }
           }
@@ -894,12 +932,9 @@ export const requestAiReplacements = async (args: {
         abortController.abort();
       }
 
-      return await waitForSettledAssistantText({
-        client,
-        sessionId,
-        minCreatedAt: streamStartedAt,
-        messageId: assistantMessageId,
-      });
+      const resolvedText = await waitForResolvedAssistantText();
+      emitResolvedAssistantSuffix(resolvedText);
+      return resolvedText;
     })();
 
     const timeoutId = setTimeout(() => {
@@ -911,14 +946,7 @@ export const requestAiReplacements = async (args: {
     try {
       const sendResult = await client.session.promptAsync({
         path: { id: sessionId },
-        body: {
-          agent: 'build',
-          ...(model ? { model } : {}),
-          tools: { '*': false },
-          parts: [
-            { type: 'text', text: requestText },
-          ],
-        },
+        body: promptBody,
       });
 
       if (sendResult.error) {
@@ -939,6 +967,7 @@ export const requestAiReplacements = async (args: {
         });
         const fallbackText = await resolveAssistantText();
         if (fallbackText.trim()) {
+          emitResolvedAssistantSuffix(fallbackText);
           assistantText = fallbackText;
         } else {
           const detail = lastStreamFailure ? ` ${formatStreamError(lastStreamFailure)}` : '';
@@ -985,14 +1014,7 @@ export const requestAiReplacements = async (args: {
 
   const result = await client.session.prompt({
     path: { id: sessionId },
-    body: {
-      agent: 'build',
-      ...(model ? { model } : {}),
-      tools: { '*': false },
-      parts: [
-        { type: 'text', text: requestText },
-      ],
-    },
+    body: promptBody,
   });
 
   if (!result.data) {
