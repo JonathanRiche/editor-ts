@@ -172,6 +172,19 @@ function iframeWysiwygScript() {
   let imageEditTarget: HTMLElement | null = null;
   let fileInput: HTMLInputElement | null = null;
 
+  const postToHost = (message: unknown) => {
+    const bridge = (window as typeof window & {
+      __EDITORTS_CANVAS_POST_MESSAGE__?: (payload: unknown) => void;
+    }).__EDITORTS_CANVAS_POST_MESSAGE__;
+
+    if (typeof bridge === 'function') {
+      bridge(message);
+      return;
+    }
+
+    window.parent.postMessage(message, '*');
+  };
+
   // Drag and drop state
   let draggedElement: HTMLElement | null = null;
   let draggedId: string | null = null;
@@ -366,16 +379,13 @@ function iframeWysiwygScript() {
           newIndex = position === 'before' ? baseIndex : baseIndex + 1;
         }
 
-        window.parent.postMessage(
-          {
-            type: 'editorts:canvasReorder',
-            draggedId,
-            targetId: el.id,
-            targetParentId: newParentId,
-            targetIndex: newIndex,
-          },
-          '*'
-        );
+        postToHost({
+          type: 'editorts:canvasReorder',
+          draggedId,
+          targetId: el.id,
+          targetParentId: newParentId,
+          targetIndex: newIndex,
+        });
       });
 
       el.addEventListener('mouseenter', () => {
@@ -434,23 +444,17 @@ function iframeWysiwygScript() {
     selectedElement = el;
     el.classList.add('editorts-selected');
 
-    window.parent.postMessage(
-      {
-        type: 'editorts:componentSelected',
-        id: el.id,
-        tagName: el.tagName.toLowerCase(),
-        className: el.className,
-      },
-      '*'
-    );
+    postToHost({
+      type: 'editorts:componentSelected',
+      id: el.id,
+      tagName: el.tagName.toLowerCase(),
+      className: el.className,
+    });
 
-    window.parent.postMessage(
-      {
-        type: 'editorts:getToolbar',
-        id: el.id,
-      },
-      '*'
-    );
+    postToHost({
+      type: 'editorts:getToolbar',
+      id: el.id,
+    });
   }
 
   type ToolbarAction = { id: string; label: string; icon: string; enabled: boolean; danger?: boolean };
@@ -488,14 +492,11 @@ function iframeWysiwygScript() {
       btn.appendChild(labelSpan);
 
       btn.onclick = () => {
-        window.parent.postMessage(
-          {
-            type: 'editorts:toolbarAction',
-            action: action.id,
-            elementId,
-          },
-          '*'
-        );
+        postToHost({
+          type: 'editorts:toolbarAction',
+          action: action.id,
+          elementId,
+        });
       };
       toolbar.appendChild(btn);
     };
@@ -565,16 +566,13 @@ function iframeWysiwygScript() {
     el.contentEditable = 'false';
     el.classList.remove('editorts-editing');
 
-    window.parent.postMessage(
-      {
-        type: 'editorts:textEditEnd',
-        id: el.id,
-        content: newContent,
-        originalContent,
-        saved: save && newContent !== originalContent,
-      },
-      '*'
-    );
+    postToHost({
+      type: 'editorts:textEditEnd',
+      id: el.id,
+      content: newContent,
+      originalContent,
+      saved: save && newContent !== originalContent,
+    });
 
     editingElement = null;
     originalContent = '';
@@ -586,14 +584,11 @@ function iframeWysiwygScript() {
     imageEditTarget = container;
     container.classList.add('editorts-image-editing');
 
-    window.parent.postMessage(
-      {
-        type: 'editorts:imageEditStart',
-        id: container.id,
-        src: img.getAttribute('src') ?? '',
-      },
-      '*'
-    );
+    postToHost({
+      type: 'editorts:imageEditStart',
+      id: container.id,
+      src: img.getAttribute('src') ?? '',
+    });
 
     if (fileInput) {
       fileInput.click();
@@ -614,19 +609,16 @@ function iframeWysiwygScript() {
         img.src = String(reader.result ?? '');
       }
 
-      window.parent.postMessage(
-        {
-          type: 'editorts:imageUpdate',
-          id: imageEditTarget!.id,
-          src: String(reader.result ?? ''),
-          file: {
-            name: file.name,
-            type: file.type,
-            size: file.size,
-          },
+      postToHost({
+        type: 'editorts:imageUpdate',
+        id: imageEditTarget!.id,
+        src: String(reader.result ?? ''),
+        file: {
+          name: file.name,
+          type: file.type,
+          size: file.size,
         },
-        '*'
-      );
+      });
 
       imageEditTarget!.classList.remove('editorts-image-editing');
       imageEditTarget = null;
@@ -684,13 +676,10 @@ function iframeWysiwygScript() {
     placementMode = false;
     document.body.style.cursor = '';
 
-    window.parent.postMessage(
-      {
-        type: 'editorts:placeComponent',
-        targetId: el.id,
-      },
-      '*'
-    );
+    postToHost({
+      type: 'editorts:placeComponent',
+      targetId: el.id,
+    });
   }, true);
 
   if (document.readyState === 'loading') {

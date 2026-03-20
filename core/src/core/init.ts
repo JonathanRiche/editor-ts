@@ -26,6 +26,8 @@ import type {
   Component,
   PageData,
   MultiPageData,
+  EditorTsCanvasElement,
+  EditorTsElectrobunWebviewElement,
   EditorTsAiModule,
   OpencodeAiProviderConfig,
   AiProviderMode,
@@ -80,6 +82,12 @@ const resolvePreviewUrl = (baseUrl: string, routePath: string | null): string =>
   return resolvedBase.toString();
 };
 
+const isElectrobunWebviewElement = (
+  element: EditorTsCanvasElement | null | undefined
+): element is EditorTsElectrobunWebviewElement => {
+  return !!element && element.tagName === 'ELECTROBUN-WEBVIEW';
+};
+
 type DesktopDebugWindow = Window & {
   __EDITORTS_DESKTOP__?: {
     debugAi?: boolean;
@@ -116,11 +124,47 @@ const logAiDebug = (message: string, details?: unknown): void => {
  * User creates the HTML structure, init() populates it
  */
 export function init(config: InitConfig): EditorTsEditor {
-  // Get the iframe element (required)
-  const iframe = document.getElementById(config.iframeId) as HTMLIFrameElement;
-  if (!iframe || iframe.tagName !== 'IFRAME') {
-    throw new Error(`Iframe element #${config.iframeId} not found or is not an iframe`);
+  const canvasElementId = config.canvas?.elementId ?? config.iframeId;
+  const canvasKind = config.canvas?.kind ?? 'iframe';
+  const iframe = document.getElementById(canvasElementId) as EditorTsCanvasElement | null;
+  if (!iframe) {
+    throw new Error(`Canvas element #${canvasElementId} not found`);
   }
+  if (canvasKind === 'iframe' && iframe.tagName !== 'IFRAME') {
+    throw new Error(`Canvas element #${canvasElementId} is not an iframe`);
+  }
+  if (canvasKind === 'electrobun-webview' && !isElectrobunWebviewElement(iframe)) {
+    throw new Error(`Canvas element #${canvasElementId} is not an electrobun-webview`);
+  }
+
+  const postCanvasMessage = (message: unknown): void => {
+    if (isElectrobunWebviewElement(iframe)) {
+      iframe.executeJavascript?.(
+        `window.dispatchEvent(new MessageEvent('message', { data: ${JSON.stringify(message)} }));`
+      );
+      return;
+    }
+
+    iframe.contentWindow?.postMessage(message, '*');
+  };
+
+  const getCanvasDocument = (): Document | null => {
+    if (isElectrobunWebviewElement(iframe)) {
+      return null;
+    }
+
+    return iframe.contentDocument;
+  };
+
+  const syncCanvasDimensions = (force = false): void => {
+    if (!isElectrobunWebviewElement(iframe) || typeof iframe.syncDimensions !== 'function') {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      iframe.syncDimensions?.(force);
+    });
+  };
   const vimMode = config.vimMode ?? false;
 
   if (typeof config.data === 'undefined' && !config.content?.adapter) {
@@ -141,6 +185,10 @@ export function init(config: InitConfig): EditorTsEditor {
   const initialPayload = config.data ?? JsonContentAdapter.createDefaultPageData();
   const contentAdapter: ContentAdapter = config.content?.adapter ?? new JsonContentAdapter(initialPayload);
   const shouldHydrateFromContentAdapter = !!config.content?.adapter;
+
+  if (isElectrobunWebviewElement(iframe) && typeof config.canvas?.preload === 'string' && config.canvas.preload.length > 0) {
+    iframe.preload = config.canvas.preload;
+  }
 
   const rawData: PageData | MultiPageData =
     parsePayload(initialPayload);
@@ -566,6 +614,7 @@ export function init(config: InitConfig): EditorTsEditor {
         }
       } else {
         iframe.style.display = originalIframeDisplay ?? '';
+        syncCanvasDimensions(true);
         codeViewContainers.forEach((el) => {
           el.style.display = 'none';
         });
@@ -615,13 +664,10 @@ export function init(config: InitConfig): EditorTsEditor {
         pendingInsertType = type;
         componentPalette?.setSelected(type);
 
-        iframe.contentWindow?.postMessage(
-          {
-            type: 'editorts:placementMode',
-            enabled: true,
-          },
-          '*'
-        );
+        postCanvasMessage({
+          type: 'editorts:placementMode',
+          enabled: true,
+        });
       },
     });
   }
@@ -635,10 +681,10 @@ export function init(config: InitConfig): EditorTsEditor {
         // Notify iframe to select this component
         const id = component.attributes?.id;
         if (id) {
-          iframe.contentWindow?.postMessage({
+          postCanvasMessage({
             type: 'editorts:selectComponent',
-            id: id
-          }, '*');
+            id,
+          });
         }
 
         // Emit event
@@ -783,6 +829,8 @@ export function init(config: InitConfig): EditorTsEditor {
       };
     };
 
+    const aiSessionStorage = aiConfig.sessions?.storage;
+
     const resolveConfiguredAiDirectory = (): string | undefined => {
       const rawDirectory = typeof aiConfig.directory === 'function'
         ? aiConfig.directory()
@@ -816,8 +864,12 @@ export function init(config: InitConfig): EditorTsEditor {
 
     const loadSessionIndex = async (): Promise<{ current: string | null; sessions: Array<{ id: string; title?: string }> }> => {
       const keys = getAiStorageKeys();
-      const rawSessions = await storage.loadPage(keys.sessions) ?? await storage.loadPage(keys.legacySessions);
-      const rawCurrent = await storage.loadPage(keys.current) ?? await storage.loadPage(keys.legacyCurrent);
+      const rawSessions = aiSessionStorage
+        ? await aiSessionStorage.load(keys.sessions) ?? await storage.loadPage(keys.sessions) ?? await storage.loadPage(keys.legacySessions)
+        : await storage.loadPage(keys.sessions) ?? await storage.loadPage(keys.legacySessions);
+      const rawCurrent = aiSessionStorage
+        ? await aiSessionStorage.load(keys.current) ?? await storage.loadPage(keys.current) ?? await storage.loadPage(keys.legacyCurrent)
+        : await storage.loadPage(keys.current) ?? await storage.loadPage(keys.legacyCurrent);
 
       let sessions: Array<{ id: string; title?: string }> = [];
       if (rawSessions) {
@@ -858,8 +910,17 @@ export function init(config: InitConfig): EditorTsEditor {
 
     const saveSessionIndex = async (next: { current: string | null; sessions: Array<{ id: string; title?: string }> }) => {
       const keys = getAiStorageKeys();
-      await storage.savePage(keys.sessions, JSON.stringify(next.sessions, null, 2));
-      await storage.savePage(keys.current, JSON.stringify(next.current));
+      const sessionsPayload = JSON.stringify(next.sessions, null, 2);
+      const currentPayload = JSON.stringify(next.current);
+
+      if (aiSessionStorage) {
+        await aiSessionStorage.save(keys.sessions, sessionsPayload);
+        await aiSessionStorage.save(keys.current, currentPayload);
+        return;
+      }
+
+      await storage.savePage(keys.sessions, sessionsPayload);
+      await storage.savePage(keys.current, currentPayload);
     };
 
     type AiChatLogEntry = {
@@ -1020,6 +1081,14 @@ export function init(config: InitConfig): EditorTsEditor {
       if (!aiChatStatus) return;
       aiChatStatus.dataset.state = state;
       aiChatStatus.textContent = text;
+    };
+
+    const getDefaultAiSessionTitle = (title?: string): string => {
+      const normalized = typeof title === 'string'
+        ? title.replace(/\s+/g, ' ').trim()
+        : '';
+
+      return normalized || 'New chat';
     };
 
     const formatAiUiError = (error: unknown): string => {
@@ -1235,6 +1304,7 @@ export function init(config: InitConfig): EditorTsEditor {
             button.classList.add('editorts-ai-session-item-active');
           }
           button.textContent = label;
+          button.title = label;
           button.addEventListener('click', async () => {
             if (!ai) return;
             await ai.sessions.setCurrent(id.length ? id : null);
@@ -1425,7 +1495,7 @@ export function init(config: InitConfig): EditorTsEditor {
         },
         create: async (title?: string) => {
           const client = await ai!.getClient();
-          const result = await client.session.create({ body: { title: title ?? 'EditorTs Chat' } });
+          const result = await client.session.create({ body: { title: getDefaultAiSessionTitle(title) } });
           if (!result.data) {
             throw new Error(`Failed to create session: ${String(result.error)}`);
           }
@@ -1662,7 +1732,7 @@ export function init(config: InitConfig): EditorTsEditor {
       if (aiSessionNewButton) {
         addManagedEventListener(aiSessionNewButton, 'click', async () => {
           if (!ai) return;
-          const created = await ai.sessions.create('EditorTs Chat');
+          const created = await ai.sessions.create('New chat');
           await ai.sessions.setCurrent(created.id);
           await refreshAiSessionSelect();
           if (aiChatLog) renderAiChatLogText('');
@@ -2169,6 +2239,13 @@ export function init(config: InitConfig): EditorTsEditor {
   let previewDeferred = config.preview?.deferInitialLoad === true;
 
   const applyIframeSrc = (url: string): void => {
+    if (isElectrobunWebviewElement(iframe)) {
+      iframe.html = '';
+      iframe.src = url;
+      syncCanvasDimensions(true);
+      return;
+    }
+
     const target = iframe as HTMLIFrameElement & { src?: string; srcdoc?: string; removeAttribute?: (name: string) => void };
     if (typeof target.removeAttribute === 'function') {
       target.removeAttribute('srcdoc');
@@ -2179,6 +2256,13 @@ export function init(config: InitConfig): EditorTsEditor {
   };
 
   const applyIframeSrcdoc = (srcdoc: string): void => {
+    if (isElectrobunWebviewElement(iframe)) {
+      iframe.src = '';
+      iframe.html = srcdoc;
+      syncCanvasDimensions(true);
+      return;
+    }
+
     const target = iframe as HTMLIFrameElement & { src?: string; srcdoc?: string; removeAttribute?: (name: string) => void };
     if (typeof target.removeAttribute === 'function') {
       target.removeAttribute('src');
@@ -2657,7 +2741,7 @@ export function init(config: InitConfig): EditorTsEditor {
       const id = path.slice('components/'.length, -3);
       const component = page.components.findById(id);
       if (component) {
-        iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
+        postCanvasMessage({ type: 'editorts:selectComponent', id });
         layerManager?.setSelected(id);
       }
 
@@ -2914,7 +2998,7 @@ export function init(config: InitConfig): EditorTsEditor {
         if (!component) return;
 
         // Keep canvas + layers selection in sync
-        iframe.contentWindow?.postMessage({ type: 'editorts:selectComponent', id }, '*');
+        postCanvasMessage({ type: 'editorts:selectComponent', id });
         layerManager?.setSelected(id);
 
         void ensureJsEditorReadyFor(component).then(() => {
@@ -3086,58 +3170,67 @@ export function init(config: InitConfig): EditorTsEditor {
     void renderFilesList();
   }
 
-  // Handle messages from iframe
-  addManagedEventListener(window, 'message', (event) => {
-    if (event.data.type === 'editorts:componentSelected') {
-      const component = page.components.findById(event.data.id);
+  const handleCanvasMessage = (payload: unknown) => {
+    if (!payload || typeof payload !== 'object') return;
+
+    const data = payload as Record<string, unknown>;
+    const type = typeof data.type === 'string' ? data.type : null;
+    if (!type) return;
+
+    if (type === 'editorts:componentSelected') {
+      const componentId = typeof data.id === 'string' ? data.id : null;
+      const tagName = typeof data.tagName === 'string' ? data.tagName : 'div';
+      if (!componentId) return;
+
+      const component = page.components.findById(componentId);
       if (component) {
-        // Update JS editor panel (if enabled)
         void ensureJsEditorReadyFor(component);
         renderJsFileList();
 
-        // Update selected info container if provided
         if (selectedInfoContainer && config.ui?.selectedInfo?.enabled !== false) {
-          renderSelectedInfo(component, event.data.id, event.data.tagName);
+          renderSelectedInfo(component, componentId, tagName);
         }
 
-        // Sync layer panel selection
         if (layerManager) {
-          layerManager.setSelected(event.data.id);
+          layerManager.setSelected(componentId);
         }
 
-        // Emit event
         emit('componentSelect', component);
         if (config.onComponentSelect) {
           config.onComponentSelect(component);
         }
       }
-    } else if (event.data.type === 'editorts:getToolbar') {
-      // Send toolbar config to iframe
-      const component = page.components.findById(event.data.id);
+    } else if (type === 'editorts:getToolbar') {
+      const componentId = typeof data.id === 'string' ? data.id : null;
+      if (!componentId) return;
+
+      const component = page.components.findById(componentId);
       if (component) {
         const toolbarConfig = page.toolbars.getToolbarForComponent(component);
-        iframe.contentWindow?.postMessage({
+        postCanvasMessage({
           type: 'editorts:toolbarConfig',
           config: toolbarConfig,
-          elementId: event.data.id
-        }, '*');
+          elementId: componentId,
+        });
       }
-    } else if (event.data.type === 'editorts:toolbarAction') {
-      handleToolbarAction(event.data.action, event.data.elementId);
-    } else if (event.data.type === 'editorts:canvasReorder') {
-      const draggedId = event.data.draggedId as string;
-      const targetId = event.data.targetId as string;
+    } else if (type === 'editorts:toolbarAction') {
+      if (typeof data.action === 'string' && typeof data.elementId === 'string') {
+        handleToolbarAction(data.action, data.elementId);
+      }
+    } else if (type === 'editorts:canvasReorder') {
+      const draggedId = typeof data.draggedId === 'string' ? data.draggedId : '';
+      const targetId = typeof data.targetId === 'string' ? data.targetId : '';
 
       if (!draggedId || !targetId || draggedId === targetId) return;
 
       const targetInfo = page.components.getParentAndIndex(targetId);
       if (!targetInfo) return;
 
-      const parentId = typeof event.data.targetParentId === 'string'
-        ? event.data.targetParentId
+      const parentId = typeof data.targetParentId === 'string'
+        ? data.targetParentId
         : targetInfo.parentId;
-      const nextIndex = Number.isFinite(event.data.targetIndex)
-        ? Number(event.data.targetIndex)
+      const nextIndex = Number.isFinite(data.targetIndex)
+        ? Number(data.targetIndex)
         : targetInfo.index;
 
       page.components.moveComponent(draggedId, parentId, nextIndex);
@@ -3151,20 +3244,18 @@ export function init(config: InitConfig): EditorTsEditor {
 
       refresh();
       refreshLayers();
-    } else if (event.data.type === 'editorts:placeComponent') {
-      const targetId = event.data.targetId as string;
-      if (!pendingInsertType) return;
+    } else if (type === 'editorts:placeComponent') {
+      const targetId = typeof data.targetId === 'string' ? data.targetId : '';
+      if (!pendingInsertType || !targetId) return;
       const def = componentRegistry[pendingInsertType];
       if (!def) return;
 
       const componentToInsert = def.factory();
-
-      // Insert as child of target for now.
       page.components.addChildComponent(targetId, componentToInsert);
 
       pendingInsertType = null;
       componentPalette?.setSelected(null);
-      iframe.contentWindow?.postMessage({ type: 'editorts:placementMode', enabled: false }, '*');
+      postCanvasMessage({ type: 'editorts:placementMode', enabled: false });
 
       emit('componentInsert', componentToInsert, targetId);
 
@@ -3172,83 +3263,102 @@ export function init(config: InitConfig): EditorTsEditor {
 
       refresh();
       refreshLayers();
-
-      // Flash/select the target so placement is obvious.
-      iframe.contentWindow?.postMessage({ type: 'editorts:flashSelect', id: targetId }, '*');
-    } else if (event.data.type === 'editorts:textEditStart') {
-      const component = page.components.findById(event.data.id);
+      postCanvasMessage({ type: 'editorts:flashSelect', id: targetId });
+    } else if (type === 'editorts:textEditStart') {
+      const component = typeof data.id === 'string' ? page.components.findById(data.id) : null;
       if (component) {
         emit('textEditStart', component);
         if (config.onTextEditStart) {
           config.onTextEditStart(component);
         }
       }
-    } else if (event.data.type === 'editorts:textUpdate') {
-      const component = page.components.findById(event.data.id);
-      if (component) {
-        // Update the component's text content
-        page.components.updateTextContent(event.data.id, event.data.content);
+    } else if (type === 'editorts:textUpdate') {
+      const componentId = typeof data.id === 'string' ? data.id : null;
+      const content = typeof data.content === 'string' ? data.content : '';
+      const originalContent = typeof data.originalContent === 'string' ? data.originalContent : '';
+      const component = componentId ? page.components.findById(componentId) : null;
+      if (component && componentId) {
+        page.components.updateTextContent(componentId, content);
 
-        emit('textUpdate', component, event.data.content, event.data.originalContent);
+        emit('textUpdate', component, content, originalContent);
         if (config.onTextUpdate) {
-          config.onTextUpdate(component, event.data.content, event.data.originalContent);
+          config.onTextUpdate(component, content, originalContent);
         }
         refreshLayers();
       }
-    } else if (event.data.type === 'editorts:textEditEnd') {
-      const component = page.components.findById(event.data.id);
+    } else if (type === 'editorts:textEditEnd') {
+      const component = typeof data.id === 'string' ? page.components.findById(data.id) : null;
+      const saved = data.saved === true;
       if (component) {
-        emit('textEditEnd', component, event.data.saved);
+        emit('textEditEnd', component, saved);
         if (config.onTextEditEnd) {
-          config.onTextEditEnd(component, event.data.saved);
+          config.onTextEditEnd(component, saved);
         }
 
-        if (event.data.saved) {
+        if (saved) {
           void commitSnapshot({ source: 'user', message: 'edit text' });
         }
         refreshLayers();
       }
-    } else if (event.data.type === 'editorts:imageEditStart') {
-      const component = page.components.findById(event.data.id);
+    } else if (type === 'editorts:imageEditStart') {
+      const component = typeof data.id === 'string' ? page.components.findById(data.id) : null;
+      const currentSrc = typeof data.currentSrc === 'string' ? data.currentSrc : '';
       if (component) {
-        emit('imageEditStart', component, event.data.currentSrc);
+        emit('imageEditStart', component, currentSrc);
         if (config.onImageEditStart) {
-          config.onImageEditStart(component, event.data.currentSrc);
+          config.onImageEditStart(component, currentSrc);
         }
       }
-    } else if (event.data.type === 'editorts:imageUpdate') {
-      const component = page.components.findById(event.data.id);
-      if (component) {
-        // Update the component's image src
-        page.components.updateImageSrc(event.data.id, event.data.src);
+    } else if (type === 'editorts:imageUpdate') {
+      const componentId = typeof data.id === 'string' ? data.id : null;
+      const src = typeof data.src === 'string' ? data.src : '';
+      const originalSrc = typeof data.originalSrc === 'string' ? data.originalSrc : '';
+      const component = componentId ? page.components.findById(componentId) : null;
+      if (component && componentId) {
+        page.components.updateImageSrc(componentId, src);
 
         const fileInfo = {
-          fileName: event.data.fileName,
-          fileType: event.data.fileType,
-          fileSize: event.data.fileSize
+          fileName: typeof data.fileName === 'string' ? data.fileName : undefined,
+          fileType: typeof data.fileType === 'string' ? data.fileType : undefined,
+          fileSize: typeof data.fileSize === 'number' ? data.fileSize : undefined,
         };
 
-        emit('imageUpdate', component, event.data.src, event.data.originalSrc, fileInfo);
+        emit('imageUpdate', component, src, originalSrc, fileInfo);
         if (config.onImageUpdate) {
-          config.onImageUpdate(component, event.data.src, event.data.originalSrc, fileInfo);
+          config.onImageUpdate(component, src, originalSrc, fileInfo);
         }
         refreshLayers();
       }
-    } else if (event.data.type === 'editorts:imageEditEnd') {
-      const component = page.components.findById(event.data.id);
+    } else if (type === 'editorts:imageEditEnd') {
+      const component = typeof data.id === 'string' ? page.components.findById(data.id) : null;
+      const saved = data.saved === true;
       if (component) {
-        emit('imageEditEnd', component, event.data.saved);
+        emit('imageEditEnd', component, saved);
         if (config.onImageEditEnd) {
-          config.onImageEditEnd(component, event.data.saved);
+          config.onImageEditEnd(component, saved);
         }
 
-        if (event.data.saved) {
+        if (saved) {
           void commitSnapshot({ source: 'user', message: 'edit image' });
         }
         refreshLayers();
       }
     }
+  };
+
+  addManagedEventListener(window, 'message', (event) => {
+    handleCanvasMessage(event.data);
   });
+
+  if (isElectrobunWebviewElement(iframe)) {
+    const onHostMessage = (event: CustomEvent<unknown>) => {
+      handleCanvasMessage(event.detail);
+    };
+    iframe.on?.('host-message', onHostMessage);
+    lifecycleAbortController.signal.addEventListener('abort', () => {
+      iframe.off?.('host-message', onHostMessage);
+    });
+  }
 
   // Inject base styles for selected-info panel (once per document, like LayerManager)
   if (selectedInfoContainer && !document.getElementById('editorts-si-styles')) {
@@ -3420,8 +3530,11 @@ export function init(config: InitConfig): EditorTsEditor {
   function renderSelectedInfo(component: Component, elementId: string, tagName: string) {
     if (!selectedInfoContainer) return;
 
-    const selectedElement = iframe.contentDocument?.getElementById(elementId) as HTMLElement | null;
-    const isPlainTextElement = !!selectedElement && selectedElement.childElementCount === 0;
+    const canvasDocument = getCanvasDocument();
+    const selectedElement = canvasDocument?.getElementById(elementId) as HTMLElement | null;
+    const isPlainTextElement = !!selectedElement
+      ? selectedElement.childElementCount === 0
+      : typeof component.content === 'string' && (!component.components || component.components.length === 0);
 
     // For text, only allow editing inner text (not HTML).
     // Also avoid wiping nested markup by requiring a plain-text element.
@@ -3430,7 +3543,7 @@ export function init(config: InitConfig): EditorTsEditor {
     const canEditImageSrc =
       tagName?.toLowerCase() === 'img' ||
       typeof component.attributes?.src === 'string' ||
-      (selectedElement?.tagName.toLowerCase() === 'img');
+      tagName?.toLowerCase() === 'img';
 
     selectedInfoContainer.innerHTML = `
       <div class="editorts-si-root">
@@ -3634,8 +3747,8 @@ export function init(config: InitConfig): EditorTsEditor {
       }
 
       const styleEl =
-        (iframe.contentDocument?.querySelector('head style[data-editorts="page-css"]') as HTMLStyleElement | null)
-        ?? (iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null);
+        (canvasDocument?.querySelector('head style[data-editorts="page-css"]') as HTMLStyleElement | null)
+        ?? (canvasDocument?.querySelector('head style') as HTMLStyleElement | null);
       if (styleEl) styleEl.textContent = nextCss;
 
       await commitSnapshot({ source: 'user', message: 'edit style' });
@@ -3644,6 +3757,11 @@ export function init(config: InitConfig): EditorTsEditor {
 
       void ensureCssEditorReady();
       void ensureJsonEditorReady();
+      if (!styleEl) {
+        refresh();
+        return;
+      }
+
       refreshLayers();
     };
 
@@ -3676,8 +3794,8 @@ export function init(config: InitConfig): EditorTsEditor {
         }
 
         const styleEl =
-          (iframe.contentDocument?.querySelector('head style[data-editorts="page-css"]') as HTMLStyleElement | null)
-          ?? (iframe.contentDocument?.querySelector('head style') as HTMLStyleElement | null);
+          (canvasDocument?.querySelector('head style[data-editorts="page-css"]') as HTMLStyleElement | null)
+          ?? (canvasDocument?.querySelector('head style') as HTMLStyleElement | null);
         if (styleEl) styleEl.textContent = nextCss;
 
         await commitSnapshot({ source: 'user', message: 'clear style' });
@@ -3689,13 +3807,18 @@ export function init(config: InitConfig): EditorTsEditor {
 
         void ensureCssEditorReady();
         void ensureJsonEditorReady();
+        if (!styleEl) {
+          refresh();
+          return;
+        }
+
         refreshLayers();
       });
     }
 
     const textArea = selectedInfoContainer.querySelector('[data-editorts-field="text-content"]') as HTMLTextAreaElement | null;
     if (textArea) {
-      textArea.value = selectedElement?.textContent ?? '';
+      textArea.value = selectedElement?.textContent ?? component.content ?? '';
     }
 
     const imageSrcInput = selectedInfoContainer.querySelector('[data-editorts-field="image-src"]') as HTMLInputElement | null;
@@ -3717,6 +3840,11 @@ export function init(config: InitConfig): EditorTsEditor {
         if (selectedElement) {
           selectedElement.textContent = nextText;
         }
+        if (!selectedElement) {
+          refresh();
+          return;
+        }
+
         refreshLayers();
       });
     }
@@ -3738,6 +3866,11 @@ export function init(config: InitConfig): EditorTsEditor {
             imgEl.src = nextSrc;
           }
         }
+        if (!selectedElement) {
+          refresh();
+          return;
+        }
+
         refreshLayers();
       });
     }
@@ -3806,11 +3939,11 @@ export function init(config: InitConfig): EditorTsEditor {
         void commitSnapshot({ source: 'user', message: 'delete component' });
 
         // Notify iframe to remove element
-        iframe.contentWindow?.postMessage({
+        postCanvasMessage({
           type: 'editorts:toolbarAction',
           action: 'delete',
-          elementId: elementId
-        }, '*');
+          elementId,
+        });
 
         refreshLayers();
         break;
@@ -4359,14 +4492,18 @@ export function init(config: InitConfig): EditorTsEditor {
     },
   });
   keyboardShortcuts.bind(document);
-  if (iframe.contentDocument) {
-    keyboardShortcuts.bind(iframe.contentDocument);
+  const initialCanvasDocument = getCanvasDocument();
+  if (initialCanvasDocument) {
+    keyboardShortcuts.bind(initialCanvasDocument);
   }
-  addManagedEventListener(iframe, 'load', () => {
-    if (iframe.contentDocument) {
-      keyboardShortcuts.bind(iframe.contentDocument);
-    }
-  });
+  if (!isElectrobunWebviewElement(iframe)) {
+    addManagedEventListener(iframe, 'load', () => {
+      const canvasDocument = getCanvasDocument();
+      if (canvasDocument) {
+        keyboardShortcuts.bind(canvasDocument);
+      }
+    });
+  }
 
   const captureSnapshot = (): PageData => {
     // Page.toObject() returns a live reference; clone to keep history stable.
@@ -4668,6 +4805,7 @@ export function init(config: InitConfig): EditorTsEditor {
     vimMode,
     elements: {
       iframe,
+      canvas: iframe,
       sidebar: sidebarContainer || undefined,
       stats: statsContainer || undefined,
       selectedInfo: selectedInfoContainer || undefined,

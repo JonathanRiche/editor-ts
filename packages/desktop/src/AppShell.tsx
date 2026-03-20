@@ -452,7 +452,7 @@ export default function AppShell(props: AppShellProps) {
             </div>
           </div>
 
-          <iframe id="preview-iframe" class="preview-frame" title="Canvas preview" />
+          <electrobun-webview id="preview-webview" class="preview-frame" />
 
           <div class="code-shell">
             <div class="code-shell-toolbar">

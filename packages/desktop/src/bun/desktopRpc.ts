@@ -100,6 +100,9 @@ export const createDesktopRpc = (options: DesktopRpcOptions) => {
         listProjectFiles: wrapRequest('listProjectFiles', (params) => service.listProjectFiles(params)),
         readProjectFile: wrapRequest('readProjectFile', (params) => service.readProjectFile(params)),
         writeProjectFile: wrapRequest('writeProjectFile', (params) => service.writeProjectFile(params)),
+        loadDesktopStoragePage: wrapRequest('loadDesktopStoragePage', (params) => service.loadDesktopStoragePage(params)),
+        saveDesktopStoragePage: wrapRequest('saveDesktopStoragePage', (params) => service.saveDesktopStoragePage(params)),
+        deleteDesktopStoragePage: wrapRequest('deleteDesktopStoragePage', (params) => service.deleteDesktopStoragePage(params)),
         toggleDesktopDevTools: wrapRequest('toggleDesktopDevTools', () => {
           options.onToggleDevTools?.();
           return { ok: true as const };

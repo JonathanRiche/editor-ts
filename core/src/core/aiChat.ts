@@ -571,6 +571,14 @@ export const chooseChatModel = async (client: OpencodeClient): Promise<{ provide
   return undefined;
 };
 
+const getDefaultSessionTitle = (title?: string): string => {
+  const normalized = typeof title === 'string'
+    ? title.replace(/\s+/g, ' ').trim()
+    : '';
+
+  return normalized || 'New chat';
+};
+
 export const requestAiReplacements = async (args: {
   client: OpencodeClient;
   prompt: string;
@@ -612,14 +620,15 @@ export const requestAiReplacements = async (args: {
   let sessionId = existingSessionId;
 
   if (!sessionId) {
-    const sessionResult = await client.session.create({ body: { title: sessionTitle ?? 'EditorTs Chat' } });
+    const nextSessionTitle = getDefaultSessionTitle(sessionTitle ?? prompt);
+    const sessionResult = await client.session.create({ body: { title: nextSessionTitle } });
     if (!sessionResult.data) {
       throw new Error(`Failed to create session: ${String(sessionResult.error)}`);
     }
     sessionId = sessionResult.data.id;
     logAiDebug('created ai session', {
       sessionId,
-      title: sessionTitle ?? 'EditorTs Chat',
+      title: nextSessionTitle,
     });
   } else {
     logAiDebug('reusing ai session', {

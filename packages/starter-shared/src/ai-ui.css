@@ -558,8 +558,11 @@ select.shared-ai-input {
 
 .editorts-ai-session-item {
   appearance: none;
+  display: block;
   width: 100%;
+  overflow: hidden;
   text-align: left;
+  text-overflow: ellipsis;
   border: 1px solid var(--color-line-soft);
   border-radius: 4px;
   background: var(--color-bg-input);
@@ -568,6 +571,7 @@ select.shared-ai-input {
   font-family: var(--font-mono);
   font-size: 0.72rem;
   line-height: 1.45;
+  white-space: nowrap;
   transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
 }
 

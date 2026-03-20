@@ -102,6 +102,22 @@ export const openNativeProjectDirectory = async (
   );
 };
 
+export const loadNativeDesktopStoragePage = async (key: string): Promise<string | null> => {
+  const client = await requireDesktopRpcClient();
+  const result = await client.requestProxy.loadDesktopStoragePage({ key });
+  return result.value;
+};
+
+export const saveNativeDesktopStoragePage = async (key: string, value: string): Promise<void> => {
+  const client = await requireDesktopRpcClient();
+  await client.requestProxy.saveDesktopStoragePage({ key, value });
+};
+
+export const deleteNativeDesktopStoragePage = async (key: string): Promise<void> => {
+  const client = await requireDesktopRpcClient();
+  await client.requestProxy.deleteDesktopStoragePage({ key });
+};
+
 export const sendRendererLog = async (payload: DesktopRendererLogMessage): Promise<void> => {
   const client = await getDesktopRpcClient();
   client.sendProxy.rendererLog(payload);

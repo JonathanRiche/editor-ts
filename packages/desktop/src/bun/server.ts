@@ -13,8 +13,11 @@ import type {
   DesktopSettingKey,
 } from '../shared/desktopRpcSchema';
 import {
+  deleteEditorPageValue,
+  getEditorPageValue,
   getAppStateValue,
   listRecentProjects,
+  setEditorPageValue,
   setAppStateValue,
   upsertRecentProject,
 } from './storage';
@@ -373,6 +376,44 @@ export const createDesktopService = (options: DesktopServiceOptions) => {
     return { ok: true };
   };
 
+  const loadDesktopStoragePage = (input: {
+    key: string;
+  }): { value: string | null } => {
+    const key = input.key.trim();
+    if (!key) {
+      throw new Error('Missing desktop storage key.');
+    }
+
+    return {
+      value: getEditorPageValue(db, key),
+    };
+  };
+
+  const saveDesktopStoragePage = (input: {
+    key: string;
+    value: string;
+  }): { ok: true } => {
+    const key = input.key.trim();
+    if (!key) {
+      throw new Error('Missing desktop storage key.');
+    }
+
+    setEditorPageValue(db, key, input.value);
+    return { ok: true };
+  };
+
+  const deleteDesktopStoragePage = (input: {
+    key: string;
+  }): { ok: true } => {
+    const key = input.key.trim();
+    if (!key) {
+      throw new Error('Missing desktop storage key.');
+    }
+
+    deleteEditorPageValue(db, key);
+    return { ok: true };
+  };
+
   return {
     getState,
     setSetting,
@@ -381,5 +422,8 @@ export const createDesktopService = (options: DesktopServiceOptions) => {
     listProjectFiles,
     readProjectFile,
     writeProjectFile,
+    loadDesktopStoragePage,
+    saveDesktopStoragePage,
+    deleteDesktopStoragePage,
   };
 };

@@ -264,6 +264,11 @@ export interface OpencodeAiProviderConfig {
   sessions?: {
     storageNamespace?: string;
     hydrateRemoteList?: boolean;
+    storage?: {
+      load(key: string): Promise<string | null>;
+      save(key: string, value: string): Promise<void>;
+      delete(key: string): Promise<void>;
+    };
   };
 }
 
@@ -488,9 +493,31 @@ export type PagesRenderProps = {
   onSelect: (index: number) => void;
 };
 
+export type EditorTsCanvasKind = 'iframe' | 'electrobun-webview';
+
+export interface EditorTsElectrobunWebviewElement extends HTMLElement {
+  src?: string;
+  html?: string;
+  preload?: string;
+  hidden?: boolean;
+  executeJavascript?(js: string): void;
+  syncDimensions?(force?: boolean): void;
+  on?(event: string, listener: (event: CustomEvent<unknown>) => void): void;
+  off?(event: string, listener: (event: CustomEvent<unknown>) => void): void;
+}
+
+export type EditorTsCanvasElement = HTMLIFrameElement | EditorTsElectrobunWebviewElement;
+
 export interface InitConfig {
   // Required: iframe element ID (user creates this in their HTML)
   iframeId: string;
+
+  /** Optional: override the default iframe canvas with another supported canvas host. */
+  canvas?: {
+    kind?: EditorTsCanvasKind;
+    elementId?: string;
+    preload?: string;
+  };
 
   /** Optional: iframe head configuration (runtime only). */
   iframe?: IframeHeadConfig;
@@ -962,7 +989,8 @@ export interface EditorTsEditor {
   loadFrom(key: string): Promise<boolean>;
   destroy(): void;
   elements: {
-    iframe: HTMLIFrameElement;
+    iframe: EditorTsCanvasElement;
+    canvas: EditorTsCanvasElement;
     sidebar?: HTMLElement;
     stats?: HTMLElement;
     selectedInfo?: HTMLElement;

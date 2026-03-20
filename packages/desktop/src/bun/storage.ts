@@ -35,6 +35,14 @@ const createTables = (db: Database): void => {
       opened_at INTEGER NOT NULL DEFAULT (unixepoch())
     )
   `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS editor_pages (
+      key TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `);
 };
 
 export const openDesktopDatabase = (): DesktopAppState & { db: Database } => {
@@ -110,5 +118,42 @@ export const setAppStateValue = (db: Database, key: string, value: string): void
         updated_at = unixepoch()
     `,
     [key, value],
+  );
+};
+
+export const getEditorPageValue = (db: Database, key: string): string | null => {
+  const row = db
+    .query(
+      `
+        SELECT data
+        FROM editor_pages
+        WHERE key = ?
+      `,
+    )
+    .get(key) as { data?: string } | null;
+
+  return typeof row?.data === 'string' ? row.data : null;
+};
+
+export const setEditorPageValue = (db: Database, key: string, value: string): void => {
+  db.run(
+    `
+      INSERT INTO editor_pages (key, data, updated_at)
+      VALUES (?, ?, unixepoch())
+      ON CONFLICT(key) DO UPDATE SET
+        data = excluded.data,
+        updated_at = unixepoch()
+    `,
+    [key, value],
+  );
+};
+
+export const deleteEditorPageValue = (db: Database, key: string): void => {
+  db.run(
+    `
+      DELETE FROM editor_pages
+      WHERE key = ?
+    `,
+    [key],
   );
 };

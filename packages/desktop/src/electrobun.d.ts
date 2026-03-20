@@ -5,6 +5,8 @@ export {};
 
 declare global {
   interface Window {
+    __electrobunSendToHost?: (message: unknown) => void;
+    __EDITORTS_CANVAS_POST_MESSAGE__?: (message: unknown) => void;
     __EDITORTS_DESKTOP__?: {
       runtime: 'electrobun';
       sqlitePath: string;
@@ -18,5 +20,32 @@ declare global {
       nativeShortcutsAvailable?: boolean;
       perf?: DesktopPerfConfig;
     };
+  }
+
+  interface ElectrobunWebviewElement extends HTMLElement {
+    src?: string;
+    html?: string;
+    preload?: string;
+    hidden?: boolean;
+    executeJavascript(js: string): void;
+    syncDimensions(force?: boolean): void;
+    on(event: string, listener: (event: CustomEvent<unknown>) => void): void;
+    off(event: string, listener: (event: CustomEvent<unknown>) => void): void;
+  }
+
+  interface HTMLElementTagNameMap {
+    'electrobun-webview': ElectrobunWebviewElement;
+  }
+
+  namespace JSX {
+    interface IntrinsicElements {
+      'electrobun-webview': {
+        id?: string;
+        class?: string;
+        src?: string;
+        html?: string;
+        preload?: string;
+      };
+    }
   }
 }

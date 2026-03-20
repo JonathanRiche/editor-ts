@@ -211,24 +211,41 @@ const installDesktopKeyboardFallback = (): void => {
     boundTargets.add(target as object);
   };
 
-  const bindPreviewIframe = (): void => {
-    const iframe = document.getElementById('preview-iframe');
-    if (!(iframe instanceof HTMLIFrameElement)) {
+  const bindPreviewWebview = (): void => {
+    const webview = document.getElementById('preview-webview');
+    if (!(webview instanceof HTMLElement) || webview.tagName !== 'ELECTROBUN-WEBVIEW') {
       return;
     }
 
-    bindTarget(iframe.contentDocument);
-    iframe.addEventListener('load', () => {
-      bindTarget(iframe.contentDocument);
+    const typedWebview = webview as ElectrobunWebviewElement;
+    if (boundTargets.has(typedWebview)) {
+      return;
+    }
+
+    typedWebview.on('host-message', (event) => {
+      const detail = event.detail as Record<string, unknown> | null;
+      if (!detail || detail.type !== 'editorts:webviewKeydown') {
+        return;
+      }
+
+      handleKeydown(new KeyboardEvent('keydown', {
+        key: typeof detail.key === 'string' ? detail.key : '',
+        code: typeof detail.code === 'string' ? detail.code : '',
+        ctrlKey: detail.ctrlKey === true,
+        shiftKey: detail.shiftKey === true,
+        altKey: detail.altKey === true,
+        metaKey: detail.metaKey === true,
+      }));
     });
+    boundTargets.add(typedWebview);
   };
 
   bindTarget(window);
   bindTarget(document);
-  bindPreviewIframe();
+  bindPreviewWebview();
 
   const observer = new MutationObserver(() => {
-    bindPreviewIframe();
+    bindPreviewWebview();
   });
 
   if (document.documentElement) {

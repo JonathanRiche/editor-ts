@@ -24,6 +24,10 @@ export type DesktopNativeState = {
   settings: DesktopNativeSettings;
 };
 
+export type DesktopStoredPage = {
+  value: string | null;
+};
+
 export type DesktopOpenProjectResult = {
   path: string | null;
   label?: string;
@@ -116,6 +120,29 @@ export type DesktopRpcSchema = {
           root: string;
           path: string;
           content: string;
+        };
+        response: {
+          ok: true;
+        };
+      };
+      loadDesktopStoragePage: {
+        params: {
+          key: string;
+        };
+        response: DesktopStoredPage;
+      };
+      saveDesktopStoragePage: {
+        params: {
+          key: string;
+          value: string;
+        };
+        response: {
+          ok: true;
+        };
+      };
+      deleteDesktopStoragePage: {
+        params: {
+          key: string;
         };
         response: {
           ok: true;

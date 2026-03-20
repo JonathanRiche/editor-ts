@@ -20,12 +20,15 @@ import {
 import AppShell from './AppShell';
 import {
   createNativeProjectProvider,
+  deleteNativeDesktopStoragePage,
   defaultHttpApiBaseUrl,
   fetchNativeDesktopState,
   isNativeDesktopRuntime,
+  loadNativeDesktopStoragePage,
   openNativeProjectDirectory,
   persistNativeDesktopSetting,
   persistNativeRecentProject,
+  saveNativeDesktopStoragePage,
   type DesktopRecentProject,
 } from './desktopNativeRpc';
 import { measureRendererAsync, recordRendererPerf } from './rendererPerf';
@@ -75,6 +78,24 @@ const defaultAiBaseUrl = (): string => {
 };
 
 const normalizePath = (path: string): string => path.replace(/^\.\//, '').replace(/\\/g, '/');
+
+const DESKTOP_CANVAS_WEBVIEW_PRELOAD = `
+window.__EDITORTS_CANVAS_POST_MESSAGE__ = (message) => {
+  window.__electrobunSendToHost(message);
+};
+
+document.addEventListener('keydown', (event) => {
+  window.__electrobunSendToHost({
+    type: 'editorts:webviewKeydown',
+    key: event.key,
+    code: event.code,
+    ctrlKey: event.ctrlKey,
+    shiftKey: event.shiftKey,
+    altKey: event.altKey,
+    metaKey: event.metaKey
+  });
+}, true);
+`.trim();
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 const sanitizeSessionNamespaceSegment = (value: string): string => {
@@ -457,7 +478,12 @@ export default function App() {
     }
 
     const editorConfig: InitConfig = {
-      iframeId: 'preview-iframe',
+      iframeId: 'preview-webview',
+      canvas: {
+        kind: 'electrobun-webview',
+        elementId: 'preview-webview',
+        preload: DESKTOP_CANVAS_WEBVIEW_PRELOAD,
+      },
       preview: {
         deferInitialLoad: true,
       },
@@ -576,6 +602,15 @@ export default function App() {
         sessions: {
           storageNamespace: `filesystem-solid:${sessionNamespaceSuffix}`,
           hydrateRemoteList: false,
+          ...(nativeDesktop
+            ? {
+              storage: {
+                load: loadNativeDesktopStoragePage,
+                save: saveNativeDesktopStoragePage,
+                delete: deleteNativeDesktopStoragePage,
+              },
+            }
+            : {}),
         },
       };
       editorConfig.ui = {

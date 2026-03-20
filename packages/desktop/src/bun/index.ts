@@ -332,10 +332,10 @@ const applyRendererZoomFallback = (): void => {
 
     applyZoom(document);
 
-    const preview = document.getElementById('preview-iframe');
-    if (preview instanceof HTMLIFrameElement) {
+    const preview = document.getElementById('preview-webview');
+    if (preview && preview.tagName === 'ELECTROBUN-WEBVIEW' && typeof preview.executeJavascript === 'function') {
       try {
-        applyZoom(preview.contentDocument);
+        preview.executeJavascript(\`document.documentElement.style.zoom = \${JSON.stringify(String(zoom))};\`);
       } catch {}
     }
   })()`;
