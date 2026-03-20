@@ -143,6 +143,22 @@ const SaveState = struct {
     projects: []const SaveProject,
 };
 
+const PickerStatus = enum {
+    idle,
+    pending,
+    selected,
+    cancelled,
+    unavailable,
+    failed,
+};
+
+const PickerState = struct {
+    mutex: std.Thread.Mutex = .{},
+    status: PickerStatus = .idle,
+    selected_path: ?[]u8 = null,
+    worker: ?std.Thread = null,
+};
+
 const Storage = struct {
     allocator: std.mem.Allocator,
     pref_path: []const u8,
@@ -245,6 +261,7 @@ const AppState = struct {
     rename_storage: [256:0]u8,
     sidebar_notice_storage: [256:0]u8,
     show_project_creator: bool,
+    picker_state: PickerState,
     dirty: bool,
 
     fn init(allocator: std.mem.Allocator, storage: *const Storage) !AppState {
@@ -258,6 +275,7 @@ const AppState = struct {
             .rename_storage = std.mem.zeroes([256:0]u8),
             .sidebar_notice_storage = std.mem.zeroes([256:0]u8),
             .show_project_creator = false,
+            .picker_state = .{},
             .dirty = false,
         };
 
@@ -340,20 +358,32 @@ const AppState = struct {
             self.setSidebarNotice(@errorName(err));
             return;
         };
-        defer self.allocator.free(target_path);
-
-        const selected_path = pickDirectory(self.allocator, target_path) catch |err| {
-            self.setSidebarNotice(switch (err) {
-                error.UserCancelled => "Folder selection cancelled.",
-                error.FolderPickerUnavailable => "No folder picker found. Paste a directory path manually.",
-                else => @errorName(err),
-            });
+        const page_alloc = std.heap.page_allocator;
+        const owned_target = page_alloc.dupe(u8, target_path) catch {
+            self.allocator.free(target_path);
+            self.setSidebarNotice("Failed to start folder picker.");
             return;
         };
-        defer self.allocator.free(selected_path);
+        self.allocator.free(target_path);
 
-        self.setImportPath(selected_path);
-        self.setSidebarNotice("Folder selected.");
+        self.picker_state.mutex.lock();
+        defer self.picker_state.mutex.unlock();
+
+        if (self.picker_state.status == .pending) {
+            page_alloc.free(owned_target);
+            self.setSidebarNotice("Folder picker already open.");
+            return;
+        }
+
+        self.picker_state.status = .pending;
+        self.picker_state.selected_path = null;
+        self.picker_state.worker = std.Thread.spawn(.{}, pickerWorker, .{ &self.picker_state, owned_target }) catch {
+            page_alloc.free(owned_target);
+            self.picker_state.status = .failed;
+            self.setSidebarNotice("Failed to start folder picker.");
+            return;
+        };
+        self.setSidebarNotice("Waiting for folder selection...");
     }
 
     fn renameSelectedProject(self: *AppState) void {
@@ -558,10 +588,69 @@ const AppState = struct {
     }
 
     fn deinit(self: *AppState) void {
+        self.finishPickerThread();
         for (self.projects.items) |*project| {
             project.deinit(self.allocator);
         }
         self.projects.deinit(self.allocator);
+    }
+
+    fn pollPicker(self: *AppState) void {
+        var picked_path: ?[]u8 = null;
+        var next_status: PickerStatus = .idle;
+
+        self.picker_state.mutex.lock();
+        switch (self.picker_state.status) {
+            .selected => {
+                picked_path = self.picker_state.selected_path;
+                self.picker_state.selected_path = null;
+                self.picker_state.status = .idle;
+                next_status = .selected;
+            },
+            .cancelled => {
+                self.picker_state.status = .idle;
+                next_status = .cancelled;
+            },
+            .unavailable => {
+                self.picker_state.status = .idle;
+                next_status = .unavailable;
+            },
+            .failed => {
+                self.picker_state.status = .idle;
+                next_status = .failed;
+            },
+            else => {},
+        }
+        self.picker_state.mutex.unlock();
+
+        if (next_status != .idle) {
+            self.finishPickerThread();
+        }
+
+        switch (next_status) {
+            .selected => {
+                if (picked_path) |path| {
+                    defer std.heap.page_allocator.free(path);
+                    self.setImportPath(path);
+                    self.setSidebarNotice("Folder selected.");
+                }
+            },
+            .cancelled => self.setSidebarNotice("Folder selection cancelled."),
+            .unavailable => self.setSidebarNotice("No folder picker found. Paste a directory path manually."),
+            .failed => self.setSidebarNotice("Folder picker failed."),
+            else => {},
+        }
+    }
+
+    fn finishPickerThread(self: *AppState) void {
+        self.picker_state.mutex.lock();
+        const maybe_worker = self.picker_state.worker;
+        self.picker_state.worker = null;
+        self.picker_state.mutex.unlock();
+
+        if (maybe_worker) |worker| {
+            worker.join();
+        }
     }
 
     fn seedProjectConversation(self: *AppState, project: *Project, include_user_prompt: bool) !void {
@@ -685,6 +774,7 @@ pub fn main() !void {
     var running = true;
     while (running) {
         running = processEvents();
+        state.pollPicker();
 
         var fb_width: c_int = 0;
         var fb_height: c_int = 0;
@@ -1042,6 +1132,24 @@ fn pickDirectoryLinux(allocator: std.mem.Allocator, start_path: []const u8) ![]u
     const trimmed = std.mem.trim(u8, result.stdout, &std.ascii.whitespace);
     if (trimmed.len == 0) return error.UserCancelled;
     return allocator.dupe(u8, trimmed);
+}
+
+fn pickerWorker(state: *PickerState, start_path: []u8) void {
+    defer std.heap.page_allocator.free(start_path);
+
+    const result = pickDirectory(std.heap.page_allocator, start_path);
+
+    state.mutex.lock();
+    defer state.mutex.unlock();
+
+    if (result) |path| {
+        state.selected_path = path;
+        state.status = .selected;
+    } else |err| switch (err) {
+        error.UserCancelled => state.status = .cancelled,
+        error.FolderPickerUnavailable => state.status = .unavailable,
+        else => state.status = .failed,
+    }
 }
 
 fn detectLinuxPicker(start_path: []const u8) ?[]const []const u8 {
