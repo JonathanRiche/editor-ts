@@ -1,8 +1,9 @@
-import { BrowserWindow, BuildConfig, GlobalShortcut, PATHS } from 'electrobun/bun';
+import { BrowserView, BrowserWindow, BuildConfig, GlobalShortcut, PATHS } from 'electrobun/bun';
 import * as fs from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { native, toCString } from '../../node_modules/electrobun/dist-linux-x64/api/bun/proc/native';
 
 import {
   DESKTOP_KEYBOARD_ACTIONS,
@@ -331,13 +332,6 @@ const applyRendererZoomFallback = (): void => {
     };
 
     applyZoom(document);
-
-    const preview = document.getElementById('preview-webview');
-    if (preview && preview.tagName === 'ELECTROBUN-WEBVIEW' && typeof preview.executeJavascript === 'function') {
-      try {
-        preview.executeJavascript(\`document.documentElement.style.zoom = \${JSON.stringify(String(zoom))};\`);
-      } catch {}
-    }
   })()`;
 
   try {
@@ -444,14 +438,45 @@ const desktopRpc = createDesktopRpc({
   userDataPath,
   onToggleDevTools: toggleWindowDevTools,
   onAdjustZoom: performZoomAction,
+  onSyncCanvasWebview: ({ id, hidden, frame }) => {
+    const webview = BrowserView.getById(id);
+    if (!webview?.ptr) {
+      return;
+    }
+
+    const zoomScale = currentPageZoom > 0 ? currentPageZoom : 1;
+    const nativeFrame = hidden
+      ? { ...frame }
+      : {
+        x: Math.round(frame.x / zoomScale),
+        y: Math.round(frame.y / zoomScale),
+        width: Math.max(1, Math.round(frame.width / zoomScale)),
+        height: Math.max(1, Math.round(frame.height / zoomScale)),
+      };
+
+    webview.frame = nativeFrame;
+    webview.setPageZoom(1);
+    native.symbols.resizeWebview(
+      webview.ptr,
+      nativeFrame.x,
+      nativeFrame.y,
+      nativeFrame.width,
+      nativeFrame.height,
+      toCString('[]'),
+    );
+    native.symbols.webviewSetHidden(webview.ptr, hidden);
+  },
   onPerfEvent: (event) => {
     perfTrace.record(event);
   },
 });
 
+const desktopRenderer = process.platform === 'linux' ? 'cef' : 'system';
+
 const mainWindow = new BrowserWindow({
   title: 'Verde',
   url: rendererUrl,
+  renderer: desktopRenderer,
   viewsRoot: null,
   frame: {
     x: 60,
@@ -471,6 +496,7 @@ perfTrace.record({
   fields: {
     rendererUrl,
     bundledRenderer: usingBundledRenderer,
+    desktopRenderer,
   },
 });
 

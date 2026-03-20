@@ -212,7 +212,7 @@ const installDesktopKeyboardFallback = (): void => {
   };
 
   const bindPreviewWebview = (): void => {
-    const webview = document.getElementById('preview-webview');
+    const webview = document.querySelector('electrobun-webview[data-editorts-canvas="preview"]');
     if (!(webview instanceof HTMLElement) || webview.tagName !== 'ELECTROBUN-WEBVIEW') {
       return;
     }

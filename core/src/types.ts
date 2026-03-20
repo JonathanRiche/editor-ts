@@ -502,6 +502,7 @@ export interface EditorTsElectrobunWebviewElement extends HTMLElement {
   hidden?: boolean;
   executeJavascript?(js: string): void;
   syncDimensions?(force?: boolean): void;
+  toggleHidden?(value?: boolean): void;
   on?(event: string, listener: (event: CustomEvent<unknown>) => void): void;
   off?(event: string, listener: (event: CustomEvent<unknown>) => void): void;
 }
@@ -516,6 +517,7 @@ export interface InitConfig {
   canvas?: {
     kind?: EditorTsCanvasKind;
     elementId?: string;
+    selector?: string;
     preload?: string;
   };
 

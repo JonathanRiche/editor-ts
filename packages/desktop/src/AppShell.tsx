@@ -1,6 +1,7 @@
-import { createSignal, onCleanup, onMount } from 'solid-js';
+import { createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 
 import { AiWorkspacePanel } from '@editorts/starter-shared/AiPanels';
+import { isNativeDesktopRuntime, syncNativeCanvasWebview } from './desktopNativeRpc';
 
 import type {
   ProjectFilesystemPermissionReply,
@@ -47,6 +48,29 @@ const cx = (...parts: Array<string | false | null | undefined>): string => {
   return parts.filter((part): part is string => typeof part === 'string' && part.length > 0).join(' ');
 };
 
+const INITIAL_CANVAS_HTML = '<!DOCTYPE html><html><head><meta charset="utf-8" /></head><body></body></html>';
+
+const resolveNativeCanvasFrame = (
+  shell: HTMLElement,
+): { x: number; y: number; width: number; height: number } => {
+  let x = 0;
+  let y = 0;
+  let node: HTMLElement | null = shell;
+
+  while (node) {
+    x += node.offsetLeft + node.clientLeft - node.scrollLeft;
+    y += node.offsetTop + node.clientTop - node.scrollTop;
+    node = node.offsetParent instanceof HTMLElement ? node.offsetParent : null;
+  }
+
+  return {
+    x: Math.round(x - window.scrollX),
+    y: Math.round(y - window.scrollY),
+    width: Math.max(1, shell.offsetWidth),
+    height: Math.max(1, shell.offsetHeight),
+  };
+};
+
 const getPathLeaf = (value: string): string => {
   const normalized = value.trim().replace(/[\\/]+$/, '');
   if (!normalized) return '';
@@ -83,6 +107,73 @@ export default function AppShell(props: AppShellProps) {
   const [activeMainTab, setActiveMainTab] = createSignal<'chat' | 'editor' | 'code'>('chat');
   const [filesCollapsed, setFilesCollapsed] = createSignal(false);
   let observer: MutationObserver | undefined;
+  let canvasResizeObserver: ResizeObserver | undefined;
+  let canvasSyncTimer: number | null = null;
+
+  const clearCanvasSyncTimer = (): void => {
+    if (canvasSyncTimer !== null) {
+      window.clearTimeout(canvasSyncTimer);
+      canvasSyncTimer = null;
+    }
+  };
+
+  const syncCanvasWebviewFrame = (): void => {
+    if (!isNativeDesktopRuntime()) {
+      return;
+    }
+
+    const shell = document.querySelector('.preview-frame-shell');
+    const webview = document.querySelector('electrobun-webview[data-editorts-canvas="preview"]');
+    if (!(shell instanceof HTMLElement) || !(webview instanceof HTMLElement) || webview.tagName !== 'ELECTROBUN-WEBVIEW') {
+      return;
+    }
+
+    const typedWebview = webview as ElectrobunWebviewElement & { webviewId?: number | null };
+    const webviewId = typeof typedWebview.webviewId === 'number' ? typedWebview.webviewId : null;
+    const hidden = activeMainTab() !== 'editor';
+
+    if (webviewId === null) {
+      if (typedWebview.dataset.editortsCanvasWaitBound !== '1') {
+        typedWebview.dataset.editortsCanvasWaitBound = '1';
+        const resync = () => {
+          void syncCanvasWebviewFrame();
+        };
+        typedWebview.on('dom-ready', resync);
+        typedWebview.on('load-finished', resync);
+      }
+      return;
+    }
+
+    if (typedWebview.dataset.editortsNativeFrameControl !== '1') {
+      typedWebview.dataset.editortsNativeFrameControl = '1';
+      const webviewWithInternalSync = typedWebview as ElectrobunWebviewElement & {
+        _sync?: { stop?: () => void };
+      };
+      webviewWithInternalSync._sync?.stop?.();
+      typedWebview.syncDimensions = () => {};
+    }
+
+    const frame = hidden
+      ? { x: -10000, y: -10000, width: 1, height: 1 }
+      : resolveNativeCanvasFrame(shell);
+
+    webview.style.position = 'absolute';
+    webview.style.inset = '0';
+    webview.style.width = '100%';
+    webview.style.height = '100%';
+
+    void syncNativeCanvasWebview(webviewId, hidden, frame);
+  };
+
+  const scheduleCanvasWebviewSync = (): void => {
+    clearCanvasSyncTimer();
+    requestAnimationFrame(() => {
+      void syncCanvasWebviewFrame();
+      canvasSyncTimer = window.setTimeout(() => {
+        void syncCanvasWebviewFrame();
+      }, 60);
+    });
+  };
 
   const modeSummary = () => {
     if (props.nativeRuntime && props.mode === 'browser-folder') {
@@ -154,13 +245,34 @@ export default function AppShell(props: AppShellProps) {
     syncMainTab();
     queueMicrotask(() => {
       props.onMainTabActivate(activeMainTab());
+      scheduleCanvasWebviewSync();
     });
     observer = new MutationObserver(syncMainTab);
     observer.observe(root, { attributes: true, attributeFilter: ['data-editorts-view'] });
+
+    const shell = document.querySelector('.preview-frame-shell');
+    if (shell instanceof HTMLElement) {
+      canvasResizeObserver = new ResizeObserver(() => {
+        scheduleCanvasWebviewSync();
+      });
+      canvasResizeObserver.observe(shell);
+    }
+
+    window.addEventListener('resize', scheduleCanvasWebviewSync);
+    window.addEventListener('scroll', scheduleCanvasWebviewSync, true);
   });
 
   onCleanup(() => {
+    clearCanvasSyncTimer();
+    canvasResizeObserver?.disconnect();
+    window.removeEventListener('resize', scheduleCanvasWebviewSync);
+    window.removeEventListener('scroll', scheduleCanvasWebviewSync, true);
     observer?.disconnect();
+  });
+
+  createEffect(() => {
+    activeMainTab();
+    scheduleCanvasWebviewSync();
   });
 
   return (
@@ -452,7 +564,14 @@ export default function AppShell(props: AppShellProps) {
             </div>
           </div>
 
-          <electrobun-webview id="preview-webview" class="preview-frame" />
+          <div class="preview-frame-shell">
+            <electrobun-webview
+              id="preview-webview"
+              class="preview-frame"
+              data-editorts-canvas="preview"
+              html={INITIAL_CANVAS_HTML}
+            />
+          </div>
 
           <div class="code-shell">
             <div class="code-shell-toolbar">

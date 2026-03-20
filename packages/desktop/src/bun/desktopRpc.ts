@@ -11,6 +11,16 @@ type DesktopRpcOptions = {
   userDataPath: string;
   onToggleDevTools?: () => void;
   onAdjustZoom?: (action: DesktopZoomAction) => void;
+  onSyncCanvasWebview?: (params: {
+    id: number;
+    hidden: boolean;
+    frame: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
+  }) => void;
   onPerfEvent?: (event: Omit<DesktopPerfEvent, 'sessionId'>) => void;
 };
 
@@ -109,6 +119,10 @@ export const createDesktopRpc = (options: DesktopRpcOptions) => {
         }),
         adjustDesktopZoom: wrapRequest('adjustDesktopZoom', (params) => {
           options.onAdjustZoom?.(params.action);
+          return { ok: true as const };
+        }),
+        syncDesktopCanvasWebview: wrapRequest('syncDesktopCanvasWebview', (params) => {
+          options.onSyncCanvasWebview?.(params);
           return { ok: true as const };
         }),
       },

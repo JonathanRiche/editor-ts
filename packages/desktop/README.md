@@ -154,6 +154,11 @@ requests pick up the latest configured path through a live resolver in the libra
 Packaged native builds use the bundled renderer assets copied into `views/`.
 Only development mode depends on the local Vite URL.
 
+Linux native builds also bundle Electrobun's CEF runtime and launch the main
+window with `renderer: "cef"`. That increases packaged bundle size, but it
+avoids GTKWebKit limitations and keeps the Linux desktop shell on Electrobun's
+fully supported Chromium path.
+
 ## Browser support
 
 Use a browser with File System Access API support (latest Chrome/Edge).

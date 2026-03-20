@@ -1,6 +1,7 @@
 import type { ProjectFilesystemProvider } from 'editor-ts';
 import { Electroview } from 'electrobun/view';
 import type {
+  DesktopCanvasFrame,
   DesktopPerfEvent,
   DesktopNativeState,
   DesktopOpenProjectResult,
@@ -136,6 +137,19 @@ export const toggleNativeDesktopDevTools = async (): Promise<void> => {
 export const adjustNativeDesktopZoom = async (action: DesktopZoomAction): Promise<void> => {
   const client = await getDesktopRpcClient();
   await client.requestProxy.adjustDesktopZoom({ action });
+};
+
+export const syncNativeCanvasWebview = async (
+  id: number,
+  hidden: boolean,
+  frame: DesktopCanvasFrame,
+): Promise<void> => {
+  const client = await requireDesktopRpcClient();
+  await client.requestProxy.syncDesktopCanvasWebview({
+    id,
+    hidden,
+    frame,
+  });
 };
 
 export const createNativeProjectProvider = (root: string): ProjectFilesystemProvider => {

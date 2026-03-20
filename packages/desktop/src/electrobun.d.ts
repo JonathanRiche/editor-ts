@@ -23,12 +23,14 @@ declare global {
   }
 
   interface ElectrobunWebviewElement extends HTMLElement {
+    webviewId?: number | null;
     src?: string;
     html?: string;
     preload?: string;
     hidden?: boolean;
     executeJavascript(js: string): void;
     syncDimensions(force?: boolean): void;
+    toggleHidden(value?: boolean): void;
     on(event: string, listener: (event: CustomEvent<unknown>) => void): void;
     off(event: string, listener: (event: CustomEvent<unknown>) => void): void;
   }
@@ -45,6 +47,7 @@ declare global {
         src?: string;
         html?: string;
         preload?: string;
+        'data-editorts-canvas'?: string;
       };
     }
   }

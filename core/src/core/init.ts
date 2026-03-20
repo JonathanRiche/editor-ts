@@ -88,6 +88,8 @@ const isElectrobunWebviewElement = (
   return !!element && element.tagName === 'ELECTROBUN-WEBVIEW';
 };
 
+const EDITORTS_DRAFT_AI_SESSION_ID = '__editorts_draft_session__';
+
 type DesktopDebugWindow = Window & {
   __EDITORTS_DESKTOP__?: {
     debugAi?: boolean;
@@ -124,11 +126,20 @@ const logAiDebug = (message: string, details?: unknown): void => {
  * User creates the HTML structure, init() populates it
  */
 export function init(config: InitConfig): EditorTsEditor {
+  const canvasSelector = config.canvas?.selector?.trim();
   const canvasElementId = config.canvas?.elementId ?? config.iframeId;
   const canvasKind = config.canvas?.kind ?? 'iframe';
-  const iframe = document.getElementById(canvasElementId) as EditorTsCanvasElement | null;
+  const iframe = (
+    canvasSelector
+      ? document.querySelector(canvasSelector)
+      : document.getElementById(canvasElementId)
+  ) as EditorTsCanvasElement | null;
   if (!iframe) {
-    throw new Error(`Canvas element #${canvasElementId} not found`);
+    throw new Error(
+      canvasSelector
+        ? `Canvas element matching ${canvasSelector} not found`
+        : `Canvas element #${canvasElementId} not found`
+    );
   }
   if (canvasKind === 'iframe' && iframe.tagName !== 'IFRAME') {
     throw new Error(`Canvas element #${canvasElementId} is not an iframe`);
@@ -600,6 +611,9 @@ export function init(config: InitConfig): EditorTsEditor {
 
       if (view === 'code') {
         iframe.style.display = 'none';
+        if (isElectrobunWebviewElement(iframe)) {
+          iframe.toggleHidden?.(true);
+        }
 
         // Show the code containers, then if code tabs are enabled,
         // immediately apply the active tab to hide the others.
@@ -614,6 +628,9 @@ export function init(config: InitConfig): EditorTsEditor {
         }
       } else {
         iframe.style.display = originalIframeDisplay ?? '';
+        if (isElectrobunWebviewElement(iframe)) {
+          iframe.toggleHidden?.(false);
+        }
         syncCanvasDimensions(true);
         codeViewContainers.forEach((el) => {
           el.style.display = 'none';
@@ -889,7 +906,7 @@ export function init(config: InitConfig): EditorTsEditor {
       if (rawCurrent) {
         try {
           const parsed = JSON.parse(rawCurrent) as unknown;
-          current = typeof parsed === 'string' && parsed.length > 0 ? parsed : null;
+          current = typeof parsed === 'string' && parsed.length > 0 && !isDraftAiSessionId(parsed) ? parsed : null;
         } catch {
           // ignore
         }
@@ -1187,6 +1204,15 @@ export function init(config: InitConfig): EditorTsEditor {
 
     type StoredAiSession = { id: string; title?: string };
 
+    const isDraftAiSessionId = (sessionId: string | null | undefined): boolean => {
+      return sessionId === EDITORTS_DRAFT_AI_SESSION_ID;
+    };
+
+    const getDraftAiSession = (): StoredAiSession => ({
+      id: EDITORTS_DRAFT_AI_SESSION_ID,
+      title: 'New chat',
+    });
+
     const mergeStoredAiSessions = (
       primary: StoredAiSession[],
       secondary: StoredAiSession[],
@@ -1211,7 +1237,7 @@ export function init(config: InitConfig): EditorTsEditor {
     };
 
     const hydrateAiSession = async (sessionId: string): Promise<StoredAiSession | null> => {
-      if (!ai || !sessionId.trim()) return null;
+      if (!ai || !sessionId.trim() || isDraftAiSessionId(sessionId)) return null;
 
       try {
         const client = await ai.getClient();
@@ -1309,7 +1335,7 @@ export function init(config: InitConfig): EditorTsEditor {
             if (!ai) return;
             await ai.sessions.setCurrent(id.length ? id : null);
             await refreshAiSessionSelect();
-            await loadAiSessionTranscript(id.length ? id : null);
+            await loadAiSessionTranscript(id.length && !isDraftAiSessionId(id) ? id : null);
           });
           aiSessionList.appendChild(button);
         }
@@ -1318,7 +1344,12 @@ export function init(config: InitConfig): EditorTsEditor {
       addOption('', '(auto)');
 
       sessions.forEach((s) => {
-        addOption(s.id, s.title ? `${s.title} (${s.id})` : s.id);
+        addOption(
+          s.id,
+          isDraftAiSessionId(s.id)
+            ? (s.title ?? 'New chat')
+            : (s.title ? `${s.title} (${s.id})` : s.id)
+        );
       });
     };
 
@@ -1452,6 +1483,10 @@ export function init(config: InitConfig): EditorTsEditor {
         },
         setCurrent: async (sessionId: string | null) => {
           currentSessionId = sessionId;
+          if (isDraftAiSessionId(sessionId)) {
+            return;
+          }
+
           const index = await loadSessionIndex();
           let nextSessions = index.sessions;
 
@@ -1477,6 +1512,14 @@ export function init(config: InitConfig): EditorTsEditor {
             : index.sessions;
 
           const current = currentSessionId ?? index.current;
+          if (isDraftAiSessionId(current)) {
+            nextSessions = [
+              getDraftAiSession(),
+              ...nextSessions.filter((session) => !isDraftAiSessionId(session.id)),
+            ];
+            return nextSessions;
+          }
+
           if (current && !nextSessions.some((session) => session.id === current)) {
             const hydratedCurrent = await hydrateAiSession(current);
             if (hydratedCurrent) {
@@ -1569,7 +1612,9 @@ export function init(config: InitConfig): EditorTsEditor {
       ) => {
         const client = await ai!.getClient();
 
-        const sessionId = options?.sessionId ?? currentSessionId;
+        const sessionId = isDraftAiSessionId(options?.sessionId ?? currentSessionId)
+          ? null
+          : (options?.sessionId ?? currentSessionId);
 
         const shouldStream = options?.stream ?? aiConfig.stream?.enabled === true;
         const selectedModel = options?.model;
@@ -1600,7 +1645,7 @@ export function init(config: InitConfig): EditorTsEditor {
           const hydrated = await hydrateAiSession(result.sessionId);
           const nextSessions = [
             hydrated ?? { id: result.sessionId },
-            ...index.sessions.filter((s) => s.id !== result.sessionId),
+            ...index.sessions.filter((s) => s.id !== result.sessionId && !isDraftAiSessionId(s.id)),
           ].slice(0, 50);
           await saveSessionIndex({ current: result.sessionId, sessions: nextSessions });
         }
@@ -1714,7 +1759,7 @@ export function init(config: InitConfig): EditorTsEditor {
           const next = aiSessionSelect.value.trim();
           await ai.sessions.setCurrent(next.length ? next : null);
           await refreshAiSessionSelect();
-          await loadAiSessionTranscript(next.length ? next : null);
+          await loadAiSessionTranscript(next.length && !isDraftAiSessionId(next) ? next : null);
         });
       }
 
@@ -1732,8 +1777,7 @@ export function init(config: InitConfig): EditorTsEditor {
       if (aiSessionNewButton) {
         addManagedEventListener(aiSessionNewButton, 'click', async () => {
           if (!ai) return;
-          const created = await ai.sessions.create('New chat');
-          await ai.sessions.setCurrent(created.id);
+          await ai.sessions.setCurrent(EDITORTS_DRAFT_AI_SESSION_ID);
           await refreshAiSessionSelect();
           if (aiChatLog) renderAiChatLogText('');
           if (aiChatInput) aiChatInput.value = '';
@@ -1800,7 +1844,10 @@ export function init(config: InitConfig): EditorTsEditor {
           setAiChatStatus('loading', 'Waiting for OpenCode reply...');
 
           try {
-            const selectedSessionId = aiSessionSelect?.value?.trim() || ai.sessions.current() || undefined;
+            const rawSelectedSessionId = aiSessionSelect?.value?.trim() || ai.sessions.current() || undefined;
+            const selectedSessionId = rawSelectedSessionId && !isDraftAiSessionId(rawSelectedSessionId)
+              ? rawSelectedSessionId
+              : undefined;
 
             let streamedText = '';
             const logPrefix = getAiChatLogText();

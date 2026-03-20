@@ -33,6 +33,13 @@ export type DesktopOpenProjectResult = {
   label?: string;
 };
 
+export type DesktopCanvasFrame = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export type DesktopRendererLogMessage = {
   level: 'error' | 'warn' | 'info';
   source: string;
@@ -157,6 +164,16 @@ export type DesktopRpcSchema = {
       adjustDesktopZoom: {
         params: {
           action: DesktopZoomAction;
+        };
+        response: {
+          ok: true;
+        };
+      };
+      syncDesktopCanvasWebview: {
+        params: {
+          id: number;
+          hidden: boolean;
+          frame: DesktopCanvasFrame;
         };
         response: {
           ok: true;

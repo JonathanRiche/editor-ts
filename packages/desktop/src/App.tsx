@@ -482,6 +482,7 @@ export default function App() {
       canvas: {
         kind: 'electrobun-webview',
         elementId: 'preview-webview',
+        selector: 'electrobun-webview[data-editorts-canvas="preview"]',
         preload: DESKTOP_CANVAS_WEBVIEW_PRELOAD,
       },
       preview: {
