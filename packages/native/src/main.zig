@@ -19,12 +19,6 @@ const COLOR_PANEL_MUTED = rgba(58, 58, 58, 255);
 const COLOR_TEXT_MUTED = rgba(191, 191, 191, 255);
 const COLOR_TEXT_SUBTLE = rgba(153, 153, 153, 255);
 
-const Project = struct {
-    label: [:0]const u8,
-    path: [:0]const u8,
-    unread_count: u8 = 0,
-};
-
 const ChatRole = enum {
     user,
     assistant,
@@ -47,10 +41,65 @@ const ChatMessage = struct {
     body: [:0]const u8,
 };
 
+const Project = struct {
+    label: [:0]const u8,
+    path: [:0]const u8,
+    unread_count: u8 = 0,
+    provider: Provider = .opencode,
+    harness: Harness = .local_cli,
+    messages: std.ArrayList(ChatMessage),
+    draft_storage: [AppState.DRAFT_CAPACITY:0]u8,
+
+    fn init(allocator: std.mem.Allocator, label: []const u8, path: []const u8, unread_count: u8) !Project {
+        return .{
+            .label = try allocator.dupeZ(u8, label),
+            .path = try allocator.dupeZ(u8, path),
+            .unread_count = unread_count,
+            .provider = .opencode,
+            .harness = .local_cli,
+            .messages = .empty,
+            .draft_storage = std.mem.zeroes([AppState.DRAFT_CAPACITY:0]u8),
+        };
+    }
+
+    fn currentDraft(self: *const Project) []const u8 {
+        const slice = self.draft_storage[0..];
+        return std.mem.sliceTo(slice, 0);
+    }
+
+    fn draftBuffer(self: *Project) [:0]u8 {
+        return self.draft_storage[0 .. self.draft_storage.len - 1 :0];
+    }
+
+    fn setDraft(self: *Project, value: []const u8) void {
+        @memset(&self.draft_storage, 0);
+        const len = @min(value.len, AppState.DRAFT_CAPACITY - 1);
+        @memcpy(self.draft_storage[0..len], value[0..len]);
+    }
+
+    fn clearDraft(self: *Project) void {
+        self.draft_storage[0] = 0;
+    }
+
+    fn deinit(self: *Project, allocator: std.mem.Allocator) void {
+        allocator.free(self.label);
+        allocator.free(self.path);
+        for (self.messages.items) |message| {
+            allocator.free(message.author);
+            allocator.free(message.body);
+        }
+        self.messages.deinit(allocator);
+    }
+};
+
 const PersistedProject = struct {
     label: []const u8,
     path: []const u8,
     unread_count: u8 = 0,
+    provider: Provider = .opencode,
+    harness: Harness = .local_cli,
+    draft: []const u8 = "",
+    messages: []const PersistedMessage = &.{},
 };
 
 const PersistedMessage = struct {
@@ -61,17 +110,21 @@ const PersistedMessage = struct {
 
 const PersistedState = struct {
     selected_project_index: usize = 0,
-    provider: Provider = .opencode,
-    harness: Harness = .local_cli,
-    draft: []const u8 = "",
     projects: []const PersistedProject = &.{},
-    messages: []const PersistedMessage = &.{},
+    provider: ?Provider = null,
+    harness: ?Harness = null,
+    draft: ?[]const u8 = null,
+    messages: ?[]const PersistedMessage = null,
 };
 
 const SaveProject = struct {
     label: []const u8,
     path: []const u8,
     unread_count: u8,
+    provider: Provider,
+    harness: Harness,
+    draft: []const u8,
+    messages: []const SaveMessage,
 };
 
 const SaveMessage = struct {
@@ -82,11 +135,7 @@ const SaveMessage = struct {
 
 const SaveState = struct {
     selected_project_index: usize,
-    provider: Provider,
-    harness: Harness,
-    draft: []const u8,
     projects: []const SaveProject,
-    messages: []const SaveMessage,
 };
 
 const Storage = struct {
@@ -124,31 +173,31 @@ const Storage = struct {
         defer projects.deinit(self.allocator);
 
         for (state.projects.items) |project| {
+            var messages: std.ArrayList(SaveMessage) = .empty;
+            defer messages.deinit(self.allocator);
+
+            for (project.messages.items) |message| {
+                try messages.append(self.allocator, .{
+                    .role = message.role,
+                    .author = message.author,
+                    .body = message.body,
+                });
+            }
+
             try projects.append(self.allocator, .{
                 .label = project.label,
                 .path = project.path,
                 .unread_count = project.unread_count,
-            });
-        }
-
-        var messages: std.ArrayList(SaveMessage) = .empty;
-        defer messages.deinit(self.allocator);
-
-        for (state.messages.items) |message| {
-            try messages.append(self.allocator, .{
-                .role = message.role,
-                .author = message.author,
-                .body = message.body,
+                .provider = project.provider,
+                .harness = project.harness,
+                .draft = project.currentDraft(),
+                .messages = messages.items,
             });
         }
 
         const snapshot: SaveState = .{
             .selected_project_index = state.selected_project_index,
-            .provider = state.provider,
-            .harness = state.harness,
-            .draft = state.currentDraft(),
             .projects = projects.items,
-            .messages = messages.items,
         };
 
         var buffer: std.Io.Writer.Allocating = .init(self.allocator);
@@ -180,10 +229,6 @@ const AppState = struct {
     storage: *const Storage,
     projects: std.ArrayList(Project),
     selected_project_index: usize,
-    provider: Provider,
-    harness: Harness,
-    messages: std.ArrayList(ChatMessage),
-    draft_storage: [DRAFT_CAPACITY:0]u8,
     next_project_number: usize,
     dirty: bool,
 
@@ -193,10 +238,6 @@ const AppState = struct {
             .storage = storage,
             .projects = .empty,
             .selected_project_index = 0,
-            .provider = .opencode,
-            .harness = .local_cli,
-            .messages = .empty,
-            .draft_storage = std.mem.zeroes([DRAFT_CAPACITY:0]u8),
             .next_project_number = 4,
             .dirty = false,
         };
@@ -211,22 +252,19 @@ const AppState = struct {
     }
 
     fn addProject(self: *AppState, label: []const u8, path: []const u8, unread_count: u8) !void {
-        try self.projects.append(self.allocator, .{
-            .label = try self.dupeZ(label),
-            .path = try self.dupeZ(path),
-            .unread_count = unread_count,
-        });
+        try self.projects.append(self.allocator, try Project.init(self.allocator, label, path, unread_count));
         self.markDirty();
     }
 
     fn appendMessage(self: *AppState, role: ChatRole, author: []const u8, body: []const u8) !void {
-        if (self.messages.items.len == 24) {
-            const removed = self.messages.orderedRemove(0);
+        const project = self.currentProjectMutable();
+        if (project.messages.items.len == 24) {
+            const removed = project.messages.orderedRemove(0);
             self.allocator.free(removed.author);
             self.allocator.free(removed.body);
         }
 
-        try self.messages.append(self.allocator, .{
+        try project.messages.append(self.allocator, .{
             .role = role,
             .author = try self.dupeZ(author),
             .body = try self.dupeZ(body),
@@ -244,6 +282,7 @@ const AppState = struct {
         try self.addProject(label, path, 0);
         self.selected_project_index = self.projects.items.len - 1;
         self.next_project_number += 1;
+        try self.seedProjectConversation(self.currentProjectMutable(), true);
         self.markDirty();
     }
 
@@ -252,11 +291,12 @@ const AppState = struct {
         if (draft.len == 0) return;
 
         try self.appendMessage(.user, "You", draft);
-        const response = switch (self.provider) {
+        const project = self.currentProjectMutable();
+        const response = switch (project.provider) {
             .opencode => "OpenCode would receive this message through the selected harness and return the next tool-aware reply here.",
             .codex => "Codex would receive this message through the selected harness and stream its response into this transcript.",
         };
-        try self.appendMessage(.assistant, providerLabel(self.provider), response);
+        try self.appendMessage(.assistant, providerLabel(project.provider), response);
         self.clearDraft();
     }
 
@@ -266,33 +306,42 @@ const AppState = struct {
             return;
         }
 
-        self.provider = persisted.provider;
-        self.harness = persisted.harness;
+        for (persisted.projects, 0..) |project, index| {
+            var loaded = try Project.init(self.allocator, project.label, project.path, project.unread_count);
+            loaded.provider = project.provider;
+            loaded.harness = project.harness;
+            loaded.setDraft(project.draft);
 
-        for (persisted.projects) |project| {
-            try self.projects.append(self.allocator, .{
-                .label = try self.dupeZ(project.label),
-                .path = try self.dupeZ(project.path),
-                .unread_count = project.unread_count,
-            });
-        }
+            for (project.messages) |message| {
+                try loaded.messages.append(self.allocator, .{
+                    .role = message.role,
+                    .author = try self.dupeZ(message.author),
+                    .body = try self.dupeZ(message.body),
+                });
+            }
 
-        for (persisted.messages) |message| {
-            try self.messages.append(self.allocator, .{
-                .role = message.role,
-                .author = try self.dupeZ(message.author),
-                .body = try self.dupeZ(message.body),
-            });
+            if (index == 0 and project.messages.len == 0 and persisted.messages != null) {
+                loaded.provider = persisted.provider orelse loaded.provider;
+                loaded.harness = persisted.harness orelse loaded.harness;
+                if (persisted.draft) |draft| loaded.setDraft(draft);
+                for (persisted.messages.?) |message| {
+                    try loaded.messages.append(self.allocator, .{
+                        .role = message.role,
+                        .author = try self.dupeZ(message.author),
+                        .body = try self.dupeZ(message.body),
+                    });
+                }
+            }
+
+            if (loaded.messages.items.len == 0) {
+                try self.seedProjectConversation(&loaded, false);
+            }
+
+            try self.projects.append(self.allocator, loaded);
         }
 
         self.selected_project_index = @min(persisted.selected_project_index, self.projects.items.len - 1);
         self.next_project_number = self.projects.items.len + 1;
-
-        if (persisted.messages.len == 0) {
-            try self.appendMessage(.assistant, providerLabel(self.provider), "Pick a project from the left rail, choose a provider and harness, then start a chat workflow here.");
-        }
-
-        self.setDraft(persisted.draft);
         self.dirty = false;
     }
 
@@ -301,11 +350,9 @@ const AppState = struct {
         try self.addProject("Verde Native", "~/development/blinkx-projects/editor-ts", 0);
         try self.addProject("Docs Rewrite", "~/work/docs-rewrite", 1);
 
-        try self.appendMessage(.system, "Workspace", "Native shell prototype active. Canvas and code tabs are intentionally omitted in this first pass.");
-        try self.appendMessage(.assistant, "OpenCode", "Pick a project from the left rail, choose a provider and harness, then start a chat workflow here.");
-        try self.appendMessage(.user, "You", "Let us start with the native chat shell and keep the rest of the workbench out of scope.");
-
-        self.setDraft("Sketch the app shell with a simple left rail, project add button, and a chat-first layout.");
+        for (self.projects.items) |*project| {
+            try self.seedProjectConversation(project, true);
+        }
         self.dirty = true;
     }
 
@@ -313,24 +360,25 @@ const AppState = struct {
         return &self.projects.items[self.selected_project_index];
     }
 
+    fn currentProjectMutable(self: *AppState) *Project {
+        return &self.projects.items[self.selected_project_index];
+    }
+
     fn currentDraft(self: *const AppState) []const u8 {
-        const slice = self.draft_storage[0..];
-        return std.mem.sliceTo(slice, 0);
+        return self.currentProject().currentDraft();
     }
 
     fn draftBuffer(self: *AppState) [:0]u8 {
-        return self.draft_storage[0 .. self.draft_storage.len - 1 :0];
+        return self.currentProjectMutable().draftBuffer();
     }
 
     fn setDraft(self: *AppState, value: []const u8) void {
-        @memset(&self.draft_storage, 0);
-        const len = @min(value.len, DRAFT_CAPACITY - 1);
-        @memcpy(self.draft_storage[0..len], value[0..len]);
+        self.currentProjectMutable().setDraft(value);
         self.markDirty();
     }
 
     fn clearDraft(self: *AppState) void {
-        self.draft_storage[0] = 0;
+        self.currentProjectMutable().clearDraft();
         self.markDirty();
     }
 
@@ -353,17 +401,33 @@ const AppState = struct {
     }
 
     fn deinit(self: *AppState) void {
-        for (self.projects.items) |project| {
-            self.allocator.free(project.label);
-            self.allocator.free(project.path);
+        for (self.projects.items) |*project| {
+            project.deinit(self.allocator);
         }
         self.projects.deinit(self.allocator);
+    }
 
-        for (self.messages.items) |message| {
-            self.allocator.free(message.author);
-            self.allocator.free(message.body);
+    fn seedProjectConversation(self: *AppState, project: *Project, include_user_prompt: bool) !void {
+        if (project.messages.items.len > 0) return;
+
+        try project.messages.append(self.allocator, .{
+            .role = .system,
+            .author = try self.dupeZ("Workspace"),
+            .body = try self.dupeZ("Native shell prototype active. Canvas and code tabs are intentionally omitted in this first pass."),
+        });
+        try project.messages.append(self.allocator, .{
+            .role = .assistant,
+            .author = try self.dupeZ(providerLabel(project.provider)),
+            .body = try self.dupeZ("Pick a project from the left rail, choose a provider and harness, then start a chat workflow here."),
+        });
+        if (include_user_prompt) {
+            try project.messages.append(self.allocator, .{
+                .role = .user,
+                .author = try self.dupeZ("You"),
+                .body = try self.dupeZ("Let us start with the native chat shell and keep the rest of the workbench out of scope."),
+            });
+            project.setDraft("Sketch the app shell with a simple left rail, project add button, and a chat-first layout.");
         }
-        self.messages.deinit(self.allocator);
     }
 };
 
@@ -438,18 +502,7 @@ fn processEvents() bool {
     while (sdl.pollEvent(&event)) {
         _ = zgui.backend.processEvent(&event);
         switch (event.type) {
-            // Wayland can emit close-request signals during early window lifecycle.
-            // Only a real SDL quit event should tear down the native shell.
-            .quit => {
-                log.err("received SDL quit event", .{});
-                return false;
-            },
-            .window_close_requested => {
-                log.err("received SDL window_close_requested", .{});
-            },
-            .window_destroyed => {
-                log.err("received SDL window_destroyed", .{});
-            },
+            .quit => return false,
             else => {},
         }
     }
@@ -552,11 +605,12 @@ fn renderWorkspaceHeader(state: *AppState) void {
     zgui.textColored(COLOR_WHITE, "{s}", .{project.label});
     zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{project.path});
 
-    if (zgui.comboFromEnum("Provider", &state.provider)) {
+    const editable_project = state.currentProjectMutable();
+    if (zgui.comboFromEnum("Provider", &editable_project.provider)) {
         state.markDirty();
     }
     zgui.sameLine(.{ .spacing = 18.0 });
-    if (zgui.comboFromEnum("Harness", &state.harness)) {
+    if (zgui.comboFromEnum("Harness", &editable_project.harness)) {
         state.markDirty();
     }
     zgui.sameLine(.{ .spacing = 18.0 });
@@ -571,7 +625,7 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
     });
     defer zgui.endChild();
 
-    for (state.messages.items, 0..) |message, index| {
+    for (state.currentProject().messages.items, 0..) |message, index| {
         const bubble_color = messageBubbleColor(message.role);
         zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = bubble_color });
 
