@@ -2,7 +2,7 @@ import { defineElectrobunRPC } from 'electrobun/bun';
 
 import type { Database } from 'bun:sqlite';
 
-import type { DesktopRendererLogMessage, DesktopRpcSchema, DesktopZoomAction } from '../shared/desktopRpcSchema';
+import type { DesktopPerfEvent, DesktopRendererLogMessage, DesktopRpcSchema, DesktopZoomAction } from '../shared/desktopRpcSchema';
 import { createDesktopService } from './server';
 
 type DesktopRpcOptions = {
@@ -11,6 +11,7 @@ type DesktopRpcOptions = {
   userDataPath: string;
   onToggleDevTools?: () => void;
   onAdjustZoom?: (action: DesktopZoomAction) => void;
+  onPerfEvent?: (event: Omit<DesktopPerfEvent, 'sessionId'>) => void;
 };
 
 const rpcDebugEnabled = (): boolean => {
@@ -40,12 +41,33 @@ export const createDesktopRpc = (options: DesktopRpcOptions) => {
 
       try {
         const result = await handler(params);
+        options.onPerfEvent?.({
+          origin: 'main',
+          kind: 'rpc',
+          name: method,
+          at: Date.now(),
+          fields: {
+            durationMs: Date.now() - startedAt,
+            ok: true,
+          },
+        });
         if (rpcDebugEnabled()) {
           // console.log(`[desktop-rpc] <- ${method} ${Date.now() - startedAt}ms ${serializeLogValue(result)}`);
         }
         return result;
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
+        options.onPerfEvent?.({
+          origin: 'main',
+          kind: 'rpc',
+          name: method,
+          at: Date.now(),
+          fields: {
+            durationMs: Date.now() - startedAt,
+            ok: false,
+            error: message,
+          },
+        });
         if (rpcDebugEnabled()) {
           console.error(`[desktop-rpc] !! ${method} ${Date.now() - startedAt}ms ${message}`);
         }
@@ -68,7 +90,7 @@ export const createDesktopRpc = (options: DesktopRpcOptions) => {
     // console.log(line);
   };
 
-  return defineElectrobunRPC<DesktopRpcSchema>('bun', {
+  return defineElectrobunRPC<DesktopRpcSchema, 'bun'>('bun', {
     handlers: {
       requests: {
         getDesktopState: wrapRequest('getDesktopState', () => service.getState()),
@@ -88,8 +110,11 @@ export const createDesktopRpc = (options: DesktopRpcOptions) => {
         }),
       },
       messages: {
-        rendererLog: (payload) => {
+        rendererLog: (payload: DesktopRendererLogMessage) => {
           logRendererMessage(payload);
+        },
+        perfEvent: (payload: DesktopPerfEvent) => {
+          options.onPerfEvent?.(payload);
         },
       },
     },

@@ -1,4 +1,5 @@
 import type { DesktopKeyboardConfig } from './shared/keyboard';
+import type { DesktopPerfConfig } from './shared/desktopRpcSchema';
 
 export {};
 
@@ -15,6 +16,7 @@ declare global {
       initialProjectRoot?: string;
       keyboard: DesktopKeyboardConfig;
       nativeShortcutsAvailable?: boolean;
+      perf?: DesktopPerfConfig;
     };
   }
 }

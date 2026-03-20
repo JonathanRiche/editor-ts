@@ -538,6 +538,45 @@ describe('aiChat helpers', () => {
     ]);
   });
 
+  it('sends raw prompts without the workspace envelope when raw mode is enabled', async () => {
+    const sessionId = 'session-raw';
+    let sentText = '';
+
+    const client = {
+      session: {
+        prompt: async (args: { body: { parts: Array<{ type: string; text?: string }> } }) => {
+          sentText = args.body.parts[0]?.text ?? '';
+          return {
+            data: {
+              parts: [
+                {
+                  type: 'text',
+                  text: 'Sure, I can help with that.',
+                },
+              ],
+            },
+          };
+        },
+      },
+    } as unknown as OpencodeClient;
+
+    const result = await requestAiReplacements({
+      client,
+      prompt: 'Remove the social links from the main page.',
+      sessionId,
+      promptMode: 'raw',
+      model: {
+        providerID: 'opencode',
+        modelID: 'gpt-5.4',
+      },
+    });
+
+    expect(sentText).toBe('Remove the social links from the main page.');
+    expect(result.responseMode).toBe('raw');
+    expect(result.rawText).toBe('Sure, I can help with that.');
+    expect(result.replacements).toEqual([]);
+  });
+
   it('applies replacements to storage handlers', async () => {
     const page = new Page(basePage);
     const applied: EditorTsAiChatReplacement[] = [];

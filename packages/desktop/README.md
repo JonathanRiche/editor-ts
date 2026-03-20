@@ -46,6 +46,12 @@ Electrobun native shell:
 bun run dev:native
 ```
 
+Native shell with perf tracing enabled:
+
+```bash
+bun run dev:native:perf
+```
+
 Or from the repo root:
 
 ```bash
@@ -218,3 +224,53 @@ scale instead:
 ```bash
 EDITORTS_DESKTOP_UI_SCALE=0.8 bun run dev:native
 ```
+
+## Perf tracing
+
+The desktop target now has an opt-in perf recorder for both the native Bun
+process and the renderer. It writes newline-delimited JSON events so you can
+correlate CPU and memory spikes with app actions like startup, project connect,
+editor boot, AI/code workspace activation, reloads, long tasks, and frame stalls.
+
+Enable it with:
+
+```bash
+EDITORTS_DESKTOP_PERF=1 bun run dev:native
+```
+
+Or use:
+
+```bash
+bun run dev:native:perf
+```
+
+Optional tuning:
+
+```bash
+EDITORTS_DESKTOP_PERF=1 \
+EDITORTS_DESKTOP_PERF_INTERVAL_MS=500 \
+EDITORTS_DESKTOP_PERF_FRAME_STALL_MS=32 \
+EDITORTS_DESKTOP_PERF_LONG_TASK_MS=40 \
+bun run dev:native
+```
+
+Trace output is written under the native app-data directory:
+
+```text
+<userDataPath>/perf/trace-<timestamp>-pid<PID>.jsonl
+```
+
+Each line is a JSON event with:
+
+- `origin`: `main` or `renderer`
+- `kind`: `sample`, `measure`, `rpc`, `longtask`, `frame-stall`, or `lifecycle`
+- `name`: event label such as `process`, `initializeWithProvider`, `editor.content.load`
+- `fields`: sampled CPU/memory values or timing metadata
+
+Useful events to inspect first:
+
+- `main` + `sample` + `process`: Bun/Electrobun CPU and memory over time
+- `renderer` + `sample` + `renderer-state`: renderer heap growth
+- `renderer` + `measure`: editor/project lifecycle timings
+- `renderer` + `longtask` / `frame-stall`: UI jank sources
+- `main` + `rpc`: slow native RPC calls

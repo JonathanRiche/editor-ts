@@ -192,6 +192,16 @@ export interface OpencodeAiProviderConfig {
   };
 
   /**
+   * Optional prompt shaping for session-backed chat requests.
+   *
+   * When `injectWorkspaceSnapshot` is false, EditorTs sends the user's raw
+   * prompt to OpenCode instead of prepending the workspace/system envelope.
+   */
+  prompt?: {
+    injectWorkspaceSnapshot?: boolean;
+  };
+
+  /**
    * Optional HTTP Basic Auth for password-protected opencode servers.
    * Username defaults to "opencode" on the server if not provided.
    */
@@ -272,9 +282,11 @@ export type EditorTsAiChatSession = {
 };
 
 export type EditorTsAiChatResult = {
+  responseMode: 'raw' | 'replacements';
   replacements: EditorTsAiChatReplacement[];
   rawText: string;
   warnings?: string[];
+  skippedPaths: string[];
 
   /** Session that produced this response (for reuse/persistence). */
   sessionId: string;

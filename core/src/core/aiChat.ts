@@ -286,7 +286,14 @@ export const parseAiChatResponse = (assistantText: string, sessionId: string): E
     }
   }
 
-  return { replacements, rawText, sessionId, warnings };
+  return {
+    responseMode: 'replacements',
+    replacements,
+    rawText,
+    sessionId,
+    warnings,
+    skippedPaths: [],
+  };
 };
 
 export const buildAiChatSystemPrompt = (): string => {
@@ -580,6 +587,7 @@ export const requestAiReplacements = async (args: {
     providerID: string;
     modelID: string;
   };
+  promptMode?: 'workspace-envelope' | 'raw';
   stream?: boolean;
   onStream?: (delta: string) => void;
 }): Promise<EditorTsAiChatResult> => {
@@ -596,6 +604,7 @@ export const requestAiReplacements = async (args: {
     sessionId: existingSessionId,
     sessionTitle,
     model: selectedModel,
+    promptMode = 'workspace-envelope',
     stream,
     onStream,
   } = args;
@@ -619,35 +628,40 @@ export const requestAiReplacements = async (args: {
     });
   }
 
-  const normalizedWorkspaceFiles = workspaceFiles ?? {
-    'page.json': pageJson ?? '',
-    'styles.css': css ?? '',
-    ...(componentScripts ?? {}),
-  };
+  const normalizedWorkspaceFiles = promptMode === 'workspace-envelope'
+    ? (workspaceFiles ?? {
+      'page.json': pageJson ?? '',
+      'styles.css': css ?? '',
+      ...(componentScripts ?? {}),
+    })
+    : {};
 
-  const normalizedAllowedPaths = allowedPaths
-    ?? Object.keys(normalizedWorkspaceFiles).sort((a, b) => a.localeCompare(b));
+  const normalizedAllowedPaths = promptMode === 'workspace-envelope'
+    ? (allowedPaths
+      ?? Object.keys(normalizedWorkspaceFiles).sort((a, b) => a.localeCompare(b)))
+    : [];
 
-  const system = buildAiChatSystemPromptWithOptions({
-    allowedPaths: normalizedAllowedPaths,
-  });
-  const snapshot = buildAiChatSnapshotFromFiles(normalizedWorkspaceFiles, {
-    derivedPaths,
-    readOnlyPaths,
-  });
-  const requestText = [
-    system,
-    '',
-    snapshot,
-    '',
-    'REQUEST:',
-    prompt,
-  ].join('\n');
+  const requestText = promptMode === 'workspace-envelope'
+    ? [
+      buildAiChatSystemPromptWithOptions({
+        allowedPaths: normalizedAllowedPaths,
+      }),
+      '',
+      buildAiChatSnapshotFromFiles(normalizedWorkspaceFiles, {
+        derivedPaths,
+        readOnlyPaths,
+      }),
+      '',
+      'REQUEST:',
+      prompt,
+    ].join('\n')
+    : prompt;
 
   const model = selectedModel ?? await chooseChatModel(client);
   logAiDebug('prepared ai request', {
     sessionId,
     model,
+    promptMode,
     streamEnabled: !!stream && typeof onStream === 'function',
     promptLength: prompt.length,
     workspaceFileCount: Object.keys(normalizedWorkspaceFiles).length,
@@ -948,6 +962,17 @@ export const requestAiReplacements = async (args: {
       throw new Error('No assistant text returned.');
     }
 
+    if (promptMode === 'raw') {
+      return {
+        responseMode: 'raw',
+        replacements: [],
+        rawText: assistantText,
+        sessionId,
+        warnings: [],
+        skippedPaths: [],
+      };
+    }
+
     const parsed = parseAiChatResponse(assistantText, sessionId);
     logAiDebug('parsed streamed ai response', {
       sessionId,
@@ -986,6 +1011,17 @@ export const requestAiReplacements = async (args: {
       partCount: parts.length,
     });
     throw new Error('No assistant text returned.');
+  }
+
+  if (promptMode === 'raw') {
+    return {
+      responseMode: 'raw',
+      replacements: [],
+      rawText: assistantText,
+      sessionId,
+      warnings: [],
+      skippedPaths: [],
+    };
   }
 
   const parsed = parseAiChatResponse(assistantText, sessionId);

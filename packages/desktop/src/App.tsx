@@ -28,6 +28,7 @@ import {
   persistNativeRecentProject,
   type DesktopRecentProject,
 } from './desktopNativeRpc';
+import { measureRendererAsync, recordRendererPerf } from './rendererPerf';
 
 type FsMode = 'browser-folder' | 'server-routes';
 
@@ -60,7 +61,18 @@ type DesktopNativeSettings = {
 
 const AI_BASE_URL_STORAGE_KEY = 'editorts:filesystem-solid:ai-base-url';
 const AI_DIRECTORY_STORAGE_KEY = 'editorts:filesystem-solid:ai-directory';
-const DEFAULT_AI_BASE_URL = 'http://127.0.0.1:4096';
+const DEFAULT_DIRECT_AI_BASE_URL = 'http://127.0.0.1:4096';
+
+const defaultAiBaseUrl = (): string => {
+  if (typeof window === 'undefined') return DEFAULT_DIRECT_AI_BASE_URL;
+
+  const origin = window.location.origin;
+  if (origin.startsWith('http://') || origin.startsWith('https://')) {
+    return `${origin}/opencode`;
+  }
+
+  return DEFAULT_DIRECT_AI_BASE_URL;
+};
 
 const normalizePath = (path: string): string => path.replace(/^\.\//, '').replace(/\\/g, '/');
 
@@ -329,7 +341,7 @@ export default function App() {
   const [projectRoot, setProjectRoot] = createSignal('');
   const [previewBaseUrl, setPreviewBaseUrl] = createSignal('');
   const [aiBaseUrl, setAiBaseUrl] = createSignal(
-    loadStoredAiBaseUrl(AI_BASE_URL_STORAGE_KEY, DEFAULT_AI_BASE_URL),
+    loadStoredAiBaseUrl(AI_BASE_URL_STORAGE_KEY, defaultAiBaseUrl()),
   );
   const [aiDirectory, setAiDirectory] = createSignal(loadStoredValue(AI_DIRECTORY_STORAGE_KEY));
   const [statusText, setStatusText] = createSignal(
@@ -402,6 +414,10 @@ export default function App() {
     suggestedAiDirectory?: string,
     enableAdvancedUi = advancedUiReady()
   ): Promise<void> => {
+    recordRendererPerf('mark', 'initializeWithProvider:start', {
+      advancedUi: enableAdvancedUi,
+      sessionNamespaceSuffix,
+    });
     clearPermissionRequests();
     activeProjectConnection = {
       fs,
@@ -410,11 +426,22 @@ export default function App() {
       suggestedAiDirectory,
     };
 
-    await ensureSeedFiles(fs);
+    await measureRendererAsync('ensureSeedFiles', async () => {
+      await ensureSeedFiles(fs);
+    }, {
+      sessionNamespaceSuffix,
+    });
 
     if (editor) {
+      recordRendererPerf('mark', 'editor.destroy:start', {
+        sessionNamespaceSuffix,
+      });
       editor.destroy();
       editor = null;
+      recordRendererPerf('measure', 'editor.destroy', {
+        sessionNamespaceSuffix,
+        ok: true,
+      });
     }
 
     const resolvedAiDirectory = aiDirectory().trim() || suggestedAiDirectory?.trim() || '';
@@ -538,6 +565,9 @@ export default function App() {
           return nextDirectory || '';
         },
         stream: { enabled: true },
+        prompt: {
+          injectWorkspaceSnapshot: false,
+        },
         sessions: {
           storageNamespace: `filesystem-solid:${sessionNamespaceSuffix}`,
           hydrateRemoteList: false,
@@ -580,14 +610,34 @@ export default function App() {
       };
     }
 
-    editor = init(editorConfig);
-    installAiDiffPreview(editor);
-    setAiDiffEmptyState(
-      'Generate a reply with file replacements to inspect it here before applying.',
-      'Awaiting AI changes',
-    );
-    await editor.content.load();
-    const preview = await editor.preview.describe();
+    editor = await measureRendererAsync('editor.init', async () => {
+      return init(editorConfig);
+    }, {
+      advancedUi: enableAdvancedUi,
+      sessionNamespaceSuffix,
+    });
+    if (editorConfig.aiProvider?.provider === 'opencode' && editorConfig.aiProvider.prompt?.injectWorkspaceSnapshot === false) {
+      setAiDiffEmptyState(
+        'Raw OpenCode chat is active. Use OpenCode clients and session tools for transcript-first workflows.',
+        'No diff preview',
+      );
+    } else {
+      installAiDiffPreview(editor);
+      setAiDiffEmptyState(
+        'Generate a reply with file replacements to inspect it here before applying.',
+        'Awaiting AI changes',
+      );
+    }
+    await measureRendererAsync('editor.content.load', async () => {
+      await editor?.content.load();
+    }, {
+      sessionNamespaceSuffix,
+    });
+    const preview = await measureRendererAsync('editor.preview.describe', async () => {
+      return editor?.preview.describe();
+    }, {
+      sessionNamespaceSuffix,
+    });
     setHasProject(true);
     const aiDirectoryMessage = resolvedAiDirectory
       ? ' OpenCode is scoped to the selected project path.'
@@ -604,6 +654,11 @@ export default function App() {
     }
 
     (window as unknown as { editor?: ReturnType<typeof init> }).editor = editor;
+    recordRendererPerf('measure', 'initializeWithProvider', {
+      advancedUi: enableAdvancedUi,
+      sessionNamespaceSuffix,
+      ok: true,
+    });
   };
 
   const connectProjectRoot = async (args: {
@@ -642,7 +697,13 @@ export default function App() {
     })();
     const sessionNamespace =
       args.sessionNamespaceSuffix ?? (sanitizeSessionNamespaceSegment(root) || 'project-root');
-    await initializeWithProvider(fs, args.connectedMessage, sessionNamespace, args.suggestedAiDirectory ?? root);
+    await measureRendererAsync('connectProjectRoot', async () => {
+      await initializeWithProvider(fs, args.connectedMessage, sessionNamespace, args.suggestedAiDirectory ?? root);
+    }, {
+      mode: args.nextMode ?? mode(),
+      root,
+      sessionNamespace,
+    });
 
     if (nativeDesktop && args.persistLastProject) {
       void persistNativeDesktopSetting('lastProjectRoot', root);
@@ -669,19 +730,26 @@ export default function App() {
       ? 'Loading AI workspace for this project...'
       : 'Loading code workspace for this project...');
 
-    await initializeWithProvider(
-      activeProjectConnection.fs,
-      activeProjectConnection.connectedMessage,
-      activeProjectConnection.sessionNamespaceSuffix,
-      activeProjectConnection.suggestedAiDirectory,
-      true,
-    );
+    const connection = activeProjectConnection;
+    await measureRendererAsync('enableAdvancedWorkspaceUi', async () => {
+      await initializeWithProvider(
+        connection.fs,
+        connection.connectedMessage,
+        connection.sessionNamespaceSuffix,
+        connection.suggestedAiDirectory,
+        true,
+      );
+    }, {
+      target,
+    });
   };
 
   const hydrateNativeDesktopState = async (options?: { restoreProject?: boolean }): Promise<void> => {
     if (!nativeDesktop) return;
 
-    const payload = await fetchNativeDesktopState();
+    const payload = await measureRendererAsync('hydrateNativeDesktopState.fetch', async () => {
+      return fetchNativeDesktopState();
+    });
     const settings = parseDesktopNativeSettings(payload?.settings);
     const nextRecentProjects = parseDesktopRecentProjects(payload?.recentProjects);
     setRecentProjects(nextRecentProjects);
@@ -733,18 +801,25 @@ export default function App() {
       return;
     }
 
-    await connectProjectRoot({
+    await measureRendererAsync('connectInitialProjectRoot', async () => {
+      await connectProjectRoot({
+        root,
+        provider: createNativeProjectProvider(root),
+        connectedMessage: `Native project connected from CLI: ${root}`,
+        nextMode: 'browser-folder',
+        persistLastProject: true,
+        persistRecentProject: true,
+      });
+    }, {
       root,
-      provider: createNativeProjectProvider(root),
-      connectedMessage: `Native project connected from CLI: ${root}`,
-      nextMode: 'browser-folder',
-      persistLastProject: true,
-      persistRecentProject: true,
     });
     await hydrateNativeDesktopState();
   };
 
   onMount(() => {
+    recordRendererPerf('lifecycle', 'app-mounted', {
+      nativeDesktop,
+    });
     if (!nativeDesktop) return;
 
     void (async () => {
@@ -804,7 +879,11 @@ export default function App() {
         ? root.name.trim()
         : 'browser-folder';
       const sessionNamespace = sanitizeSessionNamespaceSegment(folderName) || 'browser-folder';
-      await initializeWithProvider(fs, 'Browser folder connected. Files tab is live.', sessionNamespace);
+      await measureRendererAsync('connectBrowserFolder', async () => {
+        await initializeWithProvider(fs, 'Browser folder connected. Files tab is live.', sessionNamespace);
+      }, {
+        sessionNamespace,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.toLowerCase().includes('abort')) {
@@ -847,9 +926,11 @@ export default function App() {
 
     try {
       setStatusText('Reloading project files...');
-      await editor.content.load();
-      editor.refresh();
-      await editor.preview.refresh();
+      await measureRendererAsync('reloadProject', async () => {
+        await editor?.content.load();
+        editor?.refresh();
+        await editor?.preview.refresh();
+      });
       setStatusText('Project reloaded.');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

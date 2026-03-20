@@ -10,6 +10,7 @@ const OPENCODE_SERVER_BROWSER_STUB = fileURLToPath(new URL('../starter-shared/sr
 const SQLOCAL_DISABLED_STUB = fileURLToPath(new URL('./src/sqlocal-disabled.ts', import.meta.url));
 
 const BLOCKED_DIRS = new Set(['.git', 'node_modules', 'dist', '.vite']);
+const DEFAULT_OPENCODE_BASE_URL = 'http://127.0.0.1:4096';
 
 class ApiError extends Error {
   readonly status: number;
@@ -96,6 +97,71 @@ const readBody = async (req: IncomingMessage): Promise<string> => {
 
     req.on('error', reject);
   });
+};
+
+const forwardOpencodeRequest = async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
+  const url = new URL(req.url || '/', 'http://localhost');
+  if (!url.pathname.startsWith('/opencode/')) {
+    return false;
+  }
+
+  try {
+    const upstreamBaseUrl = process.env.OPENCODE_BASE_URL?.trim() || DEFAULT_OPENCODE_BASE_URL;
+    const upstreamPath = url.pathname.replace(/^\/opencode/, '');
+    const upstreamUrl = new URL(`${upstreamPath}${url.search}`, upstreamBaseUrl);
+    const headers = new Headers();
+
+    Object.entries(req.headers).forEach(([key, value]) => {
+      if (typeof value === 'undefined') return;
+      if (key.toLowerCase() === 'host' || key.toLowerCase() === 'origin') return;
+
+      if (Array.isArray(value)) {
+        value.forEach((entry) => headers.append(key, entry));
+        return;
+      }
+
+      headers.set(key, value);
+    });
+
+    const password = process.env.OPENCODE_SERVER_PASSWORD;
+    if (password) {
+      const username = process.env.OPENCODE_SERVER_USERNAME?.trim() || 'opencode';
+      const basic = Buffer.from(`${username}:${password}`).toString('base64');
+      headers.set('authorization', `Basic ${basic}`);
+    }
+
+    const method = (req.method || 'GET').toUpperCase();
+    const body = method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
+      ? undefined
+      : await readBody(req);
+    const upstreamResponse = await fetch(upstreamUrl, {
+      method,
+      headers,
+      body,
+      duplex: body ? 'half' : undefined,
+    });
+
+    res.statusCode = upstreamResponse.status;
+    res.statusMessage = upstreamResponse.statusText;
+    upstreamResponse.headers.forEach((value, key) => {
+      if (key.toLowerCase() === 'content-encoding') return;
+      res.setHeader(key, value);
+    });
+    res.setHeader('access-control-allow-origin', '*');
+
+    if (!upstreamResponse.body) {
+      res.end();
+      return true;
+    }
+
+    const buffer = Buffer.from(await upstreamResponse.arrayBuffer());
+    res.end(buffer);
+    return true;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    sendJson(res, 502, { error: `OpenCode proxy failed: ${message}` });
+    return true;
+  }
 };
 
 const listFilesRecursive = async (root: string): Promise<string[]> => {
@@ -198,6 +264,8 @@ const fsRoutesPlugin = (): Plugin => {
       server.middlewares.use((req, res, next) => {
         void (async () => {
           try {
+            const handledProxy = await forwardOpencodeRequest(req, res);
+            if (handledProxy) return;
             const handled = await handleFsApi(req, res);
             if (!handled) next();
           } catch (err: unknown) {
@@ -210,6 +278,8 @@ const fsRoutesPlugin = (): Plugin => {
       server.middlewares.use((req, res, next) => {
         void (async () => {
           try {
+            const handledProxy = await forwardOpencodeRequest(req, res);
+            if (handledProxy) return;
             const handled = await handleFsApi(req, res);
             if (!handled) next();
           } catch (err: unknown) {

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:native": "bash ./scripts/dev-native.sh",
+    "dev:native:perf": "EDITORTS_DESKTOP_PERF=1 bash ./scripts/dev-native.sh",
     "dev:native:shell": "bun x electrobun dev",
     "build": "bun run build:native",
     "build:web": "vite build",

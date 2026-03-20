@@ -1,6 +1,7 @@
 import { render } from 'solid-js/web';
 import App from './App';
 import { adjustNativeDesktopZoom, isNativeDesktopRuntime, sendRendererLog, toggleNativeDesktopDevTools } from './desktopNativeRpc';
+import { installRendererPerfTracing, recordRendererPerf } from './rendererPerf';
 import { getDefaultDesktopKeyboardConfig, matchesDesktopActionKeybind } from './shared/keyboard';
 import './styles.css';
 
@@ -52,6 +53,8 @@ const applyDesktopUiScale = (): void => {
 };
 
 applyDesktopUiScale();
+installRendererPerfTracing();
+recordRendererPerf('lifecycle', 'renderer-entry-loaded');
 
 const installDesktopConsoleForwarding = (): void => {
   if (!isNativeDesktopRuntime() || !isDesktopAiDebugEnabled()) {
@@ -239,7 +242,13 @@ const root = document.getElementById('app');
 
 if (root) {
   try {
+    recordRendererPerf('mark', 'solid-render:start');
     render(() => <App />, root);
+    queueMicrotask(() => {
+      recordRendererPerf('measure', 'solid-render', {
+        mounted: true,
+      });
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;

@@ -2,6 +2,7 @@ import { BrowserWindow, BuildConfig, GlobalShortcut, PATHS } from 'electrobun/bu
 import * as fs from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 
 import {
   DESKTOP_KEYBOARD_ACTIONS,
@@ -14,6 +15,7 @@ import {
 } from '../shared/keyboard';
 import type { DesktopZoomAction } from '../shared/desktopRpcSchema';
 import { createDesktopRpc } from './desktopRpc';
+import { createPerfTraceRecorder } from './perfTrace';
 import { getAppStateValue, openDesktopDatabase, setAppStateValue } from './storage';
 
 const DEFAULT_DESKTOP_RENDERER_URL = 'http://localhost:2050';
@@ -163,6 +165,7 @@ const bundledRendererServer = usingBundledRenderer
   : null;
 
 const { db, sqlitePath, userDataPath } = openDesktopDatabase();
+const perfTrace = await createPerfTraceRecorder({ userDataPath });
 
 const readStoredPageZoom = (): number | null => {
   const rawValue = getAppStateValue(db, DESKTOP_ZOOM_STORAGE_KEY);
@@ -269,6 +272,7 @@ const desktopBoot = {
   initialProjectRoot: initialProjectRoot || undefined,
   keyboard: desktopKeyboard,
   nativeShortcutsAvailable: !isWaylandDesktop(),
+  perf: perfTrace.config,
 } as const;
 
 const preloadScript = `
@@ -276,11 +280,31 @@ const preloadScript = `
 `;
 
 process.on('uncaughtException', (error: Error) => {
+  perfTrace.record({
+    origin: 'main',
+    kind: 'lifecycle',
+    name: 'uncaught-exception',
+    at: Date.now(),
+    monotonicMs: performance.now(),
+    fields: {
+      message: error.message,
+    },
+  });
   console.error('[desktop-bun:error] uncaughtException', error.stack ?? error.message);
 });
 
 process.on('unhandledRejection', (reason: unknown) => {
   const message = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+  perfTrace.record({
+    origin: 'main',
+    kind: 'lifecycle',
+    name: 'unhandled-rejection',
+    at: Date.now(),
+    monotonicMs: performance.now(),
+    fields: {
+      message,
+    },
+  });
   console.error('[desktop-bun:error] unhandledRejection', message);
 });
 
@@ -420,6 +444,9 @@ const desktopRpc = createDesktopRpc({
   userDataPath,
   onToggleDevTools: toggleWindowDevTools,
   onAdjustZoom: performZoomAction,
+  onPerfEvent: (event) => {
+    perfTrace.record(event);
+  },
 });
 
 const mainWindow = new BrowserWindow({
@@ -434,6 +461,17 @@ const mainWindow = new BrowserWindow({
   },
   preload: preloadScript,
   rpc: desktopRpc,
+});
+perfTrace.record({
+  origin: 'main',
+  kind: 'lifecycle',
+  name: 'browser-window-created',
+  at: Date.now(),
+  monotonicMs: performance.now(),
+  fields: {
+    rendererUrl,
+    bundledRenderer: usingBundledRenderer,
+  },
 });
 
 const registerWindowShortcut = (
@@ -483,9 +521,36 @@ const registerConfiguredShortcuts = (keyboard: DesktopKeyboardConfig): void => {
 };
 
 applyWindowZoom();
-mainWindow.webview?.on('dom-ready', applyWindowZoom);
-mainWindow.webview?.on('did-navigate', applyWindowZoom);
-mainWindow.webview?.on('did-navigate-in-page', applyWindowZoom);
+mainWindow.webview?.on('dom-ready', () => {
+  perfTrace.record({
+    origin: 'main',
+    kind: 'lifecycle',
+    name: 'webview-dom-ready',
+    at: Date.now(),
+    monotonicMs: performance.now(),
+  });
+  applyWindowZoom();
+});
+mainWindow.webview?.on('did-navigate', () => {
+  perfTrace.record({
+    origin: 'main',
+    kind: 'lifecycle',
+    name: 'webview-did-navigate',
+    at: Date.now(),
+    monotonicMs: performance.now(),
+  });
+  applyWindowZoom();
+});
+mainWindow.webview?.on('did-navigate-in-page', () => {
+  perfTrace.record({
+    origin: 'main',
+    kind: 'lifecycle',
+    name: 'webview-did-navigate-in-page',
+    at: Date.now(),
+    monotonicMs: performance.now(),
+  });
+  applyWindowZoom();
+});
 if (isWaylandDesktop()) {
   console.log('[desktop-shortcuts] skipping native global shortcuts on Wayland');
 } else {
@@ -493,6 +558,10 @@ if (isWaylandDesktop()) {
 }
 
 registerConfiguredShortcuts(desktopKeyboard);
+
+process.on('beforeExit', () => {
+  void perfTrace.stop();
+});
 
 process.on('exit', () => {
   if (pendingReloadTimer !== null) {

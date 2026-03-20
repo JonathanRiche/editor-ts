@@ -1,6 +1,7 @@
 import type { ProjectFilesystemProvider } from 'editor-ts';
 import { Electroview } from 'electrobun/view';
 import type {
+  DesktopPerfEvent,
   DesktopNativeState,
   DesktopOpenProjectResult,
   DesktopRecentProject,
@@ -104,6 +105,11 @@ export const openNativeProjectDirectory = async (
 export const sendRendererLog = async (payload: DesktopRendererLogMessage): Promise<void> => {
   const client = await getDesktopRpcClient();
   client.sendProxy.rendererLog(payload);
+};
+
+export const sendRendererPerfEvent = async (payload: DesktopPerfEvent): Promise<void> => {
+  const client = await getDesktopRpcClient();
+  client.sendProxy.perfEvent(payload);
 };
 
 export const toggleNativeDesktopDevTools = async (): Promise<void> => {

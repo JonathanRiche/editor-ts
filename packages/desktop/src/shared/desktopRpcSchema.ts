@@ -38,6 +38,29 @@ export type DesktopRendererLogMessage = {
 
 export type DesktopZoomAction = 'in' | 'out' | 'reset';
 
+export type DesktopPerfScalar = boolean | number | string | null;
+
+export type DesktopPerfFields = Record<string, DesktopPerfScalar>;
+
+export type DesktopPerfEvent = {
+  sessionId?: string;
+  origin: 'main' | 'renderer';
+  kind: 'frame-stall' | 'lifecycle' | 'longtask' | 'mark' | 'measure' | 'rpc' | 'sample';
+  name: string;
+  at: number;
+  monotonicMs?: number;
+  fields?: DesktopPerfFields;
+};
+
+export type DesktopPerfConfig = {
+  enabled: boolean;
+  sessionId?: string;
+  outputPath?: string;
+  sampleIntervalMs?: number;
+  frameStallThresholdMs?: number;
+  longTaskThresholdMs?: number;
+};
+
 export type DesktopRpcSchema = {
   bun: {
     requests: {
@@ -115,6 +138,7 @@ export type DesktopRpcSchema = {
     };
     messages: {
       rendererLog: DesktopRendererLogMessage;
+      perfEvent: DesktopPerfEvent;
     };
   };
   webview: {

@@ -899,9 +899,11 @@ export function init(config: InitConfig): EditorTsEditor {
     ): string => {
       const blocks = messages.flatMap((entry) => {
         const rawText = extractTextFromParts(entry.parts);
-        const text = entry.info.role === 'assistant'
-          ? summarizeAiAssistantText(rawText).trim()
-          : extractAiChatRequestText(rawText).trim();
+        const text = isRawAiChatMode
+          ? rawText.trim()
+          : entry.info.role === 'assistant'
+            ? summarizeAiAssistantText(rawText).trim()
+            : extractAiChatRequestText(rawText).trim();
         if (!text) return [];
         const label = entry.info.role === 'assistant' ? 'assistant' : 'user';
         return [`${label}: ${text}`];
@@ -961,6 +963,24 @@ export function init(config: InitConfig): EditorTsEditor {
       if (!aiChatStatus) return;
       aiChatStatus.dataset.state = state;
       aiChatStatus.textContent = text;
+    };
+
+    const formatAiUiError = (error: unknown): string => {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const normalized = rawMessage.trim();
+      if (!normalized) {
+        return 'Unknown AI error.';
+      }
+
+      if (normalized === 'Failed to fetch') {
+        const baseUrl = ai?.getUrl() ?? aiBaseUrlInput?.value?.trim() ?? aiConfig.baseUrl ?? '';
+        const proxyHint = baseUrl.startsWith(window.location.origin)
+          ? `Check that OpenCode is reachable behind ${baseUrl}.`
+          : 'Direct browser requests can fail on OpenCode preflight or stream endpoints. Prefer a same-origin proxy such as `/opencode`.';
+        return `OpenCode request failed before a reply was received. ${proxyHint}`;
+      }
+
+      return normalized;
     };
 
     const collectFallbackComponentScripts = (): Record<string, string> => {
@@ -1201,6 +1221,7 @@ export function init(config: InitConfig): EditorTsEditor {
     };
 
     let lastAiReplacements: Array<{ path: string; content: string }> | null = null;
+    const isRawAiChatMode = aiConfig.prompt?.injectWorkspaceSnapshot === false;
 
     ai = {
       provider: 'opencode',
@@ -1421,21 +1442,26 @@ export function init(config: InitConfig): EditorTsEditor {
       ) => {
         const client = await ai!.getClient();
 
-        const workspaceSnapshot = await buildAiWorkspaceFiles();
-
         const sessionId = options?.sessionId ?? currentSessionId;
 
         const shouldStream = options?.stream ?? aiConfig.stream?.enabled === true;
         const selectedModel = options?.model;
+        const promptMode = aiConfig.prompt?.injectWorkspaceSnapshot === false
+          ? 'raw'
+          : 'workspace-envelope';
+        const workspaceSnapshot = promptMode === 'workspace-envelope'
+          ? await buildAiWorkspaceFiles()
+          : null;
 
         const result = await requestAiReplacements({
           client,
           prompt,
-          workspaceFiles: workspaceSnapshot.files,
-          allowedPaths: workspaceSnapshot.editablePaths,
-          readOnlyPaths: workspaceSnapshot.readOnlyPaths,
+          workspaceFiles: workspaceSnapshot?.files,
+          allowedPaths: workspaceSnapshot?.editablePaths,
+          readOnlyPaths: workspaceSnapshot?.readOnlyPaths,
           sessionId: sessionId ?? undefined,
           model: selectedModel,
+          promptMode,
           stream: shouldStream,
           onStream: options?.onStream,
         });
@@ -1545,7 +1571,7 @@ export function init(config: InitConfig): EditorTsEditor {
             aiHealthStatus.textContent = JSON.stringify(result.data ?? result, null, 2);
             setAiChatStatus('success', 'AI connection ready');
           } catch (err: unknown) {
-            aiHealthStatus.textContent = err instanceof Error ? err.message : String(err);
+            aiHealthStatus.textContent = formatAiUiError(err);
             setAiChatStatus('error', 'AI connection failed');
           }
         });
@@ -1636,6 +1662,10 @@ export function init(config: InitConfig): EditorTsEditor {
           if (!prompt) return;
 
           appendAiChatLog('user', prompt);
+          if (!isRawAiChatMode) {
+            const requestedUrl = ai.getUrl() ?? aiBaseUrlInput?.value?.trim() ?? aiConfig.baseUrl ?? 'OpenCode';
+            appendAiChatLog('system', `Sending request to ${requestedUrl}`);
+          }
           setAiChatPending(true);
           aiChatSendButton.toggleAttribute('disabled', true);
           const previousSendLabel = aiChatSendButton.textContent;
@@ -1648,12 +1678,20 @@ export function init(config: InitConfig): EditorTsEditor {
             let streamedText = '';
             const logPrefix = aiChatLog?.textContent ?? '';
             if (streamEnabled && aiChatLog) {
-              replaceAiChatStreamingMessage(logPrefix, 'Preparing file replacements...');
-              setAiChatStatus('streaming', 'Streaming file changes...');
+              replaceAiChatStreamingMessage(logPrefix, isRawAiChatMode ? '' : 'Preparing file replacements...');
+              setAiChatStatus('streaming', isRawAiChatMode ? 'Streaming assistant reply...' : 'Streaming file changes...');
             }
 
             const selectedModelValue = aiModelSelect?.value?.trim() || '';
             const model = selectedModelValue ? parseAiModelRef(selectedModelValue) : undefined;
+            if (model && !isRawAiChatMode) {
+              appendAiChatLog('system', `Using model ${formatAiModelOptionLabel(model)}`);
+            }
+            if (!isRawAiChatMode) {
+              appendAiChatLog('system', selectedSessionId
+                ? `Continuing session ${selectedSessionId}`
+                : 'Starting a new chat session');
+            }
 
             const result = await ai.chat(prompt, {
               sessionId: selectedSessionId,
@@ -1663,6 +1701,11 @@ export function init(config: InitConfig): EditorTsEditor {
                 ? (delta) => {
                   streamedText += delta;
                   setAiChatPending(false);
+                  if (isRawAiChatMode) {
+                    replaceAiChatStreamingMessage(logPrefix, streamedText);
+                    setAiChatStatus('streaming', 'Streaming assistant reply...');
+                    return;
+                  }
                   const streamedPaths = extractAiReplacementPaths(streamedText);
                   const streamingMessage = streamedPaths.length > 0
                     ? `Preparing ${streamedPaths.length} file change${streamedPaths.length === 1 ? '' : 's'}: ${formatAiChatPathSummary(streamedPaths)}`
@@ -1678,7 +1721,9 @@ export function init(config: InitConfig): EditorTsEditor {
                 : undefined,
             });
 
-            const assistantSummary = summarizeAiAssistantText(result.rawText);
+            const assistantSummary = isRawAiChatMode
+              ? result.rawText.trim()
+              : summarizeAiAssistantText(result.rawText);
 
             if (streamEnabled && aiChatLog) {
               aiChatLog.textContent = logPrefix;
@@ -1694,6 +1739,13 @@ export function init(config: InitConfig): EditorTsEditor {
             }
 
             await refreshAiSessionSelect();
+
+            if (isRawAiChatMode) {
+              lastAiReplacements = null;
+              aiChatApplyButton?.toggleAttribute('disabled', true);
+              setAiChatStatus('success', 'Reply ready');
+              return;
+            }
 
             if (result.warnings && result.warnings.length > 0) {
               result.warnings.forEach((warning) => {
@@ -1730,8 +1782,9 @@ export function init(config: InitConfig): EditorTsEditor {
             }
           } catch (err: unknown) {
             setAiChatPending(false);
-            appendAiChatLog('error', err instanceof Error ? err.message : String(err));
-            setAiChatStatus('error', err instanceof Error ? err.message : String(err));
+            const uiMessage = formatAiUiError(err);
+            appendAiChatLog('error', uiMessage);
+            setAiChatStatus('error', uiMessage);
           } finally {
             setAiChatPending(false);
             aiChatSendButton.toggleAttribute('disabled', false);
