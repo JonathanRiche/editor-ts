@@ -96,6 +96,8 @@ const CODEX_FAST_MODE_OPTIONS = [_]FastModeOption{
     .{ .label = "On", .value = .on },
 };
 
+const DEFAULT_CODEX_MODEL: [:0]const u8 = "gpt-5.4";
+
 const ChatMessage = struct {
     role: ChatRole,
     author: [:0]const u8,
@@ -120,7 +122,10 @@ const ChatThread = struct {
             .title = try allocator.dupeZ(u8, title),
             .committed = false,
             .last_activity_at = 0,
-            .provider = .opencode,
+            .model_ref = try allocator.dupeZ(u8, DEFAULT_CODEX_MODEL),
+            .reasoning_effort = .high,
+            .fast_mode = .off,
+            .provider = .codex,
             .harness = .local_cli,
             .messages = .empty,
             .draft_storage = std.mem.zeroes([AppState.DRAFT_CAPACITY:0]u8),
@@ -1130,14 +1135,15 @@ const AppState = struct {
         }
     }
 
-    fn pendingStreamText(self: *AppState) ?[]const u8 {
+    fn pendingStreamTextSnapshot(self: *AppState) !?[]u8 {
         self.send_state.mutex.lock();
         defer self.send_state.mutex.unlock();
 
         if (self.send_state.status != .pending) return null;
         if (self.send_state.project_index != self.selected_project_index) return null;
         if (self.send_state.thread_index != self.currentProject().selected_thread_index) return null;
-        return self.send_state.partial_text;
+        const partial_text = self.send_state.partial_text orelse return null;
+        return try self.allocator.dupe(u8, partial_text);
     }
 
     fn applySendSuccess(self: *AppState, result: SendResultPayload) !void {
@@ -1586,7 +1592,8 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
 
     const should_follow_stream = transcriptShouldAutoFollow(state);
 
-    const pending_stream = state.pendingStreamText();
+    const pending_stream = state.pendingStreamTextSnapshot() catch null;
+    defer if (pending_stream) |stream_text| state.allocator.free(stream_text);
     if (state.currentThread().messages.items.len == 0 and pending_stream == null) {
         zgui.textColored(COLOR_WHITE, "No messages yet", .{});
         zgui.textColored(COLOR_TEXT_MUTED, "Choose a provider, type a prompt below, and start the first chat for this directory.", .{});
