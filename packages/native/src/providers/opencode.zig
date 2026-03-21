@@ -105,9 +105,12 @@ pub const Client = struct {
         const path = try std.fmt.allocPrint(self.allocator, "/session/{s}/message", .{session_id});
         defer self.allocator.free(path);
 
-        const body = try stringifyAlloc(self.allocator, .{
-            .parts = &.{.{ .type = "text", .text = request.prompt }},
-        });
+        const body = if (request.model) |model_ref|
+            try buildMessageBodyWithModel(self.allocator, request.prompt, model_ref)
+        else
+            try stringifyAlloc(self.allocator, .{
+                .parts = &.{.{ .type = "text", .text = request.prompt }},
+            });
         defer self.allocator.free(body);
 
         const response = try self.requestJson(.POST, path, body);
@@ -323,6 +326,33 @@ fn extractAssistantTextAlloc(allocator: std.mem.Allocator, value: std.json.Value
     }
 
     return text.toOwnedSlice(allocator);
+}
+
+fn buildMessageBodyWithModel(
+    allocator: std.mem.Allocator,
+    prompt: []const u8,
+    model_ref: []const u8,
+) ![]u8 {
+    const provider_id, const model_id = parseModelRef(model_ref);
+    return stringifyAlloc(allocator, .{
+        .model = .{
+            .providerID = provider_id,
+            .modelID = model_id,
+        },
+        .parts = &.{.{ .type = "text", .text = prompt }},
+    });
+}
+
+fn parseModelRef(model_ref: []const u8) struct { []const u8, []const u8 } {
+    if (std.mem.indexOfScalar(u8, model_ref, '/')) |slash| {
+        const provider_id = model_ref[0..slash];
+        const model_id = model_ref[slash + 1 ..];
+        if (provider_id.len > 0 and model_id.len > 0) {
+            return .{ provider_id, model_id };
+        }
+    }
+
+    return .{ "opencode", model_ref };
 }
 
 test "extractAssistantTextAlloc joins text parts" {

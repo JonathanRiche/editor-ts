@@ -46,8 +46,9 @@ pub const Client = struct {
     }
 
     pub fn deinit(self: *Client) void {
-        self.loaded_threads.deinit();
         self.closeConnection();
+        self.freeLoadedThreads();
+        self.loaded_threads.deinit();
     }
 
     pub fn authState(self: *Client) !provider_types.AuthState {
@@ -113,7 +114,7 @@ pub const Client = struct {
         const thread_id = if (request.thread_id) |existing|
             try allocator.dupe(u8, existing)
         else
-            try self.startThread(allocator, request.cwd);
+            try self.startThread(allocator, request.cwd, request.model);
         errdefer allocator.free(thread_id);
 
         try self.ensureThreadLoaded(thread_id);
@@ -148,7 +149,6 @@ pub const Client = struct {
         }
 
         self.initialized = false;
-        self.loaded_threads.clearRetainingCapacity();
 
         if (self.child) |*child| {
             if (self.owns_child) {
@@ -308,9 +308,19 @@ pub const Client = struct {
         self.initialized = true;
     }
 
-    fn startThread(self: *Client, allocator: std.mem.Allocator, cwd: ?[]const u8) ![]u8 {
+    fn startThread(
+        self: *Client,
+        allocator: std.mem.Allocator,
+        cwd: ?[]const u8,
+        model: ?[]const u8,
+    ) ![]u8 {
         const payload = if (cwd) |working_dir|
-            try self.callRpcForResultAlloc("thread/start", .{ .cwd = working_dir })
+            if (model) |selected_model|
+                try self.callRpcForResultAlloc("thread/start", .{ .cwd = working_dir, .model = selected_model })
+            else
+                try self.callRpcForResultAlloc("thread/start", .{ .cwd = working_dir })
+        else if (model) |selected_model|
+            try self.callRpcForResultAlloc("thread/start", .{ .model = selected_model })
         else
             try self.callRpcForResultAlloc("thread/start", .{});
         defer self.allocator.free(payload);
@@ -355,9 +365,23 @@ pub const Client = struct {
         request: provider_types.SendPromptRequest,
     ) ![]u8 {
         const request_id = if (request.cwd) |working_dir|
+            if (request.model) |selected_model|
+                try self.sendRequest("turn/start", .{
+                    .threadId = thread_id,
+                    .cwd = working_dir,
+                    .model = selected_model,
+                    .input = &.{.{ .type = "text", .text = request.prompt }},
+                })
+            else
+                try self.sendRequest("turn/start", .{
+                    .threadId = thread_id,
+                    .cwd = working_dir,
+                    .input = &.{.{ .type = "text", .text = request.prompt }},
+                })
+        else if (request.model) |selected_model|
             try self.sendRequest("turn/start", .{
                 .threadId = thread_id,
-                .cwd = working_dir,
+                .model = selected_model,
                 .input = &.{.{ .type = "text", .text = request.prompt }},
             })
         else
@@ -385,6 +409,11 @@ pub const Client = struct {
             if (!turn_started) continue;
 
             if (try appendNotificationDelta(root, allocator, &reply)) {
+                if (request.on_stream_delta) |on_stream_delta| {
+                    if (extractNotificationDelta(root)) |delta| {
+                        on_stream_delta(request.stream_context, delta);
+                    }
+                }
                 continue;
             }
 
@@ -394,6 +423,13 @@ pub const Client = struct {
         }
 
         return reply.toOwnedSlice(allocator);
+    }
+
+    fn freeLoadedThreads(self: *Client) void {
+        var it = self.loaded_threads.keyIterator();
+        while (it.next()) |key_ptr| {
+            self.allocator.free(key_ptr.*);
+        }
     }
 
     fn sendNotification(self: *Client, method: []const u8, params: anytype) !void {
@@ -773,6 +809,20 @@ fn appendNotificationDelta(
     }
 
     return true;
+}
+
+fn extractNotificationDelta(root: std.json.Value) ?[]const u8 {
+    const method = getOptionalObjectString(root, "method") orelse return null;
+    if (!std.mem.eql(u8, method, "item/agentMessage/delta")) {
+        return null;
+    }
+
+    const params = getObjectField(root, "params") orelse return null;
+
+    return findFirstStringByPath(params, &.{ "delta", "text" }) orelse
+        findFirstStringByPath(params, &.{"delta"}) orelse
+        findFirstStringByPath(params, &.{ "item", "text" }) orelse
+        findFirstStringByPath(params, &.{"text"});
 }
 
 fn isTurnCompleted(root: std.json.Value) bool {

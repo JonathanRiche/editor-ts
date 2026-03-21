@@ -38,6 +38,9 @@ pub const SendPromptRequest = struct {
     thread_id: ?[]const u8 = null,
     prompt: []const u8,
     cwd: ?[]const u8 = null,
+    model: ?[]const u8 = null,
+    stream_context: ?*anyopaque = null,
+    on_stream_delta: ?*const fn (?*anyopaque, []const u8) void = null,
 };
 
 pub const SendPromptResult = struct {

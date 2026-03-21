@@ -37,6 +37,29 @@ const Harness = enum(u8) {
     remote_session,
 };
 
+const ModelOption = struct {
+    label: [:0]const u8,
+    value: ?[:0]const u8 = null,
+};
+
+const OPENCODE_MODEL_OPTIONS = [_]ModelOption{
+    .{ .label = "Default", .value = null },
+    .{ .label = "GPT-5.4", .value = "opencode/gpt-5.4" },
+    .{ .label = "Claude Opus 4.6", .value = "opencode/claude-opus-4-6" },
+    .{ .label = "Claude Sonnet 4.5", .value = "opencode/claude-sonnet-4-5" },
+    .{ .label = "Gemini 3.1 Pro", .value = "opencode/gemini-3.1-pro" },
+};
+
+const CODEX_MODEL_OPTIONS = [_]ModelOption{
+    .{ .label = "Default", .value = null },
+    .{ .label = "GPT-5.4", .value = "gpt-5.4" },
+    .{ .label = "GPT-5.4 Mini", .value = "gpt-5.4-mini" },
+    .{ .label = "GPT-5.3 Codex", .value = "gpt-5.3-codex" },
+    .{ .label = "GPT-5.3 Codex Spark", .value = "gpt-5.3-codex-spark" },
+    .{ .label = "GPT-5.2 Codex", .value = "gpt-5.2-codex" },
+    .{ .label = "GPT-5.2", .value = "gpt-5.2" },
+};
+
 const ChatMessage = struct {
     role: ChatRole,
     author: [:0]const u8,
@@ -48,6 +71,7 @@ const ChatThread = struct {
     committed: bool = false,
     last_activity_at: i64 = 0,
     provider_thread_id: ?[:0]const u8 = null,
+    model_ref: ?[:0]const u8 = null,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     messages: std.ArrayList(ChatMessage),
@@ -99,6 +123,7 @@ const ChatThread = struct {
     fn deinit(self: *ChatThread, allocator: std.mem.Allocator) void {
         allocator.free(self.title);
         if (self.provider_thread_id) |thread_id| allocator.free(thread_id);
+        if (self.model_ref) |model_ref| allocator.free(model_ref);
         for (self.messages.items) |message| {
             allocator.free(message.author);
             allocator.free(message.body);
@@ -210,6 +235,7 @@ const PersistedThread = struct {
     committed: bool = true,
     last_activity_at: ?i64 = null,
     provider_thread_id: ?[]const u8 = null,
+    model_ref: ?[]const u8 = null,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     draft: []const u8 = "",
@@ -245,6 +271,7 @@ const SaveThread = struct {
     committed: bool,
     last_activity_at: i64,
     provider_thread_id: ?[]const u8,
+    model_ref: ?[]const u8,
     provider: Provider,
     harness: Harness,
     draft: []const u8,
@@ -276,6 +303,43 @@ const PickerState = struct {
     status: PickerStatus = .idle,
     selected_path: ?[]u8 = null,
     worker: ?std.Thread = null,
+};
+
+const SendStatus = enum {
+    idle,
+    pending,
+    completed,
+    failed,
+};
+
+const SendResultPayload = struct {
+    project_index: usize,
+    thread_index: usize,
+    provider_thread_id: []const u8,
+    reply_text: []const u8,
+};
+
+const SendState = struct {
+    mutex: std.Thread.Mutex = .{},
+    status: SendStatus = .idle,
+    result: ?SendResultPayload = null,
+    error_message: ?[]u8 = null,
+    project_index: ?usize = null,
+    thread_index: ?usize = null,
+    partial_text: ?[]u8 = null,
+    worker: ?std.Thread = null,
+};
+
+const SendWorkerRequest = struct {
+    send_state_ptr: *SendState,
+    project_index: usize,
+    thread_index: usize,
+    provider: Provider,
+    harness: Harness,
+    project_path: []u8,
+    prompt: []u8,
+    provider_thread_id: ?[]u8,
+    model_ref: ?[]u8,
 };
 
 const Storage = struct {
@@ -349,6 +413,8 @@ const Storage = struct {
                 try stringify.write(thread.last_activity_at);
                 try stringify.objectField("provider_thread_id");
                 try stringify.write(thread.provider_thread_id);
+                try stringify.objectField("model_ref");
+                try stringify.write(thread.model_ref);
                 try stringify.objectField("provider");
                 try stringify.write(thread.provider);
                 try stringify.objectField("harness");
@@ -402,6 +468,7 @@ const AppState = struct {
     sidebar_notice_storage: [256:0]u8,
     show_project_creator: bool,
     picker_state: PickerState,
+    send_state: SendState,
     dirty: bool,
 
     fn init(allocator: std.mem.Allocator, storage: *const Storage) !AppState {
@@ -416,6 +483,7 @@ const AppState = struct {
             .sidebar_notice_storage = std.mem.zeroes([256:0]u8),
             .show_project_creator = false,
             .picker_state = .{},
+            .send_state = .{},
             .dirty = false,
         };
 
@@ -561,24 +629,23 @@ const AppState = struct {
         const draft = self.currentDraft();
         if (draft.len == 0) return;
 
+        self.send_state.mutex.lock();
+        const send_pending = self.send_state.status == .pending;
+        self.send_state.mutex.unlock();
+        if (send_pending) {
+            self.setSidebarNotice("A provider request is already running.");
+            return;
+        }
+
         const trimmed_title = std.mem.trim(u8, draft, &std.ascii.whitespace);
         const thread = self.currentThreadMutable();
         if (!thread.committed) {
             try thread.commitFromPrompt(self.allocator, trimmed_title);
         }
         try self.appendMessage(.user, "You", draft);
-        const result = try self.sendPromptViaHarness(draft);
-        defer self.allocator.free(result.thread_id);
-        defer self.allocator.free(result.reply_text);
-
-        const current_thread = self.currentThreadMutable();
-        if (current_thread.provider_thread_id) |thread_id| {
-            self.allocator.free(thread_id);
-        }
-        current_thread.provider_thread_id = try self.allocator.dupeZ(u8, result.thread_id);
-        try self.appendMessage(.assistant, providerLabel(current_thread.provider), result.reply_text);
+        try self.beginSendDraft(draft);
         self.clearDraft();
-        self.setSidebarNotice("Provider session updated.");
+        self.setSidebarNotice("Waiting for provider reply...");
     }
 
     fn sendPromptViaHarness(self: *AppState, prompt: []const u8) !ai_harness.SendPromptResult {
@@ -612,7 +679,47 @@ const AppState = struct {
             .thread_id = if (thread.provider_thread_id) |thread_id| thread_id else null,
             .prompt = prompt,
             .cwd = project.path,
+            .model = if (thread.model_ref) |model_ref| model_ref else null,
         });
+    }
+
+    fn beginSendDraft(self: *AppState, prompt: []const u8) !void {
+        const page_alloc = std.heap.page_allocator;
+        const project = self.currentProject();
+        const thread = self.currentThread();
+
+        const request = try page_alloc.create(SendWorkerRequest);
+        errdefer page_alloc.destroy(request);
+        request.* = .{
+            .send_state_ptr = &self.send_state,
+            .project_index = self.selected_project_index,
+            .thread_index = self.currentProject().selected_thread_index,
+            .provider = thread.provider,
+            .harness = thread.harness,
+            .project_path = try page_alloc.dupe(u8, project.path),
+            .prompt = try page_alloc.dupe(u8, prompt),
+            .provider_thread_id = if (thread.provider_thread_id) |thread_id| try page_alloc.dupe(u8, thread_id) else null,
+            .model_ref = if (thread.model_ref) |model_ref| try page_alloc.dupe(u8, model_ref) else null,
+        };
+        errdefer {
+            page_alloc.free(request.project_path);
+            page_alloc.free(request.prompt);
+            if (request.provider_thread_id) |thread_id| page_alloc.free(thread_id);
+            if (request.model_ref) |model_ref| page_alloc.free(model_ref);
+        }
+
+        self.send_state.mutex.lock();
+        defer self.send_state.mutex.unlock();
+        self.send_state.status = .pending;
+        self.send_state.result = null;
+        self.send_state.error_message = null;
+        self.send_state.project_index = request.project_index;
+        self.send_state.thread_index = request.thread_index;
+        if (self.send_state.partial_text) |partial_text| {
+            page_alloc.free(partial_text);
+        }
+        self.send_state.partial_text = null;
+        self.send_state.worker = try std.Thread.spawn(.{}, sendWorker, .{ &self.send_state, request });
     }
 
     fn applyPersisted(self: *AppState, persisted: PersistedState) !void {
@@ -644,6 +751,10 @@ const AppState = struct {
                     thread.last_activity_at = persisted_thread.last_activity_at orelse 0;
                     thread.provider_thread_id = if (persisted_thread.provider_thread_id) |thread_id|
                         try self.allocator.dupeZ(u8, thread_id)
+                    else
+                        null;
+                    thread.model_ref = if (persisted_thread.model_ref) |model_ref|
+                        try self.allocator.dupeZ(u8, model_ref)
                     else
                         null;
                     thread.provider = persisted_thread.provider;
@@ -830,6 +941,7 @@ const AppState = struct {
 
     fn deinit(self: *AppState) void {
         self.finishPickerThread();
+        self.finishSendThread();
         self.clearProjects();
         self.projects.deinit(self.allocator);
     }
@@ -881,6 +993,68 @@ const AppState = struct {
         }
     }
 
+    fn pollSend(self: *AppState) void {
+        var completed_result: ?SendResultPayload = null;
+        var failed_message: ?[]u8 = null;
+        var next_status: SendStatus = .idle;
+
+        self.send_state.mutex.lock();
+        switch (self.send_state.status) {
+            .completed => {
+                completed_result = self.send_state.result;
+                self.send_state.result = null;
+                if (self.send_state.partial_text) |partial_text| {
+                    std.heap.page_allocator.free(partial_text);
+                }
+                self.send_state.partial_text = null;
+                self.send_state.project_index = null;
+                self.send_state.thread_index = null;
+                self.send_state.status = .idle;
+                next_status = .completed;
+            },
+            .failed => {
+                failed_message = self.send_state.error_message;
+                self.send_state.error_message = null;
+                if (self.send_state.partial_text) |partial_text| {
+                    std.heap.page_allocator.free(partial_text);
+                }
+                self.send_state.partial_text = null;
+                self.send_state.project_index = null;
+                self.send_state.thread_index = null;
+                self.send_state.status = .idle;
+                next_status = .failed;
+            },
+            else => {},
+        }
+        self.send_state.mutex.unlock();
+
+        if (next_status != .idle) {
+            self.finishSendThread();
+        }
+
+        switch (next_status) {
+            .completed => {
+                if (completed_result) |result| {
+                    defer std.heap.page_allocator.free(result.provider_thread_id);
+                    defer std.heap.page_allocator.free(result.reply_text);
+                    self.applySendSuccess(result) catch |err| {
+                        log.err("failed to apply send result: {s}", .{@errorName(err)});
+                        self.setSidebarNotice("Failed to apply provider reply.");
+                    };
+                }
+            },
+            .failed => {
+                if (failed_message) |message| {
+                    defer std.heap.page_allocator.free(message);
+                    self.setSidebarNotice(message);
+                } else {
+                    self.setSidebarNotice("Provider request failed.");
+                }
+            },
+            else => {},
+        }
+    }
+
     fn finishPickerThread(self: *AppState) void {
         self.picker_state.mutex.lock();
         const maybe_worker = self.picker_state.worker;
@@ -890,6 +1064,47 @@ const AppState = struct {
         if (maybe_worker) |worker| {
             worker.join();
         }
+    }
+
+    fn finishSendThread(self: *AppState) void {
+        self.send_state.mutex.lock();
+        const maybe_worker = self.send_state.worker;
+        self.send_state.worker = null;
+        self.send_state.mutex.unlock();
+
+        if (maybe_worker) |worker| {
+            worker.join();
+        }
+    }
+
+    fn pendingStreamText(self: *AppState) ?[]const u8 {
+        self.send_state.mutex.lock();
+        defer self.send_state.mutex.unlock();
+
+        if (self.send_state.status != .pending) return null;
+        if (self.send_state.project_index != self.selected_project_index) return null;
+        if (self.send_state.thread_index != self.currentProject().selected_thread_index) return null;
+        return self.send_state.partial_text;
+    }
+
+    fn applySendSuccess(self: *AppState, result: SendResultPayload) !void {
+        if (result.project_index >= self.projects.items.len) return;
+        const project = &self.projects.items[result.project_index];
+        if (result.thread_index >= project.threads.items.len) return;
+        const thread = &project.threads.items[result.thread_index];
+
+        if (thread.provider_thread_id) |thread_id| {
+            self.allocator.free(thread_id);
+        }
+        thread.provider_thread_id = try self.allocator.dupeZ(u8, result.provider_thread_id);
+        try thread.messages.append(self.allocator, .{
+            .role = .assistant,
+            .author = try self.dupeZ(providerLabel(thread.provider)),
+            .body = try self.dupeZ(result.reply_text),
+        });
+        thread.touch();
+        self.markDirty();
+        self.setSidebarNotice("Provider session updated.");
     }
 
     fn resolveProjectPath(self: *AppState, raw_path: []const u8) ![]u8 {
@@ -1006,6 +1221,7 @@ pub fn main() !void {
     while (running) {
         running = processEvents(&state, &keyboard);
         state.pollPicker();
+        state.pollSend();
 
         var fb_width: c_int = 0;
         var fb_height: c_int = 0;
@@ -1298,15 +1514,6 @@ fn renderWorkspaceHeader(state: *AppState) void {
         project.committedThreadCount(),
     });
 
-    const editable_thread = state.currentThreadMutable();
-    if (zgui.comboFromEnum("Provider", &editable_thread.provider)) {
-        state.markDirty();
-    }
-    zgui.sameLine(.{ .spacing = 18.0 });
-    if (zgui.comboFromEnum("Harness", &editable_thread.harness)) {
-        state.markDirty();
-    }
-    zgui.sameLine(.{ .spacing = 18.0 });
     zgui.textColored(COLOR_GREEN, "Focused mode: chat only", .{});
 }
 
@@ -1318,51 +1525,119 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
     });
     defer zgui.endChild();
 
-    if (state.currentThread().messages.items.len == 0) {
+    const pending_stream = state.pendingStreamText();
+    if (state.currentThread().messages.items.len == 0 and pending_stream == null) {
         zgui.textColored(COLOR_WHITE, "No messages yet", .{});
         zgui.textColored(COLOR_TEXT_MUTED, "Choose a provider, type a prompt below, and start the first chat for this directory.", .{});
         return;
     }
 
     for (state.currentThread().messages.items, 0..) |message, index| {
-        const bubble_color = messageBubbleColor(message.role);
-        zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = bubble_color });
+        renderTranscriptBubbleId(@intCast(index + 1), message.author, message.body, messageBubbleColor(message.role));
+        zgui.spacing();
+    }
 
-        _ = zgui.beginChildId(@intCast(index + 1), .{
-            .w = 0.0,
-            .h = 88.0,
-            .child_flags = .{ .border = true },
-        });
-        zgui.textColored(COLOR_WHITE, "{s}", .{message.author});
-        zgui.pushTextWrapPos(0.0);
-        zgui.textWrapped("{s}", .{message.body});
-        zgui.popTextWrapPos();
-        zgui.endChild();
-        zgui.popStyleColor(.{ .count = 1 });
+    if (pending_stream) |stream_text| {
+        renderTranscriptBubble(
+            "pending-assistant",
+            providerLabel(state.currentThread().provider),
+            if (stream_text.len > 0) stream_text else "Waiting for streamed output...",
+            rgba(56, 56, 56, 255),
+            stream_text.len == 0,
+        );
         zgui.spacing();
     }
 
     zgui.setScrollHereY(.{ .center_y_ratio = 1.0 });
 }
 
+fn renderTranscriptBubbleId(id: u32, author: []const u8, body: []const u8, bubble_color: [4]f32) void {
+    const bubble_height = transcriptBubbleHeight(author, body);
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = bubble_color });
+    _ = zgui.beginChildId(id, .{
+        .w = 0.0,
+        .h = bubble_height,
+        .child_flags = .{ .border = true },
+    });
+    defer {
+        zgui.endChild();
+        zgui.popStyleColor(.{ .count = 1 });
+    }
+
+    zgui.textColored(COLOR_WHITE, "{s}", .{author});
+    zgui.pushTextWrapPos(0.0);
+    zgui.textWrapped("{s}", .{body});
+    zgui.popTextWrapPos();
+}
+
+fn renderTranscriptBubble(id: [:0]const u8, author: []const u8, body: []const u8, bubble_color: [4]f32, muted_body: bool) void {
+    const bubble_height = transcriptBubbleHeight(author, body);
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = bubble_color });
+    _ = zgui.beginChild(id, .{
+        .w = 0.0,
+        .h = bubble_height,
+        .child_flags = .{ .border = true },
+    });
+    defer {
+        zgui.endChild();
+        zgui.popStyleColor(.{ .count = 1 });
+    }
+
+    zgui.textColored(COLOR_WHITE, "{s}", .{author});
+    zgui.pushTextWrapPos(0.0);
+    if (muted_body) {
+        zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{body});
+    } else {
+        zgui.textWrapped("{s}", .{body});
+    }
+    zgui.popTextWrapPos();
+}
+
+fn transcriptBubbleHeight(author: []const u8, body: []const u8) f32 {
+    const style = zgui.getStyle();
+    const avail = zgui.getContentRegionAvail();
+    const inner_width = @max(avail[0] - (style.window_padding[0] * 2.0), 64.0);
+    const author_size = zgui.calcTextSize(author, .{});
+    const body_size = zgui.calcTextSize(body, .{ .wrap_width = inner_width });
+    const vertical_padding = style.window_padding[1] * 2.0;
+    const text_gap = style.item_spacing[1];
+    return @max(author_size[1] + body_size[1] + vertical_padding + text_gap, 56.0);
+}
+
 fn renderComposer(state: *AppState, width: f32, height: f32) void {
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 14.0 });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(34, 34, 34, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(64, 64, 64, 255) });
     _ = zgui.beginChild("Composer", .{
         .w = width,
         .h = height,
         .child_flags = .{ .border = true },
     });
-    defer zgui.endChild();
+    defer {
+        zgui.endChild();
+        zgui.popStyleColor(.{ .count = 2 });
+        zgui.popStyleVar(.{ .count = 1 });
+    }
 
-    zgui.textColored(COLOR_WHITE, "Prompt", .{});
+    zgui.textColored(COLOR_TEXT_MUTED, "Prompt", .{});
+    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 12.0 });
+    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 14.0, 12.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = rgba(42, 42, 42, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg_hovered, .c = rgba(46, 46, 46, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg_active, .c = rgba(50, 50, 50, 255) });
     const submitted = zgui.inputTextMultiline("##chat-draft", .{
         .buf = state.draftBuffer(),
         .w = width - 18.0,
-        .h = 78.0,
+        .h = 88.0,
         .flags = .{
             .ctrl_enter_for_new_line = true,
             .enter_returns_true = true,
         },
     });
+    zgui.popStyleColor(.{ .count = 3 });
+    zgui.popStyleVar(.{ .count = 2 });
+
+    zgui.dummy(.{ .w = 0.0, .h = 2.0 });
 
     if (submitted or zgui.button("Send", .{ .w = 96.0, .h = 32.0 })) {
         state.sendDraft() catch |err| {
@@ -1375,8 +1650,122 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
         state.clearDraft();
     }
 
+    zgui.sameLine(.{ .spacing = 22.0 });
+    renderComposerPickers(state);
     zgui.sameLine(.{ .spacing = 18.0 });
-    zgui.textColored(COLOR_TEXT_MUTED, "Enter sends. Ctrl+Enter keeps a newline.", .{});
+    if (isSendPending(state)) {
+        zgui.textColored(COLOR_YELLOW, "Sending to provider...", .{});
+    } else {
+        zgui.textColored(COLOR_TEXT_SUBTLE, "Enter sends. Ctrl+Enter keeps a newline.", .{});
+    }
+}
+
+fn renderComposerPickers(state: *AppState) void {
+    const thread = state.currentThreadMutable();
+    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 11.0 });
+    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 12.0, 7.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = darken(COLOR_PANEL_ALT, 0.02) });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg_hovered, .c = lighten(COLOR_PANEL_ALT, 0.05) });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg_active, .c = lighten(COLOR_PANEL_ALT, 0.10) });
+    zgui.pushStyleColor4f(.{ .idx = .popup_bg, .c = rgba(28, 28, 28, 248) });
+    zgui.pushStyleColor4f(.{ .idx = .header, .c = COLOR_PANEL_ALT });
+    zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = lighten(COLOR_PANEL_ALT, 0.08) });
+    zgui.pushStyleColor4f(.{ .idx = .header_active, .c = lighten(COLOR_PANEL_ALT, 0.14) });
+    defer {
+        zgui.popStyleColor(.{ .count = 7 });
+        zgui.popStyleVar(.{ .count = 2 });
+    }
+
+    var provider_preview_buf = std.mem.zeroes([48:0]u8);
+    const provider_preview = comboPreviewLabel(&provider_preview_buf, providerLabel(thread.provider));
+    zgui.setNextItemWidth(148.0);
+    if (zgui.beginCombo("##provider-picker", .{ .preview_value = provider_preview })) {
+        defer zgui.endCombo();
+        inline for (@typeInfo(Provider).@"enum".fields) |field| {
+            const candidate: Provider = @enumFromInt(field.value);
+            var row_buf = std.mem.zeroes([48:0]u8);
+            const row_label = comboRowLabel(&row_buf, providerLabel(candidate), candidate == thread.provider);
+            if (zgui.selectable(row_label, .{ .selected = candidate == thread.provider, .h = 28.0 })) {
+                if (thread.provider != candidate) {
+                    thread.provider = candidate;
+                    if (thread.provider_thread_id) |thread_id| {
+                        state.allocator.free(thread_id);
+                    }
+                    thread.provider_thread_id = null;
+                    if (thread.model_ref) |model_ref| {
+                        state.allocator.free(model_ref);
+                    }
+                    thread.model_ref = null;
+                    state.markDirty();
+                }
+            }
+        }
+    }
+
+    zgui.sameLine(.{ .spacing = 12.0 });
+    const model_preview = selectedModelLabel(thread);
+    var model_preview_buf = std.mem.zeroes([80:0]u8);
+    const model_preview_label = comboPreviewLabel(&model_preview_buf, model_preview);
+    zgui.setNextItemWidth(186.0);
+    if (zgui.beginCombo("##model-picker", .{ .preview_value = model_preview_label })) {
+        defer zgui.endCombo();
+        for (modelOptions(thread.provider)) |option| {
+            const is_selected = if (option.value) |value|
+                thread.model_ref != null and std.mem.eql(u8, thread.model_ref.?, value)
+            else
+                thread.model_ref == null;
+            var row_buf = std.mem.zeroes([96:0]u8);
+            const row_label = comboRowLabel(&row_buf, option.label, is_selected);
+            if (zgui.selectable(row_label, .{ .selected = is_selected, .h = 28.0 })) {
+                setThreadModelRef(state, thread, option.value);
+            }
+        }
+    }
+}
+
+fn isSendPending(state: *AppState) bool {
+    state.send_state.mutex.lock();
+    defer state.send_state.mutex.unlock();
+    return state.send_state.status == .pending;
+}
+
+fn setThreadModelRef(state: *AppState, thread: *ChatThread, value: ?[:0]const u8) void {
+    if (thread.model_ref) |existing| {
+        state.allocator.free(existing);
+        thread.model_ref = null;
+    }
+
+    thread.model_ref = if (value) |next|
+        state.allocator.dupeZ(u8, next) catch null
+    else
+        null;
+    state.markDirty();
+}
+
+fn modelOptions(provider: Provider) []const ModelOption {
+    return switch (provider) {
+        .opencode => OPENCODE_MODEL_OPTIONS[0..],
+        .codex => CODEX_MODEL_OPTIONS[0..],
+    };
+}
+
+fn selectedModelLabel(thread: *const ChatThread) [:0]const u8 {
+    if (thread.model_ref) |model_ref| {
+        for (modelOptions(thread.provider)) |option| {
+            if (option.value) |value| {
+                if (std.mem.eql(u8, model_ref, value)) return option.label;
+            }
+        }
+    }
+    return "Default";
+}
+
+fn comboPreviewLabel(buffer: []u8, label: []const u8) [:0]const u8 {
+    return std.fmt.bufPrintZ(buffer, "{s}  v", .{label}) catch "Select  v";
+}
+
+fn comboRowLabel(buffer: []u8, label: []const u8, selected: bool) [:0]const u8 {
+    return std.fmt.bufPrintZ(buffer, "{s} {s}", .{ if (selected) ">" else " ", label }) catch " row";
 }
 
 fn applyTheme() void {
@@ -1589,6 +1978,94 @@ fn pickerWorker(state: *PickerState, start_path: []u8) void {
         error.FolderPickerUnavailable => state.status = .unavailable,
         else => state.status = .failed,
     }
+}
+
+fn sendWorker(state: *SendState, request: *SendWorkerRequest) void {
+    const page_alloc = std.heap.page_allocator;
+    defer {
+        page_alloc.free(request.project_path);
+        page_alloc.free(request.prompt);
+        if (request.provider_thread_id) |thread_id| page_alloc.free(thread_id);
+        if (request.model_ref) |model_ref| page_alloc.free(model_ref);
+        page_alloc.destroy(request);
+    }
+
+    const result = runSendWorker(page_alloc, request);
+
+    state.mutex.lock();
+    defer state.mutex.unlock();
+
+    if (result) |payload| {
+        state.result = payload;
+        state.error_message = null;
+        state.status = .completed;
+    } else |err| {
+        const message = std.fmt.allocPrint(page_alloc, "Provider request failed: {s}", .{@errorName(err)}) catch null;
+        state.error_message = message;
+        state.result = null;
+        state.status = .failed;
+    }
+}
+
+fn handleSendStreamDelta(context: ?*anyopaque, delta: []const u8) void {
+    const send_state: *SendState = @ptrCast(@alignCast(context orelse return));
+    const page_alloc = std.heap.page_allocator;
+
+    send_state.mutex.lock();
+    defer send_state.mutex.unlock();
+    if (send_state.status != .pending) return;
+
+    if (send_state.partial_text) |existing| {
+        const next = std.fmt.allocPrint(page_alloc, "{s}{s}", .{ existing, delta }) catch return;
+        page_alloc.free(existing);
+        send_state.partial_text = next;
+    } else {
+        send_state.partial_text = page_alloc.dupe(u8, delta) catch return;
+    }
+}
+
+fn runSendWorker(
+    allocator: std.mem.Allocator,
+    request: *const SendWorkerRequest,
+) !SendResultPayload {
+    if (request.harness != .local_cli) {
+        return error.UnsupportedHarnessMode;
+    }
+
+    const provider_config = switch (request.provider) {
+        .opencode => ai_harness.ProviderConfig{
+            .opencode = .{
+                .allocator = allocator,
+                .working_directory = request.project_path,
+                .launch_if_missing = true,
+            },
+        },
+        .codex => ai_harness.ProviderConfig{
+            .codex = .{
+                .cwd = request.project_path,
+                .launch_on_connect = true,
+            },
+        },
+    };
+
+    var client = try ai_harness.connect(allocator, provider_config);
+    defer client.deinit();
+
+    const result = try client.sendPrompt(allocator, .{
+        .thread_id = request.provider_thread_id,
+        .prompt = request.prompt,
+        .cwd = request.project_path,
+        .model = request.model_ref,
+        .stream_context = request.send_state_ptr,
+        .on_stream_delta = handleSendStreamDelta,
+    });
+
+    return .{
+        .project_index = request.project_index,
+        .thread_index = request.thread_index,
+        .provider_thread_id = result.thread_id,
+        .reply_text = result.reply_text,
+    };
 }
 
 fn detectLinuxPicker(start_path: []const u8) ?[]const []const u8 {
