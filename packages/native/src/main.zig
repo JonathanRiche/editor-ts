@@ -20,6 +20,9 @@ const COLOR_PANEL_ALT = rgba(47, 47, 47, 255);
 const COLOR_PANEL_MUTED = rgba(58, 58, 58, 255);
 const COLOR_TEXT_MUTED = rgba(191, 191, 191, 255);
 const COLOR_TEXT_SUBTLE = rgba(153, 153, 153, 255);
+const TRANSCRIPT_BUBBLE_PADDING_X: f32 = 14.0;
+const TRANSCRIPT_BUBBLE_PADDING_Y: f32 = 12.0;
+const TRANSCRIPT_BUBBLE_ROUNDING: f32 = 12.0;
 
 const ChatRole = enum(u8) {
     user,
@@ -1525,6 +1528,8 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
     });
     defer zgui.endChild();
 
+    const should_follow_stream = transcriptShouldAutoFollow(state);
+
     const pending_stream = state.pendingStreamText();
     if (state.currentThread().messages.items.len == 0 and pending_stream == null) {
         zgui.textColored(COLOR_WHITE, "No messages yet", .{});
@@ -1533,57 +1538,81 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
     }
 
     for (state.currentThread().messages.items, 0..) |message, index| {
-        renderTranscriptBubbleId(@intCast(index + 1), message.author, message.body, messageBubbleColor(message.role));
-        zgui.spacing();
+        renderTranscriptBubbleId(@intCast(index + 1), message.role, message.author, message.body);
+        zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 
     if (pending_stream) |stream_text| {
         renderTranscriptBubble(
             "pending-assistant",
+            .assistant,
             providerLabel(state.currentThread().provider),
             if (stream_text.len > 0) stream_text else "Waiting for streamed output...",
-            rgba(56, 56, 56, 255),
             stream_text.len == 0,
         );
-        zgui.spacing();
+        zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 
-    zgui.setScrollHereY(.{ .center_y_ratio = 1.0 });
+    if (should_follow_stream) {
+        zgui.setScrollHereY(.{ .center_y_ratio = 1.0 });
+    }
 }
 
-fn renderTranscriptBubbleId(id: u32, author: []const u8, body: []const u8, bubble_color: [4]f32) void {
+fn renderTranscriptBubbleId(id: u32, role: ChatRole, author: []const u8, body: []const u8) void {
+    const theme = transcriptBubbleTheme(role);
     const bubble_height = transcriptBubbleHeight(author, body);
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = bubble_color });
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = TRANSCRIPT_BUBBLE_ROUNDING });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ TRANSCRIPT_BUBBLE_PADDING_X, TRANSCRIPT_BUBBLE_PADDING_Y } });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.background });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = theme.border });
     _ = zgui.beginChildId(id, .{
         .w = 0.0,
         .h = bubble_height,
         .child_flags = .{ .border = true },
+        .window_flags = .{
+            .no_scrollbar = true,
+            .no_scroll_with_mouse = true,
+            .no_saved_settings = true,
+        },
     });
     defer {
         zgui.endChild();
-        zgui.popStyleColor(.{ .count = 1 });
+        zgui.popStyleColor(.{ .count = 2 });
+        zgui.popStyleVar(.{ .count = 2 });
     }
 
-    zgui.textColored(COLOR_WHITE, "{s}", .{author});
+    zgui.textColored(theme.author, "{s}", .{author});
+    zgui.dummy(.{ .w = 0.0, .h = 2.0 });
     zgui.pushTextWrapPos(0.0);
     zgui.textWrapped("{s}", .{body});
     zgui.popTextWrapPos();
 }
 
-fn renderTranscriptBubble(id: [:0]const u8, author: []const u8, body: []const u8, bubble_color: [4]f32, muted_body: bool) void {
+fn renderTranscriptBubble(id: [:0]const u8, role: ChatRole, author: []const u8, body: []const u8, muted_body: bool) void {
+    const theme = transcriptBubbleTheme(role);
     const bubble_height = transcriptBubbleHeight(author, body);
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = bubble_color });
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = TRANSCRIPT_BUBBLE_ROUNDING });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ TRANSCRIPT_BUBBLE_PADDING_X, TRANSCRIPT_BUBBLE_PADDING_Y } });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.background });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = theme.border });
     _ = zgui.beginChild(id, .{
         .w = 0.0,
         .h = bubble_height,
         .child_flags = .{ .border = true },
+        .window_flags = .{
+            .no_scrollbar = true,
+            .no_scroll_with_mouse = true,
+            .no_saved_settings = true,
+        },
     });
     defer {
         zgui.endChild();
-        zgui.popStyleColor(.{ .count = 1 });
+        zgui.popStyleColor(.{ .count = 2 });
+        zgui.popStyleVar(.{ .count = 2 });
     }
 
-    zgui.textColored(COLOR_WHITE, "{s}", .{author});
+    zgui.textColored(theme.author, "{s}", .{author});
+    zgui.dummy(.{ .w = 0.0, .h = 2.0 });
     zgui.pushTextWrapPos(0.0);
     if (muted_body) {
         zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{body});
@@ -1596,12 +1625,47 @@ fn renderTranscriptBubble(id: [:0]const u8, author: []const u8, body: []const u8
 fn transcriptBubbleHeight(author: []const u8, body: []const u8) f32 {
     const style = zgui.getStyle();
     const avail = zgui.getContentRegionAvail();
-    const inner_width = @max(avail[0] - (style.window_padding[0] * 2.0), 64.0);
+    const inner_width = @max(avail[0] - (TRANSCRIPT_BUBBLE_PADDING_X * 2.0), 64.0);
     const author_size = zgui.calcTextSize(author, .{});
     const body_size = zgui.calcTextSize(body, .{ .wrap_width = inner_width });
-    const vertical_padding = style.window_padding[1] * 2.0;
-    const text_gap = style.item_spacing[1];
-    return @max(author_size[1] + body_size[1] + vertical_padding + text_gap, 56.0);
+    const vertical_padding = TRANSCRIPT_BUBBLE_PADDING_Y * 2.0;
+    const text_gap = 2.0 + style.item_spacing[1];
+    const border_allowance = 4.0;
+    return @max(author_size[1] + body_size[1] + vertical_padding + text_gap + border_allowance, 56.0);
+}
+
+const TranscriptBubbleTheme = struct {
+    background: [4]f32,
+    border: [4]f32,
+    author: [4]f32,
+};
+
+fn transcriptBubbleTheme(role: ChatRole) TranscriptBubbleTheme {
+    return switch (role) {
+        .user => .{
+            .background = darken(COLOR_GREEN, 0.22),
+            .border = rgba(22, 160, 85, 255),
+            .author = rgba(222, 255, 236, 255),
+        },
+        .assistant => .{
+            .background = rgba(50, 50, 50, 255),
+            .border = rgba(86, 86, 86, 255),
+            .author = rgba(214, 214, 214, 255),
+        },
+        .system => .{
+            .background = darken(COLOR_YELLOW, 0.48),
+            .border = rgba(138, 108, 22, 255),
+            .author = rgba(255, 240, 186, 255),
+        },
+    };
+}
+
+fn transcriptShouldAutoFollow(state: *AppState) bool {
+    if (!isSendPending(state)) return false;
+    const scroll_max_y = zgui.getScrollMaxY();
+    if (scroll_max_y <= 0.0) return true;
+    const scroll_y = zgui.getScrollY();
+    return (scroll_max_y - scroll_y) <= 72.0;
 }
 
 fn renderComposer(state: *AppState, width: f32, height: f32) void {
