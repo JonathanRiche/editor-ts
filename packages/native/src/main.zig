@@ -373,7 +373,7 @@ const SendState = struct {
     error_message: ?[]u8 = null,
     project_index: ?usize = null,
     thread_index: ?usize = null,
-    partial_text: ?[]u8 = null,
+    partial_text: std.ArrayListUnmanaged(u8) = .empty,
     worker: ?std.Thread = null,
 };
 
@@ -771,10 +771,7 @@ const AppState = struct {
         self.send_state.error_message = null;
         self.send_state.project_index = request.project_index;
         self.send_state.thread_index = request.thread_index;
-        if (self.send_state.partial_text) |partial_text| {
-            page_alloc.free(partial_text);
-        }
-        self.send_state.partial_text = null;
+        self.send_state.partial_text.clearRetainingCapacity();
         self.send_state.worker = try std.Thread.spawn(.{}, sendWorker, .{ &self.send_state, request });
     }
 
@@ -809,6 +806,9 @@ const AppState = struct {
                         try self.allocator.dupeZ(u8, thread_id)
                     else
                         null;
+                    if (thread.model_ref) |model_ref| {
+                        self.allocator.free(model_ref);
+                    }
                     thread.model_ref = if (persisted_thread.model_ref) |model_ref|
                         try self.allocator.dupeZ(u8, model_ref)
                     else
@@ -1000,6 +1000,7 @@ const AppState = struct {
     fn deinit(self: *AppState) void {
         self.finishPickerThread();
         self.finishSendThread();
+        self.send_state.partial_text.deinit(std.heap.page_allocator);
         self.clearProjects();
         self.projects.deinit(self.allocator);
     }
@@ -1061,10 +1062,7 @@ const AppState = struct {
             .completed => {
                 completed_result = self.send_state.result;
                 self.send_state.result = null;
-                if (self.send_state.partial_text) |partial_text| {
-                    std.heap.page_allocator.free(partial_text);
-                }
-                self.send_state.partial_text = null;
+                self.send_state.partial_text.clearRetainingCapacity();
                 self.send_state.project_index = null;
                 self.send_state.thread_index = null;
                 self.send_state.status = .idle;
@@ -1073,10 +1071,7 @@ const AppState = struct {
             .failed => {
                 failed_message = self.send_state.error_message;
                 self.send_state.error_message = null;
-                if (self.send_state.partial_text) |partial_text| {
-                    std.heap.page_allocator.free(partial_text);
-                }
-                self.send_state.partial_text = null;
+                self.send_state.partial_text.clearRetainingCapacity();
                 self.send_state.project_index = null;
                 self.send_state.thread_index = null;
                 self.send_state.status = .idle;
@@ -1135,15 +1130,14 @@ const AppState = struct {
         }
     }
 
-    fn pendingStreamTextSnapshot(self: *AppState) !?[]u8 {
+    fn hasPendingStream(self: *AppState) bool {
         self.send_state.mutex.lock();
         defer self.send_state.mutex.unlock();
 
-        if (self.send_state.status != .pending) return null;
-        if (self.send_state.project_index != self.selected_project_index) return null;
-        if (self.send_state.thread_index != self.currentProject().selected_thread_index) return null;
-        const partial_text = self.send_state.partial_text orelse return null;
-        return try self.allocator.dupe(u8, partial_text);
+        if (self.send_state.status != .pending) return false;
+        if (self.send_state.project_index != self.selected_project_index) return false;
+        if (self.send_state.thread_index != self.currentProject().selected_thread_index) return false;
+        return true;
     }
 
     fn applySendSuccess(self: *AppState, result: SendResultPayload) !void {
@@ -1591,10 +1585,8 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
     defer zgui.endChild();
 
     const should_follow_stream = transcriptShouldAutoFollow(state);
-
-    const pending_stream = state.pendingStreamTextSnapshot() catch null;
-    defer if (pending_stream) |stream_text| state.allocator.free(stream_text);
-    if (state.currentThread().messages.items.len == 0 and pending_stream == null) {
+    const has_pending_stream = state.hasPendingStream();
+    if (state.currentThread().messages.items.len == 0 and !has_pending_stream) {
         zgui.textColored(COLOR_WHITE, "No messages yet", .{});
         zgui.textColored(COLOR_TEXT_MUTED, "Choose a provider, type a prompt below, and start the first chat for this directory.", .{});
         return;
@@ -1605,20 +1597,32 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 
-    if (pending_stream) |stream_text| {
-        renderTranscriptBubble(
-            "pending-assistant",
-            .assistant,
-            providerLabel(state.currentThread().provider),
-            if (stream_text.len > 0) stream_text else "Waiting for streamed output...",
-            stream_text.len == 0,
-        );
+    if (has_pending_stream) {
+        renderPendingTranscriptBubble(state);
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 
     if (should_follow_stream) {
         zgui.setScrollHereY(.{ .center_y_ratio = 1.0 });
     }
+}
+
+fn renderPendingTranscriptBubble(state: *AppState) void {
+    state.send_state.mutex.lock();
+    defer state.send_state.mutex.unlock();
+
+    if (state.send_state.status != .pending) return;
+    if (state.send_state.project_index != state.selected_project_index) return;
+    if (state.send_state.thread_index != state.currentProject().selected_thread_index) return;
+
+    const stream_text = state.send_state.partial_text.items;
+    renderTranscriptBubble(
+        "pending-assistant",
+        .assistant,
+        providerLabel(state.currentThread().provider),
+        if (stream_text.len > 0) stream_text else "Waiting for streamed output...",
+        stream_text.len == 0,
+    );
 }
 
 fn renderTranscriptBubbleId(id: u32, role: ChatRole, author: []const u8, body: []const u8) void {
@@ -2207,14 +2211,7 @@ fn handleSendStreamDelta(context: ?*anyopaque, delta: []const u8) void {
     send_state.mutex.lock();
     defer send_state.mutex.unlock();
     if (send_state.status != .pending) return;
-
-    if (send_state.partial_text) |existing| {
-        const next = std.fmt.allocPrint(page_alloc, "{s}{s}", .{ existing, delta }) catch return;
-        page_alloc.free(existing);
-        send_state.partial_text = next;
-    } else {
-        send_state.partial_text = page_alloc.dupe(u8, delta) catch return;
-    }
+    send_state.partial_text.appendSlice(page_alloc, delta) catch return;
 }
 
 fn runSendWorker(
