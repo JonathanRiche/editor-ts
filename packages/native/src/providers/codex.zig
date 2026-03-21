@@ -926,6 +926,12 @@ fn emitNotificationEvent(self: *Client, root: std.json.Value, request: provider_
 
     const on_stream_event = request.on_stream_event orelse return;
 
+    if (std.mem.eql(u8, method, "item/started") or std.mem.eql(u8, method, "item/completed")) {
+        if (emitItemEvent(root, request.stream_context, on_stream_event)) {
+            return;
+        }
+    }
+
     if (std.mem.eql(u8, method, "turn/diff/updated")) {
         if (buildDiffSummary(root, request.stream_context, on_stream_event)) {
             return;
@@ -965,6 +971,34 @@ fn emitNotificationEvent(self: *Client, root: std.json.Value, request: provider_
             .body = method,
         });
     }
+}
+
+fn emitItemEvent(
+    root: std.json.Value,
+    context: ?*anyopaque,
+    on_stream_event: *const fn (?*anyopaque, provider_types.StreamEvent) void,
+) bool {
+    const params = getObjectField(root, "params") orelse return false;
+    const item = getObjectField(params, "item") orelse return false;
+    const item_type = getOptionalObjectString(item, "type") orelse return false;
+
+    if (std.mem.eql(u8, item_type, "commandExecution")) {
+        const command = getOptionalObjectString(item, "command") orelse return false;
+        const status = getOptionalObjectString(item, "status") orelse "completed";
+        on_stream_event(context, .{
+            .title = if (std.mem.eql(u8, status, "failed")) "Command failed" else "Ran command",
+            .body = command,
+        });
+        return true;
+    }
+
+    if (std.mem.eql(u8, item_type, "fileChange")) {
+        if (buildFileChangeItemSummary(item, context, on_stream_event)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 fn handleCommandApprovalRequest(self: *Client, root: std.json.Value, request_id: u64, request: provider_types.SendPromptRequest) !void {
@@ -1049,36 +1083,38 @@ fn buildDiffSummary(
     return true;
 }
 
+fn buildFileChangeItemSummary(
+    item: std.json.Value,
+    context: ?*anyopaque,
+    on_stream_event: *const fn (?*anyopaque, provider_types.StreamEvent) void,
+) bool {
+    const changes = getObjectField(item, "changes") orelse return false;
+    var lines: std.ArrayList(u8) = .empty;
+    defer lines.deinit(std.heap.page_allocator);
+
+    if (!appendChangedFiles(changes, &lines)) return false;
+    const owned = lines.toOwnedSlice(std.heap.page_allocator) catch return false;
+    defer std.heap.page_allocator.free(owned);
+
+    on_stream_event(context, .{
+        .title = "Changed files",
+        .body = owned,
+    });
+    return true;
+}
+
 fn appendChangedFiles(value: std.json.Value, lines: *std.ArrayList(u8)) bool {
     switch (value) {
         .object => |obj| {
             if (obj.get("path")) |path_value| {
                 if (stringValue(path_value)) |path| {
-                    const additions = findFirstIntegerByField(value, "additions") orelse
-                        findFirstIntegerByField(value, "addedLines") orelse
-                        findFirstIntegerByField(value, "added") orelse 0;
-                    const deletions = findFirstIntegerByField(value, "deletions") orelse
-                        findFirstIntegerByField(value, "removedLines") orelse
-                        findFirstIntegerByField(value, "removed") orelse 0;
-                    if (lines.items.len > 0) {
-                        lines.append(std.heap.page_allocator, '\n') catch return true;
-                    }
-                    std.fmt.format(lines.writer(std.heap.page_allocator), "{s}  +{d} / -{d}", .{ path, additions, deletions }) catch return true;
+                    appendChangedFileLine(lines, path, value);
                     return true;
                 }
             }
             if (obj.get("filePath")) |path_value| {
                 if (stringValue(path_value)) |path| {
-                    const additions = findFirstIntegerByField(value, "additions") orelse
-                        findFirstIntegerByField(value, "addedLines") orelse
-                        findFirstIntegerByField(value, "added") orelse 0;
-                    const deletions = findFirstIntegerByField(value, "deletions") orelse
-                        findFirstIntegerByField(value, "removedLines") orelse
-                        findFirstIntegerByField(value, "removed") orelse 0;
-                    if (lines.items.len > 0) {
-                        lines.append(std.heap.page_allocator, '\n') catch return true;
-                    }
-                    std.fmt.format(lines.writer(std.heap.page_allocator), "{s}  +{d} / -{d}", .{ path, additions, deletions }) catch return true;
+                    appendChangedFileLine(lines, path, value);
                     return true;
                 }
             }
@@ -1099,6 +1135,22 @@ fn appendChangedFiles(value: std.json.Value, lines: *std.ArrayList(u8)) bool {
         },
         else => return false,
     }
+}
+
+fn appendChangedFileLine(lines: *std.ArrayList(u8), path: []const u8, value: std.json.Value) void {
+    const additions = findFirstIntegerByField(value, "additions") orelse
+        findFirstIntegerByField(value, "addedLines") orelse
+        findFirstIntegerByField(value, "added") orelse
+        countDiffLines(value, '+');
+    const deletions = findFirstIntegerByField(value, "deletions") orelse
+        findFirstIntegerByField(value, "removedLines") orelse
+        findFirstIntegerByField(value, "removed") orelse
+        countDiffLines(value, '-');
+
+    if (lines.items.len > 0) {
+        lines.append(std.heap.page_allocator, '\n') catch return;
+    }
+    std.fmt.format(lines.writer(std.heap.page_allocator), "{s}  +{d} / -{d}", .{ path, additions, deletions }) catch return;
 }
 
 fn extractCommandSummary(root: std.json.Value) ?[]const u8 {
@@ -1192,6 +1244,19 @@ fn findFirstIntegerByField(value: std.json.Value, field: []const u8) ?i64 {
         },
         else => return null,
     }
+}
+
+fn countDiffLines(value: std.json.Value, prefix: u8) i64 {
+    const diff = findFirstStringByField(value, "diff") orelse return 0;
+    var count: i64 = 0;
+    var it = std.mem.tokenizeScalar(u8, diff, '\n');
+    while (it.next()) |line| {
+        if (line.len == 0) continue;
+        if (line[0] != prefix) continue;
+        if (line.len >= 3 and std.mem.eql(u8, line[0..3], if (prefix == '+') "+++" else "---")) continue;
+        count += 1;
+    }
+    return count;
 }
 
 fn approvalPolicyString(value: provider_types.ApprovalPolicy) []const u8 {
