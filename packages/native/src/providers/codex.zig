@@ -114,7 +114,7 @@ pub const Client = struct {
         const thread_id = if (request.thread_id) |existing|
             try allocator.dupe(u8, existing)
         else
-            try self.startThread(allocator, request.cwd, request.model);
+            try self.startThread(allocator, request);
         errdefer allocator.free(thread_id);
 
         try self.ensureThreadLoaded(thread_id);
@@ -311,18 +311,9 @@ pub const Client = struct {
     fn startThread(
         self: *Client,
         allocator: std.mem.Allocator,
-        cwd: ?[]const u8,
-        model: ?[]const u8,
+        request: provider_types.SendPromptRequest,
     ) ![]u8 {
-        const payload = if (cwd) |working_dir|
-            if (model) |selected_model|
-                try self.callRpcForResultAlloc("thread/start", .{ .cwd = working_dir, .model = selected_model })
-            else
-                try self.callRpcForResultAlloc("thread/start", .{ .cwd = working_dir })
-        else if (model) |selected_model|
-            try self.callRpcForResultAlloc("thread/start", .{ .model = selected_model })
-        else
-            try self.callRpcForResultAlloc("thread/start", .{});
+        const payload = try self.callThreadStartAlloc(request);
         defer self.allocator.free(payload);
 
         var parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, payload, .{});
@@ -332,6 +323,54 @@ pub const Client = struct {
         const id = getOptionalObjectString(thread, "id") orelse return error.MissingThreadId;
         try self.rememberLoadedThread(id);
         return allocator.dupe(u8, id);
+    }
+
+    fn callThreadStartAlloc(self: *Client, request: provider_types.SendPromptRequest) ![]u8 {
+        const id = self.next_request_id;
+        self.next_request_id += 1;
+
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer writer.deinit();
+
+        var stringify: std.json.Stringify = .{
+            .writer = &writer.writer,
+            .options = .{},
+        };
+
+        try stringify.beginObject();
+        try stringify.objectField("method");
+        try stringify.write("thread/start");
+        try stringify.objectField("id");
+        try stringify.write(id);
+        try stringify.objectField("params");
+        try stringify.beginObject();
+        if (request.cwd) |working_dir| {
+            try stringify.objectField("cwd");
+            try stringify.write(working_dir);
+        }
+        if (request.model) |selected_model| {
+            try stringify.objectField("model");
+            try stringify.write(selected_model);
+        }
+        if (request.approval_policy) |approval_policy| {
+            try stringify.objectField("approvalPolicy");
+            try stringify.write(approvalPolicyString(approval_policy));
+        }
+        if (request.sandbox_mode) |sandbox_mode| {
+            try stringify.objectField("sandbox");
+            try stringify.write(sandboxModeString(sandbox_mode));
+        }
+        try stringify.objectField("experimentalRawEvents");
+        try stringify.write(false);
+        try stringify.objectField("persistExtendedHistory");
+        try stringify.write(true);
+        try stringify.endObject();
+        try stringify.endObject();
+
+        const payload = try writer.toOwnedSlice();
+        defer self.allocator.free(payload);
+        try self.writeTextMessage(payload);
+        return try self.awaitResultPayloadAlloc(id);
     }
 
     fn ensureThreadLoaded(self: *Client, thread_id: []const u8) !void {
@@ -377,6 +416,9 @@ pub const Client = struct {
             defer parsed.deinit();
 
             const root = parsed.value;
+            if (try self.maybeHandleServerRequest(root, request)) {
+                continue;
+            }
             if (try self.maybeHandleMatchingResponse(root, request_id)) {
                 turn_started = true;
                 continue;
@@ -384,7 +426,7 @@ pub const Client = struct {
 
             if (!turn_started) continue;
 
-            emitNotificationEvent(root, request);
+            try emitNotificationEvent(self, root, request);
 
             if (try appendNotificationDelta(root, allocator, &reply)) {
                 if (request.on_stream_delta) |on_stream_delta| {
@@ -552,6 +594,26 @@ pub const Client = struct {
         }
 
         return true;
+    }
+
+    fn maybeHandleServerRequest(self: *Client, root: std.json.Value, request: provider_types.SendPromptRequest) !bool {
+        const method = getOptionalObjectString(root, "method") orelse return false;
+        const request_id = parseMessageId(root) orelse return false;
+
+        if (std.mem.eql(u8, method, "item/commandExecution/requestApproval")) {
+            try handleCommandApprovalRequest(self, root, request_id, request);
+            return true;
+        }
+        if (std.mem.eql(u8, method, "item/fileChange/requestApproval")) {
+            try handleFileChangeApprovalRequest(self, root, request_id, request);
+            return true;
+        }
+        if (std.mem.eql(u8, method, "item/permissions/requestApproval")) {
+            try handlePermissionsApprovalRequest(self, root, request_id, request);
+            return true;
+        }
+
+        return false;
     }
 
     fn writeTextMessage(self: *Client, payload: []const u8) !void {
@@ -858,11 +920,29 @@ fn extractNotificationDelta(root: std.json.Value) ?[]const u8 {
         findFirstStringByPath(params, &.{"text"});
 }
 
-fn emitNotificationEvent(root: std.json.Value, request: provider_types.SendPromptRequest) void {
-    const on_stream_event = request.on_stream_event orelse return;
+fn emitNotificationEvent(self: *Client, root: std.json.Value, request: provider_types.SendPromptRequest) !void {
+    _ = self;
     const method = getOptionalObjectString(root, "method") orelse return;
 
+    const on_stream_event = request.on_stream_event orelse return;
+
     if (std.mem.eql(u8, method, "turn/diff/updated")) {
+        if (buildDiffSummary(root, request.stream_context, on_stream_event)) {
+            return;
+        }
+    }
+
+    if (std.mem.eql(u8, method, "item/commandExecution/outputDelta")) {
+        if (extractCommandSummary(root)) |command| {
+            on_stream_event(request.stream_context, .{
+                .title = "Ran command",
+                .body = command,
+            });
+            return;
+        }
+    }
+
+    if (std.mem.eql(u8, method, "item/fileChange/outputDelta")) {
         if (buildDiffSummary(root, request.stream_context, on_stream_event)) {
             return;
         }
@@ -885,6 +965,68 @@ fn emitNotificationEvent(root: std.json.Value, request: provider_types.SendPromp
             .body = method,
         });
     }
+}
+
+fn handleCommandApprovalRequest(self: *Client, root: std.json.Value, request_id: u64, request: provider_types.SendPromptRequest) !void {
+    const on_approval_request = request.on_approval_request orelse return;
+    const body = extractCommandApprovalSummary(root) orelse "Codex requested command approval.";
+    const decision = on_approval_request(request.stream_context, .{
+        .call_id = "",
+        .title = "Command approval",
+        .body = body,
+    });
+
+    try respondToServerRequest(request_id, self, .{
+        .decision = commandApprovalDecisionString(decision),
+    });
+}
+
+fn handleFileChangeApprovalRequest(self: *Client, root: std.json.Value, request_id: u64, request: provider_types.SendPromptRequest) !void {
+    const on_approval_request = request.on_approval_request orelse return;
+    const body = extractFileChangeApprovalSummary(root) orelse "Codex requested file change approval.";
+    const decision = on_approval_request(request.stream_context, .{
+        .call_id = "",
+        .title = "File change approval",
+        .body = body,
+    });
+
+    try respondToServerRequest(request_id, self, .{
+        .decision = fileChangeApprovalDecisionString(decision),
+    });
+}
+
+fn handlePermissionsApprovalRequest(self: *Client, root: std.json.Value, request_id: u64, request: provider_types.SendPromptRequest) !void {
+    const on_approval_request = request.on_approval_request orelse return;
+    const body = extractPermissionsApprovalSummary(root) orelse "Codex requested additional permissions.";
+    const decision = on_approval_request(request.stream_context, .{
+        .call_id = "",
+        .title = "Permissions request",
+        .body = body,
+    });
+
+    _ = decision;
+    try respondServerError(request_id, self, -32000, "Permissions approval is not implemented yet");
+}
+
+fn respondToServerRequest(request_id: u64, self: *Client, result: anytype) !void {
+    const payload = try stringifyAlloc(self.allocator, .{
+        .id = request_id,
+        .result = result,
+    });
+    defer self.allocator.free(payload);
+    try self.writeTextMessage(payload);
+}
+
+fn respondServerError(request_id: u64, self: *Client, code: i64, message: []const u8) !void {
+    const payload = try stringifyAlloc(self.allocator, .{
+        .id = request_id,
+        .@"error" = .{
+            .code = code,
+            .message = message,
+        },
+    });
+    defer self.allocator.free(payload);
+    try self.writeTextMessage(payload);
 }
 
 fn buildDiffSummary(
@@ -967,6 +1109,31 @@ fn extractCommandSummary(root: std.json.Value) ?[]const u8 {
         findFirstStringByField(params, "commandLine");
 }
 
+fn extractCommandApprovalSummary(root: std.json.Value) ?[]const u8 {
+    const params = getObjectField(root, "params") orelse return null;
+    return findFirstStringByField(params, "command") orelse
+        findFirstStringByField(params, "reason") orelse
+        findFirstStringByField(params, "cwd") orelse
+        findFirstStringByField(params, "title") orelse
+        findFirstStringByField(params, "message");
+}
+
+fn extractFileChangeApprovalSummary(root: std.json.Value) ?[]const u8 {
+    const params = getObjectField(root, "params") orelse return null;
+    return findFirstStringByField(params, "reason") orelse
+        findFirstStringByField(params, "grantRoot") orelse
+        findFirstStringByField(params, "title") orelse
+        findFirstStringByField(params, "message");
+}
+
+fn extractPermissionsApprovalSummary(root: std.json.Value) ?[]const u8 {
+    const params = getObjectField(root, "params") orelse return null;
+    return findFirstStringByField(params, "reason") orelse
+        findFirstStringByField(params, "reason") orelse
+        findFirstStringByField(params, "title") orelse
+        findFirstStringByField(params, "message");
+}
+
 fn isTurnCompleted(root: std.json.Value) bool {
     const method = getOptionalObjectString(root, "method") orelse return false;
     return std.mem.eql(u8, method, "turn/completed");
@@ -1025,6 +1192,34 @@ fn findFirstIntegerByField(value: std.json.Value, field: []const u8) ?i64 {
         },
         else => return null,
     }
+}
+
+fn approvalPolicyString(value: provider_types.ApprovalPolicy) []const u8 {
+    return switch (value) {
+        .on_request => "on-request",
+        .never => "never",
+    };
+}
+
+fn sandboxModeString(value: provider_types.SandboxMode) []const u8 {
+    return switch (value) {
+        .workspace_write => "workspace-write",
+        .danger_full_access => "danger-full-access",
+    };
+}
+
+fn commandApprovalDecisionString(value: provider_types.ApprovalDecision) []const u8 {
+    return switch (value) {
+        .approve => "accept",
+        .deny => "decline",
+    };
+}
+
+fn fileChangeApprovalDecisionString(value: provider_types.ApprovalDecision) []const u8 {
+    return switch (value) {
+        .approve => "accept",
+        .deny => "decline",
+    };
 }
 
 test "build request target preserves path and query" {

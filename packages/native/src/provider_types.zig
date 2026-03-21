@@ -41,6 +41,27 @@ pub const ReasoningEffort = enum(u8) {
     xhigh,
 };
 
+pub const ApprovalPolicy = enum(u8) {
+    on_request,
+    never,
+};
+
+pub const SandboxMode = enum(u8) {
+    workspace_write,
+    danger_full_access,
+};
+
+pub const ApprovalDecision = enum(u8) {
+    approve,
+    deny,
+};
+
+pub const ApprovalRequest = struct {
+    call_id: []const u8,
+    title: []const u8,
+    body: []const u8,
+};
+
 pub const StreamEvent = struct {
     title: []const u8,
     body: []const u8,
@@ -52,9 +73,12 @@ pub const SendPromptRequest = struct {
     cwd: ?[]const u8 = null,
     model: ?[]const u8 = null,
     reasoning_effort: ?ReasoningEffort = null,
+    approval_policy: ?ApprovalPolicy = null,
+    sandbox_mode: ?SandboxMode = null,
     stream_context: ?*anyopaque = null,
     on_stream_delta: ?*const fn (?*anyopaque, []const u8) void = null,
     on_stream_event: ?*const fn (?*anyopaque, StreamEvent) void = null,
+    on_approval_request: ?*const fn (?*anyopaque, ApprovalRequest) ApprovalDecision = null,
 };
 
 pub const SendPromptResult = struct {

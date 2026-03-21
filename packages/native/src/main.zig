@@ -50,6 +50,11 @@ const FastMode = enum(u8) {
     on,
 };
 
+const AccessMode = enum(u8) {
+    full_access,
+    supervised,
+};
+
 const ModelOption = struct {
     label: [:0]const u8,
     value: ?[:0]const u8 = null,
@@ -63,6 +68,11 @@ const ReasoningOption = struct {
 const FastModeOption = struct {
     label: [:0]const u8,
     value: FastMode,
+};
+
+const AccessModeOption = struct {
+    label: [:0]const u8,
+    value: AccessMode,
 };
 
 const OPENCODE_MODEL_OPTIONS = [_]ModelOption{
@@ -96,6 +106,11 @@ const CODEX_FAST_MODE_OPTIONS = [_]FastModeOption{
     .{ .label = "On", .value = .on },
 };
 
+const CODEX_ACCESS_MODE_OPTIONS = [_]AccessModeOption{
+    .{ .label = "Full access", .value = .full_access },
+    .{ .label = "Supervised", .value = .supervised },
+};
+
 const DEFAULT_CODEX_MODEL: [:0]const u8 = "gpt-5.4";
 
 const ChatMessage = struct {
@@ -112,6 +127,7 @@ const ChatThread = struct {
     model_ref: ?[:0]const u8 = null,
     reasoning_effort: ?ReasoningEffort = null,
     fast_mode: FastMode = .off,
+    access_mode: AccessMode = .full_access,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     messages: std.ArrayList(ChatMessage),
@@ -125,6 +141,7 @@ const ChatThread = struct {
             .model_ref = try allocator.dupeZ(u8, DEFAULT_CODEX_MODEL),
             .reasoning_effort = .high,
             .fast_mode = .off,
+            .access_mode = .full_access,
             .provider = .codex,
             .harness = .local_cli,
             .messages = .empty,
@@ -281,6 +298,7 @@ const PersistedThread = struct {
     model_ref: ?[]const u8 = null,
     reasoning_effort: ?ReasoningEffort = null,
     fast_mode: ?FastMode = null,
+    access_mode: ?AccessMode = null,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     draft: []const u8 = "",
@@ -319,6 +337,7 @@ const SaveThread = struct {
     model_ref: ?[]const u8,
     reasoning_effort: ?ReasoningEffort,
     fast_mode: FastMode,
+    access_mode: AccessMode,
     provider: Provider,
     harness: Harness,
     draft: []const u8,
@@ -371,8 +390,15 @@ const PendingTimelineEvent = struct {
     body: []u8,
 };
 
+const PendingApproval = struct {
+    call_id: []u8,
+    title: []u8,
+    body: []u8,
+};
+
 const SendState = struct {
     mutex: std.Thread.Mutex = .{},
+    condition: std.Thread.Condition = .{},
     status: SendStatus = .idle,
     result: ?SendResultPayload = null,
     error_message: ?[]u8 = null,
@@ -380,6 +406,8 @@ const SendState = struct {
     thread_index: ?usize = null,
     partial_text: std.ArrayListUnmanaged(u8) = .empty,
     pending_events: std.ArrayListUnmanaged(PendingTimelineEvent) = .empty,
+    pending_approval: ?PendingApproval = null,
+    approval_decision: ?ai_harness.ApprovalDecision = null,
     worker: ?std.Thread = null,
 };
 
@@ -395,6 +423,7 @@ const SendWorkerRequest = struct {
     model_ref: ?[]u8,
     reasoning_effort: ?ReasoningEffort,
     fast_mode: FastMode,
+    access_mode: AccessMode,
 };
 
 const Storage = struct {
@@ -474,6 +503,8 @@ const Storage = struct {
                 try stringify.write(thread.reasoning_effort);
                 try stringify.objectField("fast_mode");
                 try stringify.write(thread.fast_mode);
+                try stringify.objectField("access_mode");
+                try stringify.write(thread.access_mode);
                 try stringify.objectField("provider");
                 try stringify.write(thread.provider);
                 try stringify.objectField("harness");
@@ -740,6 +771,8 @@ const AppState = struct {
             .cwd = project.path,
             .model = if (thread.model_ref) |model_ref| model_ref else null,
             .reasoning_effort = thread.reasoning_effort,
+            .approval_policy = approvalPolicyForMode(thread.provider, thread.access_mode),
+            .sandbox_mode = sandboxModeForMode(thread.provider, thread.access_mode),
         });
     }
 
@@ -762,6 +795,7 @@ const AppState = struct {
             .model_ref = if (thread.model_ref) |model_ref| try page_alloc.dupe(u8, model_ref) else null,
             .reasoning_effort = thread.reasoning_effort,
             .fast_mode = thread.fast_mode,
+            .access_mode = thread.access_mode,
         };
         errdefer {
             page_alloc.free(request.project_path);
@@ -779,6 +813,8 @@ const AppState = struct {
         self.send_state.thread_index = request.thread_index;
         self.send_state.partial_text.clearRetainingCapacity();
         freePendingTimelineEventsLocked(page_alloc, &self.send_state.pending_events);
+        freePendingApprovalLocked(page_alloc, &self.send_state.pending_approval);
+        self.send_state.approval_decision = null;
         self.send_state.worker = try std.Thread.spawn(.{}, sendWorker, .{ &self.send_state, request });
     }
 
@@ -822,6 +858,7 @@ const AppState = struct {
                         null;
                     thread.reasoning_effort = persisted_thread.reasoning_effort;
                     thread.fast_mode = persisted_thread.fast_mode orelse .off;
+                    thread.access_mode = persisted_thread.access_mode orelse .full_access;
                     thread.provider = persisted_thread.provider;
                     thread.harness = persisted_thread.harness;
                     thread.setDraft(persisted_thread.draft);
@@ -1009,6 +1046,7 @@ const AppState = struct {
         self.finishSendThread();
         self.send_state.partial_text.deinit(std.heap.page_allocator);
         freePendingTimelineEvents(std.heap.page_allocator, &self.send_state.pending_events);
+        freePendingApproval(std.heap.page_allocator, &self.send_state.pending_approval);
         self.clearProjects();
         self.projects.deinit(self.allocator);
     }
@@ -1074,6 +1112,8 @@ const AppState = struct {
                 self.send_state.partial_text.clearRetainingCapacity();
                 completed_events = self.send_state.pending_events;
                 self.send_state.pending_events = .empty;
+                freePendingApprovalLocked(std.heap.page_allocator, &self.send_state.pending_approval);
+                self.send_state.approval_decision = null;
                 self.send_state.project_index = null;
                 self.send_state.thread_index = null;
                 self.send_state.status = .idle;
@@ -1084,6 +1124,8 @@ const AppState = struct {
                 self.send_state.error_message = null;
                 self.send_state.partial_text.clearRetainingCapacity();
                 freePendingTimelineEventsLocked(std.heap.page_allocator, &self.send_state.pending_events);
+                freePendingApprovalLocked(std.heap.page_allocator, &self.send_state.pending_approval);
+                self.send_state.approval_decision = null;
                 self.send_state.project_index = null;
                 self.send_state.thread_index = null;
                 self.send_state.status = .idle;
@@ -1154,6 +1196,29 @@ const AppState = struct {
         if (self.send_state.project_index != self.selected_project_index) return false;
         if (self.send_state.thread_index != self.currentProject().selected_thread_index) return false;
         return true;
+    }
+
+    fn pendingApprovalSnapshot(self: *AppState) !?PendingApproval {
+        self.send_state.mutex.lock();
+        defer self.send_state.mutex.unlock();
+
+        if (self.send_state.status != .pending) return null;
+        if (self.send_state.project_index != self.selected_project_index) return null;
+        if (self.send_state.thread_index != self.currentProject().selected_thread_index) return null;
+        const approval = self.send_state.pending_approval orelse return null;
+        return .{
+            .call_id = try self.allocator.dupe(u8, approval.call_id),
+            .title = try self.allocator.dupe(u8, approval.title),
+            .body = try self.allocator.dupe(u8, approval.body),
+        };
+    }
+
+    fn resolvePendingApproval(self: *AppState, decision: ai_harness.ApprovalDecision) void {
+        self.send_state.mutex.lock();
+        defer self.send_state.mutex.unlock();
+        if (self.send_state.pending_approval == null) return;
+        self.send_state.approval_decision = decision;
+        self.send_state.condition.broadcast();
     }
 
     fn applySendSuccess(self: *AppState, result: SendResultPayload) !void {
@@ -1632,6 +1697,7 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
     }
 
     if (has_pending_stream) {
+        renderPendingApproval(state);
         renderPendingTimelineEvents(state);
         renderPendingTranscriptBubble(state);
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
@@ -1639,6 +1705,28 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
 
     if (should_follow_stream) {
         zgui.setScrollHereY(.{ .center_y_ratio = 1.0 });
+    }
+}
+
+fn renderPendingApproval(state: *AppState) void {
+    var snapshot = state.pendingApprovalSnapshot() catch null;
+    defer freePendingApproval(state.allocator, &snapshot);
+
+    if (snapshot) |approval| {
+        renderTranscriptBubble("pending-approval-body", .system, approval.title, approval.body, false);
+        zgui.dummy(.{ .w = 0.0, .h = 4.0 });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.08) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.14) });
+        defer zgui.popStyleColor(.{ .count = 3 });
+        if (zgui.button("Approve", .{ .w = 110.0, .h = 30.0 })) {
+            state.resolvePendingApproval(.approve);
+        }
+        zgui.sameLine(.{ .spacing = 10.0 });
+        if (zgui.button("Deny", .{ .w = 110.0, .h = 30.0 })) {
+            state.resolvePendingApproval(.deny);
+        }
+        zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 }
 
@@ -1943,6 +2031,30 @@ fn renderComposerPickers(state: *AppState) void {
                 }
             }
         }
+
+        zgui.sameLine(.{ .spacing = 12.0 });
+        const access_mode_preview = accessModeLabel(thread.access_mode);
+        var access_mode_preview_buf = std.mem.zeroes([96:0]u8);
+        const access_mode_preview_label = comboPreviewLabel(&access_mode_preview_buf, access_mode_preview);
+        zgui.setNextItemWidth(156.0);
+        if (zgui.beginCombo("##access-mode-picker", .{ .preview_value = access_mode_preview_label })) {
+            defer zgui.endCombo();
+            for (CODEX_ACCESS_MODE_OPTIONS) |option| {
+                const is_selected = thread.access_mode == option.value;
+                var row_buf = std.mem.zeroes([96:0]u8);
+                const row_label = comboRowLabel(&row_buf, option.label, is_selected);
+                if (zgui.selectable(row_label, .{ .selected = is_selected, .h = 28.0 })) {
+                    if (thread.access_mode != option.value) {
+                        thread.access_mode = option.value;
+                        if (thread.provider_thread_id) |thread_id| {
+                            state.allocator.free(thread_id);
+                        }
+                        thread.provider_thread_id = null;
+                        state.markDirty();
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1998,6 +2110,13 @@ fn fastModeLabel(mode: FastMode) [:0]const u8 {
     return switch (mode) {
         .off => "Fast Off",
         .on => "Fast On",
+    };
+}
+
+fn accessModeLabel(mode: AccessMode) [:0]const u8 {
+    return switch (mode) {
+        .full_access => "Full access",
+        .supervised => "Supervised",
     };
 }
 
@@ -2292,6 +2411,44 @@ fn handleSendStreamEvent(context: ?*anyopaque, event: ai_harness.StreamEvent) vo
     };
 }
 
+fn handleSendApprovalRequest(context: ?*anyopaque, request: ai_harness.ApprovalRequest) ai_harness.ApprovalDecision {
+    const send_state: *SendState = @ptrCast(@alignCast(context orelse return .deny));
+    const page_alloc = std.heap.page_allocator;
+
+    const owned_call_id = page_alloc.dupe(u8, request.call_id) catch return .deny;
+    errdefer page_alloc.free(owned_call_id);
+    const owned_title = page_alloc.dupe(u8, request.title) catch return .deny;
+    errdefer page_alloc.free(owned_title);
+    const owned_body = page_alloc.dupe(u8, request.body) catch return .deny;
+    errdefer page_alloc.free(owned_body);
+
+    send_state.mutex.lock();
+    defer send_state.mutex.unlock();
+    if (send_state.status != .pending) {
+        page_alloc.free(owned_call_id);
+        page_alloc.free(owned_title);
+        page_alloc.free(owned_body);
+        return .deny;
+    }
+
+    freePendingApprovalLocked(page_alloc, &send_state.pending_approval);
+    send_state.pending_approval = .{
+        .call_id = owned_call_id,
+        .title = owned_title,
+        .body = owned_body,
+    };
+    send_state.approval_decision = null;
+
+    while (send_state.status == .pending and send_state.approval_decision == null) {
+        send_state.condition.wait(&send_state.mutex);
+    }
+
+    const decision = send_state.approval_decision orelse .deny;
+    send_state.approval_decision = null;
+    freePendingApprovalLocked(page_alloc, &send_state.pending_approval);
+    return decision;
+}
+
 fn freePendingTimelineEvents(allocator: std.mem.Allocator, events: *std.ArrayListUnmanaged(PendingTimelineEvent)) void {
     for (events.items) |event| {
         allocator.free(event.title);
@@ -2303,6 +2460,35 @@ fn freePendingTimelineEvents(allocator: std.mem.Allocator, events: *std.ArrayLis
 
 fn freePendingTimelineEventsLocked(allocator: std.mem.Allocator, events: *std.ArrayListUnmanaged(PendingTimelineEvent)) void {
     freePendingTimelineEvents(allocator, events);
+}
+
+fn freePendingApproval(allocator: std.mem.Allocator, approval: *?PendingApproval) void {
+    if (approval.*) |pending| {
+        allocator.free(pending.call_id);
+        allocator.free(pending.title);
+        allocator.free(pending.body);
+        approval.* = null;
+    }
+}
+
+fn freePendingApprovalLocked(allocator: std.mem.Allocator, approval: *?PendingApproval) void {
+    freePendingApproval(allocator, approval);
+}
+
+fn approvalPolicyForMode(provider: Provider, mode: AccessMode) ?ai_harness.ApprovalPolicy {
+    if (provider != .codex) return null;
+    return switch (mode) {
+        .full_access => .never,
+        .supervised => .on_request,
+    };
+}
+
+fn sandboxModeForMode(provider: Provider, mode: AccessMode) ?ai_harness.SandboxMode {
+    if (provider != .codex) return null;
+    return switch (mode) {
+        .full_access => .danger_full_access,
+        .supervised => .workspace_write,
+    };
 }
 
 fn runSendWorker(
@@ -2338,9 +2524,12 @@ fn runSendWorker(
         .cwd = request.project_path,
         .model = request.model_ref,
         .reasoning_effort = request.reasoning_effort,
+        .approval_policy = approvalPolicyForMode(request.provider, request.access_mode),
+        .sandbox_mode = sandboxModeForMode(request.provider, request.access_mode),
         .stream_context = request.send_state_ptr,
         .on_stream_delta = handleSendStreamDelta,
         .on_stream_event = handleSendStreamEvent,
+        .on_approval_request = handleSendApprovalRequest,
     });
 
     return .{
