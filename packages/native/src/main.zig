@@ -23,6 +23,8 @@ const COLOR_PANEL_ALT = rgba(47, 47, 47, 255);
 const COLOR_PANEL_MUTED = rgba(58, 58, 58, 255);
 const COLOR_TEXT_MUTED = rgba(191, 191, 191, 255);
 const COLOR_TEXT_SUBTLE = rgba(153, 153, 153, 255);
+const COLOR_DIFF_ADD = rgba(48, 214, 167, 255);
+const COLOR_DIFF_REMOVE = rgba(255, 96, 96, 255);
 const TRANSCRIPT_BUBBLE_PADDING_X: f32 = 14.0;
 const TRANSCRIPT_BUBBLE_PADDING_Y: f32 = 12.0;
 const TRANSCRIPT_BUBBLE_ROUNDING: f32 = 12.0;
@@ -117,6 +119,12 @@ const ChatMessage = struct {
     role: ChatRole,
     author: [:0]const u8,
     body: [:0]const u8,
+};
+
+const ChangedFileEntry = struct {
+    path: []const u8,
+    additions: i64,
+    deletions: i64,
 };
 
 const ChatThread = struct {
@@ -1739,7 +1747,7 @@ fn renderPendingTimelineEvents(state: *AppState) void {
     if (state.send_state.thread_index != state.currentProject().selected_thread_index) return;
 
     for (state.send_state.pending_events.items, 0..) |event, index| {
-        renderTranscriptBubbleId(@intCast(50_000 + index), .system, event.title, event.body);
+        renderTranscriptMessage(@intCast(50_000 + index), .system, event.title, event.body);
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 }
@@ -1763,6 +1771,19 @@ fn renderPendingTranscriptBubble(state: *AppState) void {
 }
 
 fn renderTranscriptBubbleId(id: u32, role: ChatRole, author: []const u8, body: []const u8) void {
+    renderTranscriptMessage(id, role, author, body);
+}
+
+fn renderTranscriptMessage(id: u32, role: ChatRole, author: []const u8, body: []const u8) void {
+    if (role == .system and std.mem.eql(u8, author, "Changed files")) {
+        renderChangedFilesCardId(id, body);
+        return;
+    }
+    if (role == .system and (std.mem.eql(u8, author, "Ran command") or std.mem.eql(u8, author, "Command failed"))) {
+        renderCommandEventRowId(id, author, body);
+        return;
+    }
+
     const theme = transcriptBubbleTheme(role);
     const bubble_height = transcriptBubbleHeight(author, body);
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = TRANSCRIPT_BUBBLE_ROUNDING });
@@ -1824,6 +1845,164 @@ fn renderTranscriptBubble(id: [:0]const u8, role: ChatRole, author: []const u8, 
         zgui.textWrapped("{s}", .{body});
     }
     zgui.popTextWrapPos();
+}
+
+fn renderCommandEventRowId(id: u32, author: []const u8, body: []const u8) void {
+    const row_height: f32 = 36.0;
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 10.0 });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 12.0, 8.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(34, 34, 34, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(52, 52, 52, 255) });
+    _ = zgui.beginChildId(id, .{
+        .w = 0.0,
+        .h = row_height,
+        .child_flags = .{ .border = true },
+        .window_flags = .{
+            .no_scrollbar = true,
+            .no_scroll_with_mouse = true,
+            .no_saved_settings = true,
+        },
+    });
+    defer {
+        zgui.endChild();
+        zgui.popStyleColor(.{ .count = 2 });
+        zgui.popStyleVar(.{ .count = 2 });
+    }
+
+    zgui.textColored(COLOR_TEXT_MUTED, ">_", .{});
+    zgui.sameLine(.{ .spacing = 12.0 });
+    zgui.textColored(if (std.mem.eql(u8, author, "Command failed")) COLOR_DIFF_REMOVE else COLOR_TEXT_MUTED, "{s}", .{author});
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.textColored(COLOR_TEXT_SUBTLE, "-", .{});
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.pushTextWrapPos(0.0);
+    zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{body});
+    zgui.popTextWrapPos();
+}
+
+fn renderChangedFilesCardId(id: u32, body: []const u8) void {
+    var entries = parseChangedFileEntries(body);
+    const totals = summarizeChangedFiles(entries);
+    const card_height = changedFilesCardHeight(entries.items.len);
+
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 14.0 });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 16.0, 14.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(38, 38, 38, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(70, 70, 70, 255) });
+    _ = zgui.beginChildId(id, .{
+        .w = 0.0,
+        .h = card_height,
+        .child_flags = .{ .border = true },
+        .window_flags = .{
+            .no_scrollbar = true,
+            .no_scroll_with_mouse = true,
+            .no_saved_settings = true,
+        },
+    });
+    defer {
+        zgui.endChild();
+        zgui.popStyleColor(.{ .count = 2 });
+        zgui.popStyleVar(.{ .count = 2 });
+        entries.deinit(std.heap.page_allocator);
+    }
+
+    renderChangedFilesHeader(entries.items.len, totals.additions, totals.deletions);
+    zgui.sameLine(.{ .spacing = 12.0 });
+    renderChangedFilesAction("Collapse all");
+    zgui.sameLine(.{ .spacing = 10.0 });
+    renderChangedFilesAction("View diff");
+    zgui.dummy(.{ .w = 0.0, .h = 10.0 });
+
+    var last_parent: ?[]const u8 = null;
+    for (entries.items) |entry| {
+        const parent = std.fs.path.dirname(entry.path) orelse ".";
+        if (last_parent == null or !std.mem.eql(u8, last_parent.?, parent)) {
+            renderChangedFilesFolder(parent);
+            last_parent = parent;
+        }
+        renderChangedFilesEntry(entry);
+    }
+}
+
+fn renderChangedFilesHeader(file_count: usize, additions: i64, deletions: i64) void {
+    zgui.textColored(COLOR_TEXT_SUBTLE, "CHANGED FILES ({d})", .{file_count});
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.textColored(COLOR_TEXT_SUBTLE, "•", .{});
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.textColored(COLOR_DIFF_ADD, "+{d}", .{additions});
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.textColored(COLOR_TEXT_SUBTLE, "/", .{});
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.textColored(COLOR_DIFF_REMOVE, "-{d}", .{deletions});
+}
+
+fn renderChangedFilesAction(label: [:0]const u8) void {
+    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 12.0 });
+    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 12.0, 7.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(52, 52, 52, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(58, 58, 58, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(64, 64, 64, 255) });
+    defer {
+        zgui.popStyleColor(.{ .count = 3 });
+        zgui.popStyleVar(.{ .count = 2 });
+    }
+    _ = zgui.button(label, .{ .h = 32.0 });
+}
+
+fn renderChangedFilesFolder(path: []const u8) void {
+    zgui.textColored(COLOR_TEXT_MUTED, "v  {s}", .{path});
+    zgui.dummy(.{ .w = 0.0, .h = 4.0 });
+}
+
+fn renderChangedFilesEntry(entry: ChangedFileEntry) void {
+    const file_name = std.fs.path.basename(entry.path);
+    zgui.textColored(COLOR_TEXT_MUTED, "    {s}", .{file_name});
+    zgui.sameLine(.{ .spacing = 16.0 });
+    zgui.textColored(COLOR_DIFF_ADD, "+{d}", .{entry.additions});
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.textColored(COLOR_TEXT_SUBTLE, "/", .{});
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.textColored(COLOR_DIFF_REMOVE, "-{d}", .{entry.deletions});
+    zgui.dummy(.{ .w = 0.0, .h = 6.0 });
+}
+
+fn changedFilesCardHeight(file_count: usize) f32 {
+    return @max(92.0 + (@as(f32, @floatFromInt(file_count)) * 32.0), 126.0);
+}
+
+fn parseChangedFileEntries(body: []const u8) std.ArrayListUnmanaged(ChangedFileEntry) {
+    var entries: std.ArrayListUnmanaged(ChangedFileEntry) = .empty;
+    var lines = std.mem.tokenizeScalar(u8, body, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+        if (trimmed.len == 0) continue;
+
+        const plus_index = std.mem.lastIndexOf(u8, trimmed, " +") orelse continue;
+        const path = std.mem.trimRight(u8, trimmed[0..plus_index], &std.ascii.whitespace);
+        const counts = trimmed[plus_index + 2 ..];
+        const slash_index = std.mem.indexOf(u8, counts, " / -") orelse continue;
+        const add_slice = counts[0..slash_index];
+        const del_slice = counts[slash_index + 5 ..];
+        const additions = std.fmt.parseInt(i64, add_slice, 10) catch 0;
+        const deletions = std.fmt.parseInt(i64, del_slice, 10) catch 0;
+
+        entries.append(std.heap.page_allocator, .{
+            .path = path,
+            .additions = additions,
+            .deletions = deletions,
+        }) catch break;
+    }
+    return entries;
+}
+
+fn summarizeChangedFiles(entries: std.ArrayListUnmanaged(ChangedFileEntry)) struct { additions: i64, deletions: i64 } {
+    var additions: i64 = 0;
+    var deletions: i64 = 0;
+    for (entries.items) |entry| {
+        additions += entry.additions;
+        deletions += entry.deletions;
+    }
+    return .{ .additions = additions, .deletions = deletions };
 }
 
 fn transcriptBubbleHeight(author: []const u8, body: []const u8) f32 {
