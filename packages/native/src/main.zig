@@ -205,6 +205,7 @@ const Project = struct {
     label: [:0]const u8,
     path: [:0]const u8,
     unread_count: u8 = 0,
+    collapsed: bool = false,
     threads: std.ArrayList(ChatThread),
     selected_thread_index: usize = 0,
 
@@ -214,6 +215,7 @@ const Project = struct {
             .label = try allocator.dupeZ(u8, label),
             .path = try allocator.dupeZ(u8, path),
             .unread_count = unread_count,
+            .collapsed = false,
             .threads = .empty,
             .selected_thread_index = 0,
         };
@@ -290,6 +292,7 @@ const PersistedProject = struct {
     label: []const u8,
     path: []const u8,
     unread_count: u8 = 0,
+    collapsed: ?bool = null,
     selected_thread_index: usize = 0,
     threads: ?[]const PersistedThread = null,
     provider: Provider = .opencode,
@@ -333,6 +336,7 @@ const SaveProject = struct {
     label: []const u8,
     path: []const u8,
     unread_count: u8,
+    collapsed: bool,
     selected_thread_index: usize,
     threads: []const SaveThread,
 };
@@ -490,6 +494,8 @@ const Storage = struct {
             try stringify.write(project.path);
             try stringify.objectField("unread_count");
             try stringify.write(project.unread_count);
+            try stringify.objectField("collapsed");
+            try stringify.write(project.collapsed);
             try stringify.objectField("selected_thread_index");
             try stringify.write(selected_save_index);
             try stringify.objectField("threads");
@@ -843,6 +849,7 @@ const AppState = struct {
             defer self.allocator.free(project_id);
 
             var loaded = try Project.init(self.allocator, project_id, project.label, project.path, project.unread_count);
+            loaded.collapsed = project.collapsed orelse false;
             for (loaded.threads.items) |*thread| {
                 thread.deinit(self.allocator);
             }
@@ -1553,16 +1560,27 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         defer zgui.popId();
 
         const is_selected = state.selected_project_index == index;
+        const is_collapsed = state.projects.items[index].collapsed;
         if (is_selected) {
             zgui.pushStyleColor4f(.{ .idx = .header, .c = darken(COLOR_GREEN, 0.10) });
             zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = COLOR_GREEN });
             zgui.pushStyleColor4f(.{ .idx = .header_active, .c = lighten(COLOR_GREEN, 0.12) });
         }
 
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = COLOR_PANEL_ALT });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.08) });
+        if (zgui.smallButton(if (is_collapsed) ">" else "v")) {
+            state.projects.items[index].collapsed = !state.projects.items[index].collapsed;
+            state.markDirty();
+        }
+        zgui.popStyleColor(.{ .count = 3 });
+
+        zgui.sameLine(.{ .spacing = 8.0 });
         if (zgui.selectable(project.label, .{
             .selected = is_selected,
-            .w = width - 52.0,
-            .h = 44.0,
+            .w = width - 76.0,
+            .h = 32.0,
         })) {
             state.selected_project_index = index;
             state.syncRenameBuffer();
@@ -1588,8 +1606,10 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         }
 
         const active_thread = state.projects.items[index].currentThread();
-        zgui.textDisabled("{d} saved chats", .{project.committedThreadCount()});
-        if (is_selected) {
+        if (!is_collapsed) {
+            zgui.textDisabled("{d} saved chats", .{project.committedThreadCount()});
+        }
+        if (is_selected and !is_collapsed) {
             zgui.indent(.{ .indent_w = 12.0 });
             for (project.threads.items, 0..) |thread, thread_index| {
                 if (!thread.committed) continue;
@@ -1629,14 +1649,14 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
                 zgui.textColored(COLOR_TEXT_SUBTLE, "New chat will appear here after the first prompt.", .{});
             }
             zgui.unindent(.{ .indent_w = 12.0 });
-        } else if (active_thread.messages.items.len > 0) {
+        } else if (!is_collapsed and active_thread.messages.items.len > 0) {
             var time_buf: [24]u8 = undefined;
             const relative_time = formatRelativeTime(&time_buf, active_thread.last_activity_at);
             zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{lastMessagePreview(&project)});
             zgui.textDisabled("{s}", .{relative_time});
-        } else if (active_thread.committed) {
+        } else if (!is_collapsed and active_thread.committed) {
             zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{active_thread.title});
-        } else {
+        } else if (!is_collapsed) {
             zgui.textColored(COLOR_TEXT_SUBTLE, "No saved threads yet", .{});
         }
         if (project.unread_count > 0) {
