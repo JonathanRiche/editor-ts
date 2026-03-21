@@ -10,6 +10,8 @@ const log = std.log.scoped(.native_shell);
 const ORG_NAME: [:0]const u8 = "Verde";
 const APP_NAME: [:0]const u8 = "Native";
 const STATE_FILE_NAME = "state.json";
+const GEIST_SANS_BYTES = @embedFile("assets/fonts/Geist-Regular.ttf");
+const BASE_FONT_SIZE: f32 = 16.0;
 
 const COLOR_GREEN = rgb(0x05, 0xa5, 0x4c);
 const COLOR_YELLOW = rgb(0xfb, 0xbf, 0x24);
@@ -1210,6 +1212,7 @@ pub fn main() !void {
 
     zgui.init(allocator);
     defer zgui.deinit();
+    installFonts();
     zgui.backend.init(window, gl_context);
     defer zgui.backend.deinit();
 
@@ -1830,6 +1833,11 @@ fn comboPreviewLabel(buffer: []u8, label: []const u8) [:0]const u8 {
 
 fn comboRowLabel(buffer: []u8, label: []const u8, selected: bool) [:0]const u8 {
     return std.fmt.bufPrintZ(buffer, "{s} {s}", .{ if (selected) ">" else " ", label }) catch " row";
+}
+
+fn installFonts() void {
+    const font = zgui.io.addFontFromMemory(GEIST_SANS_BYTES[0..GEIST_SANS_BYTES.len], BASE_FONT_SIZE);
+    zgui.io.setDefaultFont(font);
 }
 
 fn applyTheme() void {
