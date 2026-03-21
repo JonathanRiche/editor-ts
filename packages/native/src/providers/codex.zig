@@ -940,10 +940,10 @@ fn emitNotificationEvent(self: *Client, root: std.json.Value, request: provider_
 
     if (std.mem.eql(u8, method, "item/commandExecution/outputDelta")) {
         if (extractCommandSummary(root)) |command| {
-            on_stream_event(request.stream_context, .{
+            on_stream_event(request.stream_context, .{ .message = .{
                 .title = "Ran command",
                 .body = command,
-            });
+            } });
             return;
         }
     }
@@ -959,17 +959,17 @@ fn emitNotificationEvent(self: *Client, root: std.json.Value, request: provider_
         std.mem.eql(u8, method, "command/exec"))
     {
         if (extractCommandSummary(root)) |command| {
-            on_stream_event(request.stream_context, .{
+            on_stream_event(request.stream_context, .{ .message = .{
                 .title = "Ran command",
                 .body = command,
-            });
+            } });
             return;
         }
 
-        on_stream_event(request.stream_context, .{
+        on_stream_event(request.stream_context, .{ .message = .{
             .title = "Tool call",
             .body = method,
-        });
+        } });
     }
 }
 
@@ -985,10 +985,10 @@ fn emitItemEvent(
     if (std.mem.eql(u8, item_type, "commandExecution")) {
         const command = getOptionalObjectString(item, "command") orelse return false;
         const status = getOptionalObjectString(item, "status") orelse "completed";
-        on_stream_event(context, .{
+        on_stream_event(context, .{ .message = .{
             .title = if (std.mem.eql(u8, status, "failed")) "Command failed" else "Ran command",
             .body = command,
-        });
+        } });
         return true;
     }
 
@@ -1069,17 +1069,13 @@ fn buildDiffSummary(
     on_stream_event: *const fn (?*anyopaque, provider_types.StreamEvent) void,
 ) bool {
     const params = getObjectField(root, "params") orelse return false;
-    var lines: std.ArrayList(u8) = .empty;
-    defer lines.deinit(std.heap.page_allocator);
+    var files: std.ArrayList(provider_types.StreamDiffFile) = .empty;
+    defer files.deinit(std.heap.page_allocator);
 
-    if (!appendChangedFiles(params, &lines)) return false;
-    const owned = lines.toOwnedSlice(std.heap.page_allocator) catch return false;
-    defer std.heap.page_allocator.free(owned);
-
-    on_stream_event(context, .{
-        .title = "Changed files",
-        .body = owned,
-    });
+    if (!appendDiffFiles(params, &files)) return false;
+    on_stream_event(context, .{ .diff = .{
+        .files = files.items,
+    } });
     return true;
 }
 
@@ -1089,18 +1085,70 @@ fn buildFileChangeItemSummary(
     on_stream_event: *const fn (?*anyopaque, provider_types.StreamEvent) void,
 ) bool {
     const changes = getObjectField(item, "changes") orelse return false;
-    var lines: std.ArrayList(u8) = .empty;
-    defer lines.deinit(std.heap.page_allocator);
+    var files: std.ArrayList(provider_types.StreamDiffFile) = .empty;
+    defer files.deinit(std.heap.page_allocator);
 
-    if (!appendChangedFiles(changes, &lines)) return false;
-    const owned = lines.toOwnedSlice(std.heap.page_allocator) catch return false;
-    defer std.heap.page_allocator.free(owned);
-
-    on_stream_event(context, .{
-        .title = "Changed files",
-        .body = owned,
-    });
+    if (!appendDiffFiles(changes, &files)) return false;
+    on_stream_event(context, .{ .diff = .{
+        .files = files.items,
+    } });
     return true;
+}
+
+fn appendDiffFiles(value: std.json.Value, files: *std.ArrayList(provider_types.StreamDiffFile)) bool {
+    switch (value) {
+        .object => |obj| {
+            if (extractPathFromValue(value)) |path| {
+                const additions = findFirstIntegerByField(value, "additions") orelse
+                    findFirstIntegerByField(value, "addedLines") orelse
+                    findFirstIntegerByField(value, "added") orelse
+                    countDiffLines(value, '+');
+                const deletions = findFirstIntegerByField(value, "deletions") orelse
+                    findFirstIntegerByField(value, "removedLines") orelse
+                    findFirstIntegerByField(value, "removed") orelse
+                    countDiffLines(value, '-');
+                const patch = findFirstStringByField(value, "diff");
+
+                appendOrReplaceDiffFile(files, .{
+                    .path = path,
+                    .additions = additions,
+                    .deletions = deletions,
+                    .patch = patch,
+                }) catch return false;
+            }
+
+            var found = false;
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                found = appendDiffFiles(entry.value_ptr.*, files) or found;
+            }
+            return found or extractPathFromValue(value) != null;
+        },
+        .array => |arr| {
+            var found = false;
+            for (arr.items) |item| {
+                found = appendDiffFiles(item, files) or found;
+            }
+            return found;
+        },
+        else => return false,
+    }
+}
+
+fn appendOrReplaceDiffFile(
+    files: *std.ArrayList(provider_types.StreamDiffFile),
+    next: provider_types.StreamDiffFile,
+) !void {
+    for (files.items) |*existing| {
+        if (!std.mem.eql(u8, existing.path, next.path)) continue;
+
+        existing.additions = next.additions;
+        existing.deletions = next.deletions;
+        existing.patch = next.patch;
+        return;
+    }
+
+    try files.append(std.heap.page_allocator, next);
 }
 
 fn appendChangedFiles(value: std.json.Value, lines: *std.ArrayList(u8)) bool {
@@ -1151,6 +1199,16 @@ fn appendChangedFileLine(lines: *std.ArrayList(u8), path: []const u8, value: std
         lines.append(std.heap.page_allocator, '\n') catch return;
     }
     std.fmt.format(lines.writer(std.heap.page_allocator), "{s}  +{d} / -{d}", .{ path, additions, deletions }) catch return;
+}
+
+fn extractPathFromValue(value: std.json.Value) ?[]const u8 {
+    if (getObjectField(value, "path")) |path_value| {
+        if (stringValue(path_value)) |path| return path;
+    }
+    if (getObjectField(value, "filePath")) |path_value| {
+        if (stringValue(path_value)) |path| return path;
+    }
+    return null;
 }
 
 fn extractCommandSummary(root: std.json.Value) ?[]const u8 {

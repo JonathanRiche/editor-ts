@@ -62,9 +62,21 @@ pub const ApprovalRequest = struct {
     body: []const u8,
 };
 
-pub const StreamEvent = struct {
-    title: []const u8,
-    body: []const u8,
+pub const StreamDiffFile = struct {
+    path: []const u8,
+    additions: i64,
+    deletions: i64,
+    patch: ?[]const u8 = null,
+};
+
+pub const StreamEvent = union(enum) {
+    message: struct {
+        title: []const u8,
+        body: []const u8,
+    },
+    diff: struct {
+        files: []const StreamDiffFile,
+    },
 };
 
 pub const SendPromptRequest = struct {

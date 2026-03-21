@@ -16,6 +16,7 @@ pub const ApprovalPolicy = types.ApprovalPolicy;
 pub const SandboxMode = types.SandboxMode;
 pub const ApprovalDecision = types.ApprovalDecision;
 pub const ApprovalRequest = types.ApprovalRequest;
+pub const StreamDiffFile = types.StreamDiffFile;
 pub const StreamEvent = types.StreamEvent;
 pub const SendPromptRequest = types.SendPromptRequest;
 pub const SendPromptResult = types.SendPromptResult;

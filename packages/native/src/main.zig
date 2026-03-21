@@ -28,6 +28,7 @@ const COLOR_DIFF_REMOVE = rgba(255, 96, 96, 255);
 const TRANSCRIPT_BUBBLE_PADDING_X: f32 = 14.0;
 const TRANSCRIPT_BUBBLE_PADDING_Y: f32 = 12.0;
 const TRANSCRIPT_BUBBLE_ROUNDING: f32 = 12.0;
+const PERSISTED_DIFF_MARKER = "EDITORTS_DIFF_V1\n";
 
 const ChatRole = enum(u8) {
     user,
@@ -125,6 +126,15 @@ const ChangedFileEntry = struct {
     path: []const u8,
     additions: i64,
     deletions: i64,
+    patch: ?[]const u8 = null,
+};
+
+const PendingDiffFile = struct {
+    path: []u8,
+    additions: i64,
+    deletions: i64,
+    patch: ?[]u8 = null,
+    expanded: bool = false,
 };
 
 const ChatThread = struct {
@@ -418,6 +428,7 @@ const SendState = struct {
     thread_index: ?usize = null,
     partial_text: std.ArrayListUnmanaged(u8) = .empty,
     pending_events: std.ArrayListUnmanaged(PendingTimelineEvent) = .empty,
+    pending_diff_files: std.ArrayListUnmanaged(PendingDiffFile) = .empty,
     pending_approval: ?PendingApproval = null,
     approval_decision: ?ai_harness.ApprovalDecision = null,
     worker: ?std.Thread = null,
@@ -827,6 +838,7 @@ const AppState = struct {
         self.send_state.thread_index = request.thread_index;
         self.send_state.partial_text.clearRetainingCapacity();
         freePendingTimelineEventsLocked(page_alloc, &self.send_state.pending_events);
+        freePendingDiffFilesLocked(page_alloc, &self.send_state.pending_diff_files);
         freePendingApprovalLocked(page_alloc, &self.send_state.pending_approval);
         self.send_state.approval_decision = null;
         self.send_state.worker = try std.Thread.spawn(.{}, sendWorker, .{ &self.send_state, request });
@@ -1061,6 +1073,7 @@ const AppState = struct {
         self.finishSendThread();
         self.send_state.partial_text.deinit(std.heap.page_allocator);
         freePendingTimelineEvents(std.heap.page_allocator, &self.send_state.pending_events);
+        freePendingDiffFiles(std.heap.page_allocator, &self.send_state.pending_diff_files);
         freePendingApproval(std.heap.page_allocator, &self.send_state.pending_approval);
         self.clearProjects();
         self.projects.deinit(self.allocator);
@@ -1118,6 +1131,7 @@ const AppState = struct {
         var failed_message: ?[]u8 = null;
         var next_status: SendStatus = .idle;
         var completed_events: std.ArrayListUnmanaged(PendingTimelineEvent) = .empty;
+        var completed_diff_files: std.ArrayListUnmanaged(PendingDiffFile) = .empty;
 
         self.send_state.mutex.lock();
         switch (self.send_state.status) {
@@ -1127,6 +1141,8 @@ const AppState = struct {
                 self.send_state.partial_text.clearRetainingCapacity();
                 completed_events = self.send_state.pending_events;
                 self.send_state.pending_events = .empty;
+                completed_diff_files = self.send_state.pending_diff_files;
+                self.send_state.pending_diff_files = .empty;
                 freePendingApprovalLocked(std.heap.page_allocator, &self.send_state.pending_approval);
                 self.send_state.approval_decision = null;
                 self.send_state.project_index = null;
@@ -1139,6 +1155,7 @@ const AppState = struct {
                 self.send_state.error_message = null;
                 self.send_state.partial_text.clearRetainingCapacity();
                 freePendingTimelineEventsLocked(std.heap.page_allocator, &self.send_state.pending_events);
+                freePendingDiffFilesLocked(std.heap.page_allocator, &self.send_state.pending_diff_files);
                 freePendingApprovalLocked(std.heap.page_allocator, &self.send_state.pending_approval);
                 self.send_state.approval_decision = null;
                 self.send_state.project_index = null;
@@ -1160,6 +1177,8 @@ const AppState = struct {
                     defer std.heap.page_allocator.free(result.provider_thread_id);
                     defer std.heap.page_allocator.free(result.reply_text);
                     defer freePendingTimelineEvents(std.heap.page_allocator, &completed_events);
+                    defer freePendingDiffFiles(std.heap.page_allocator, &completed_diff_files);
+                    appendPendingDiffSummaryEvent(std.heap.page_allocator, &completed_events, completed_diff_files.items);
                     self.applyPendingTimelineEvents(result, &completed_events) catch |err| {
                         log.err("failed to apply timeline events: {s}", .{@errorName(err)});
                     };
@@ -1726,6 +1745,7 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
 
     if (has_pending_stream) {
         renderPendingApproval(state);
+        renderPendingDiffCard(state);
         renderPendingTimelineEvents(state);
         renderPendingTranscriptBubble(state);
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
@@ -1769,6 +1789,57 @@ fn renderPendingTimelineEvents(state: *AppState) void {
     for (state.send_state.pending_events.items, 0..) |event, index| {
         renderTranscriptMessage(@intCast(50_000 + index), .system, event.title, event.body);
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
+    }
+}
+
+fn renderPendingDiffCard(state: *AppState) void {
+    state.send_state.mutex.lock();
+    defer state.send_state.mutex.unlock();
+
+    if (state.send_state.status != .pending) return;
+    if (state.send_state.project_index != state.selected_project_index) return;
+    if (state.send_state.thread_index != state.currentProject().selected_thread_index) return;
+    if (state.send_state.pending_diff_files.items.len == 0) return;
+
+    renderPendingDiffCardLocked(&state.send_state.pending_diff_files);
+    zgui.dummy(.{ .w = 0.0, .h = 6.0 });
+}
+
+fn renderPendingDiffCardLocked(files: *std.ArrayListUnmanaged(PendingDiffFile)) void {
+    const totals = summarizePendingDiffFiles(files.items);
+    const card_height = pendingDiffCardHeight(files.items);
+
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 14.0 });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 16.0, 14.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(38, 38, 38, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(70, 70, 70, 255) });
+    _ = zgui.beginChild("pending-diff-card", .{
+        .w = 0.0,
+        .h = card_height,
+        .child_flags = .{ .border = true },
+        .window_flags = .{
+            .no_saved_settings = true,
+        },
+    });
+    defer {
+        zgui.endChild();
+        zgui.popStyleColor(.{ .count = 2 });
+        zgui.popStyleVar(.{ .count = 2 });
+    }
+
+    renderChangedFilesHeader(files.items.len, totals.additions, totals.deletions);
+    zgui.sameLine(.{ .spacing = 12.0 });
+    if (renderChangedFilesAction("Expand all")) {
+        for (files.items) |*file| file.expanded = true;
+    }
+    zgui.sameLine(.{ .spacing = 10.0 });
+    if (renderChangedFilesAction("Collapse all")) {
+        for (files.items) |*file| file.expanded = false;
+    }
+    zgui.dummy(.{ .w = 0.0, .h = 10.0 });
+
+    for (files.items, 0..) |*file, index| {
+        renderPendingDiffFile(file, index);
     }
 }
 
@@ -1903,7 +1974,10 @@ fn renderCommandEventRowId(id: u32, author: []const u8, body: []const u8) void {
 fn renderChangedFilesCardId(id: u32, body: []const u8) void {
     var entries = parseChangedFileEntries(body);
     const totals = summarizeChangedFiles(entries);
-    const card_height = changedFilesCardHeight(entries.items.len);
+    const has_patch_details = changedFilesEntriesHavePatch(entries.items);
+    const card_height = if (has_patch_details) detailedChangedFilesCardHeight(entries.items) else changedFilesCardHeight(entries.items.len);
+    var open_all = false;
+    var close_all = false;
 
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 14.0 });
     zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 16.0, 14.0 } });
@@ -1914,8 +1988,6 @@ fn renderChangedFilesCardId(id: u32, body: []const u8) void {
         .h = card_height,
         .child_flags = .{ .border = true },
         .window_flags = .{
-            .no_scrollbar = true,
-            .no_scroll_with_mouse = true,
             .no_saved_settings = true,
         },
     });
@@ -1928,10 +2000,27 @@ fn renderChangedFilesCardId(id: u32, body: []const u8) void {
 
     renderChangedFilesHeader(entries.items.len, totals.additions, totals.deletions);
     zgui.sameLine(.{ .spacing = 12.0 });
-    renderChangedFilesAction("Collapse all");
-    zgui.sameLine(.{ .spacing = 10.0 });
-    renderChangedFilesAction("View diff");
+    if (has_patch_details) {
+        if (renderChangedFilesAction("Collapse all")) {
+            close_all = true;
+        }
+        zgui.sameLine(.{ .spacing = 10.0 });
+        if (renderChangedFilesAction("View diff")) {
+            open_all = true;
+        }
+    } else {
+        _ = renderChangedFilesAction("Collapse all");
+        zgui.sameLine(.{ .spacing = 10.0 });
+        _ = renderChangedFilesAction("View diff");
+    }
     zgui.dummy(.{ .w = 0.0, .h = 10.0 });
+
+    if (has_patch_details) {
+        for (entries.items, 0..) |entry, index| {
+            renderChangedFilesDetailedEntry(entry, id, index, open_all, close_all);
+        }
+        return;
+    }
 
     var last_parent: ?[]const u8 = null;
     for (entries.items) |entry| {
@@ -1956,7 +2045,7 @@ fn renderChangedFilesHeader(file_count: usize, additions: i64, deletions: i64) v
     zgui.textColored(COLOR_DIFF_REMOVE, "-{d}", .{deletions});
 }
 
-fn renderChangedFilesAction(label: [:0]const u8) void {
+fn renderChangedFilesAction(label: [:0]const u8) bool {
     zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 12.0 });
     zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 12.0, 7.0 } });
     zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(52, 52, 52, 255) });
@@ -1966,7 +2055,7 @@ fn renderChangedFilesAction(label: [:0]const u8) void {
         zgui.popStyleColor(.{ .count = 3 });
         zgui.popStyleVar(.{ .count = 2 });
     }
-    _ = zgui.button(label, .{ .h = 32.0 });
+    return zgui.button(label, .{ .h = 32.0 });
 }
 
 fn renderChangedFilesFolder(path: []const u8) void {
@@ -1986,11 +2075,149 @@ fn renderChangedFilesEntry(entry: ChangedFileEntry) void {
     zgui.dummy(.{ .w = 0.0, .h = 6.0 });
 }
 
+fn renderChangedFilesDetailedEntry(
+    entry: ChangedFileEntry,
+    message_id: u32,
+    index: usize,
+    open_all: bool,
+    close_all: bool,
+) void {
+    var header_storage: [512]u8 = undefined;
+    const header_label = std.fmt.bufPrintZ(&header_storage, "{s}  +{d} / -{d}##changed-files-{d}-{d}", .{
+        entry.path,
+        entry.additions,
+        entry.deletions,
+        message_id,
+        index,
+    }) catch return;
+
+    if (open_all) {
+        zgui.setNextItemOpen(.{ .is_open = true, .cond = .always });
+    } else if (close_all) {
+        zgui.setNextItemOpen(.{ .is_open = false, .cond = .always });
+    }
+
+    if (zgui.collapsingHeader(header_label, .{})) {
+        if (entry.patch) |patch| {
+            renderPendingDiffPatch(patch, @as(usize, message_id) * 1000 + index);
+        } else {
+            zgui.textColored(COLOR_TEXT_SUBTLE, "No patch body available.", .{});
+        }
+        zgui.dummy(.{ .w = 0.0, .h = 6.0 });
+    }
+}
+
+fn renderPendingDiffFile(file: *PendingDiffFile, index: usize) void {
+    const toggle_label = if (file.expanded) "v" else ">";
+    const file_name = std.fs.path.basename(file.path);
+    var toggle_storage: [48]u8 = undefined;
+    const toggle_button_label = std.fmt.bufPrintZ(&toggle_storage, "{s}##pending-diff-toggle-{d}", .{ toggle_label, index }) catch return;
+
+    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 8.0 });
+    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 8.0, 6.0 } });
+    defer zgui.popStyleVar(.{ .count = 2 });
+
+    if (zgui.button(toggle_button_label, .{ .w = 28.0, .h = 28.0 })) {
+        file.expanded = !file.expanded;
+    }
+    zgui.sameLine(.{ .spacing = 10.0 });
+    zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{file_name});
+    zgui.sameLine(.{ .spacing = 10.0 });
+    zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{file.path});
+    zgui.sameLine(.{ .spacing = 12.0 });
+    zgui.textColored(COLOR_DIFF_ADD, "+{d}", .{file.additions});
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.textColored(COLOR_TEXT_SUBTLE, "/", .{});
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.textColored(COLOR_DIFF_REMOVE, "-{d}", .{file.deletions});
+
+    if (file.expanded) {
+        if (file.patch) |patch| {
+            renderPendingDiffPatch(patch, index);
+        } else {
+            zgui.dummy(.{ .w = 0.0, .h = 6.0 });
+            zgui.textColored(COLOR_TEXT_SUBTLE, "No patch body available yet.", .{});
+        }
+    }
+
+    zgui.dummy(.{ .w = 0.0, .h = 8.0 });
+}
+
+fn renderPendingDiffPatch(patch: []const u8, index: usize) void {
+    const patch_height = pendingDiffPatchHeight(patch);
+
+    zgui.dummy(.{ .w = 0.0, .h = 6.0 });
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 10.0 });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 10.0, 10.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(24, 24, 24, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(52, 52, 52, 255) });
+    _ = zgui.beginChildId(@intCast(80_000 + index), .{
+        .w = 0.0,
+        .h = patch_height,
+        .child_flags = .{ .border = true },
+        .window_flags = .{
+            .no_saved_settings = true,
+        },
+    });
+    defer {
+        zgui.endChild();
+        zgui.popStyleColor(.{ .count = 2 });
+        zgui.popStyleVar(.{ .count = 2 });
+    }
+
+    var lines = std.mem.tokenizeScalar(u8, patch, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0) {
+            zgui.textColored(COLOR_TEXT_SUBTLE, " ", .{});
+            continue;
+        }
+
+        const color = switch (line[0]) {
+            '+' => if (std.mem.startsWith(u8, line, "+++")) COLOR_TEXT_SUBTLE else COLOR_DIFF_ADD,
+            '-' => if (std.mem.startsWith(u8, line, "---")) COLOR_TEXT_SUBTLE else COLOR_DIFF_REMOVE,
+            '@' => COLOR_YELLOW,
+            else => COLOR_TEXT_MUTED,
+        };
+        zgui.textColored(color, "{s}", .{line});
+    }
+}
+
 fn changedFilesCardHeight(file_count: usize) f32 {
     return @max(92.0 + (@as(f32, @floatFromInt(file_count)) * 32.0), 126.0);
 }
 
+fn detailedChangedFilesCardHeight(entries: []const ChangedFileEntry) f32 {
+    var max_patch_height: f32 = 0.0;
+    for (entries) |entry| {
+        if (entry.patch) |patch| {
+            max_patch_height = @max(max_patch_height, pendingDiffPatchHeight(patch));
+        }
+    }
+    return @min(@max(150.0 + (@as(f32, @floatFromInt(entries.len)) * 30.0) + max_patch_height, 220.0), 560.0);
+}
+
+fn pendingDiffCardHeight(files: []const PendingDiffFile) f32 {
+    var height: f32 = 86.0;
+    for (files) |file| {
+        height += 36.0;
+        if (file.expanded) {
+            const patch_height = if (file.patch) |patch| pendingDiffPatchHeight(patch) else 44.0;
+            height += patch_height + 12.0;
+        }
+    }
+    return @min(@max(height, 160.0), 620.0);
+}
+
+fn pendingDiffPatchHeight(patch: []const u8) f32 {
+    const line_count = countTextLines(patch);
+    return @min(32.0 + (@as(f32, @floatFromInt(line_count)) * 18.0), 240.0);
+}
+
 fn parseChangedFileEntries(body: []const u8) std.ArrayListUnmanaged(ChangedFileEntry) {
+    if (std.mem.startsWith(u8, body, PERSISTED_DIFF_MARKER)) {
+        return parsePersistedDiffEntries(body);
+    }
+
     var entries: std.ArrayListUnmanaged(ChangedFileEntry) = .empty;
     var lines = std.mem.tokenizeScalar(u8, body, '\n');
     while (lines.next()) |line| {
@@ -2010,8 +2237,49 @@ fn parseChangedFileEntries(body: []const u8) std.ArrayListUnmanaged(ChangedFileE
             .path = path,
             .additions = additions,
             .deletions = deletions,
+            .patch = null,
         }) catch break;
     }
+    return entries;
+}
+
+fn parsePersistedDiffEntries(body: []const u8) std.ArrayListUnmanaged(ChangedFileEntry) {
+    var entries: std.ArrayListUnmanaged(ChangedFileEntry) = .empty;
+    var cursor: usize = PERSISTED_DIFF_MARKER.len;
+
+    while (cursor < body.len) {
+        const line_end_rel = std.mem.indexOfScalarPos(u8, body, cursor, '\n') orelse break;
+        const header = body[cursor..line_end_rel];
+        cursor = line_end_rel + 1;
+
+        if (!std.mem.startsWith(u8, header, "FILE\t")) break;
+
+        var parts = std.mem.splitScalar(u8, header, '\t');
+        _ = parts.next();
+        const path = parts.next() orelse break;
+        const additions_text = parts.next() orelse break;
+        const deletions_text = parts.next() orelse break;
+        const patch_len_text = parts.next() orelse break;
+
+        const additions = std.fmt.parseInt(i64, additions_text, 10) catch 0;
+        const deletions = std.fmt.parseInt(i64, deletions_text, 10) catch 0;
+        const patch_len = std.fmt.parseInt(usize, patch_len_text, 10) catch 0;
+        if (cursor + patch_len > body.len) break;
+
+        const patch = if (patch_len > 0) body[cursor .. cursor + patch_len] else null;
+        cursor += patch_len;
+        if (cursor < body.len and body[cursor] == '\n') {
+            cursor += 1;
+        }
+
+        entries.append(std.heap.page_allocator, .{
+            .path = path,
+            .additions = additions,
+            .deletions = deletions,
+            .patch = patch,
+        }) catch break;
+    }
+
     return entries;
 }
 
@@ -2023,6 +2291,32 @@ fn summarizeChangedFiles(entries: std.ArrayListUnmanaged(ChangedFileEntry)) stru
         deletions += entry.deletions;
     }
     return .{ .additions = additions, .deletions = deletions };
+}
+
+fn changedFilesEntriesHavePatch(entries: []const ChangedFileEntry) bool {
+    for (entries) |entry| {
+        if (entry.patch != null) return true;
+    }
+    return false;
+}
+
+fn summarizePendingDiffFiles(files: []const PendingDiffFile) struct { additions: i64, deletions: i64 } {
+    var additions: i64 = 0;
+    var deletions: i64 = 0;
+    for (files) |file| {
+        additions += file.additions;
+        deletions += file.deletions;
+    }
+    return .{ .additions = additions, .deletions = deletions };
+}
+
+fn countTextLines(text: []const u8) usize {
+    if (text.len == 0) return 1;
+    var count: usize = 1;
+    for (text) |char| {
+        if (char == '\n') count += 1;
+    }
+    return count;
 }
 
 fn transcriptBubbleHeight(author: []const u8, body: []const u8) f32 {
@@ -2589,25 +2883,32 @@ fn handleSendStreamEvent(context: ?*anyopaque, event: ai_harness.StreamEvent) vo
     defer send_state.mutex.unlock();
     if (send_state.status != .pending) return;
 
-    if (send_state.pending_events.items.len > 0) {
-        const last = send_state.pending_events.items[send_state.pending_events.items.len - 1];
-        if (std.mem.eql(u8, last.title, event.title) and std.mem.eql(u8, last.body, event.body)) {
-            return;
-        }
+    switch (event) {
+        .message => |message| {
+            if (send_state.pending_events.items.len > 0) {
+                const last = send_state.pending_events.items[send_state.pending_events.items.len - 1];
+                if (std.mem.eql(u8, last.title, message.title) and std.mem.eql(u8, last.body, message.body)) {
+                    return;
+                }
+            }
+
+            const owned_title = page_alloc.dupe(u8, message.title) catch return;
+            errdefer page_alloc.free(owned_title);
+            const owned_body = page_alloc.dupe(u8, message.body) catch return;
+            errdefer page_alloc.free(owned_body);
+
+            send_state.pending_events.append(page_alloc, .{
+                .title = owned_title,
+                .body = owned_body,
+            }) catch {
+                page_alloc.free(owned_title);
+                page_alloc.free(owned_body);
+            };
+        },
+        .diff => |diff| {
+            replacePendingDiffFilesLocked(page_alloc, &send_state.pending_diff_files, diff.files);
+        },
     }
-
-    const owned_title = page_alloc.dupe(u8, event.title) catch return;
-    errdefer page_alloc.free(owned_title);
-    const owned_body = page_alloc.dupe(u8, event.body) catch return;
-    errdefer page_alloc.free(owned_body);
-
-    send_state.pending_events.append(page_alloc, .{
-        .title = owned_title,
-        .body = owned_body,
-    }) catch {
-        page_alloc.free(owned_title);
-        page_alloc.free(owned_body);
-    };
 }
 
 fn handleSendApprovalRequest(context: ?*anyopaque, request: ai_harness.ApprovalRequest) ai_harness.ApprovalDecision {
@@ -2659,6 +2960,106 @@ fn freePendingTimelineEvents(allocator: std.mem.Allocator, events: *std.ArrayLis
 
 fn freePendingTimelineEventsLocked(allocator: std.mem.Allocator, events: *std.ArrayListUnmanaged(PendingTimelineEvent)) void {
     freePendingTimelineEvents(allocator, events);
+}
+
+fn freePendingDiffFiles(allocator: std.mem.Allocator, files: *std.ArrayListUnmanaged(PendingDiffFile)) void {
+    for (files.items) |file| {
+        allocator.free(file.path);
+        if (file.patch) |patch| allocator.free(patch);
+    }
+    files.deinit(allocator);
+    files.* = .empty;
+}
+
+fn freePendingDiffFilesLocked(allocator: std.mem.Allocator, files: *std.ArrayListUnmanaged(PendingDiffFile)) void {
+    freePendingDiffFiles(allocator, files);
+}
+
+fn replacePendingDiffFilesLocked(
+    allocator: std.mem.Allocator,
+    target: *std.ArrayListUnmanaged(PendingDiffFile),
+    files: []const ai_harness.StreamDiffFile,
+) void {
+    var next: std.ArrayListUnmanaged(PendingDiffFile) = .empty;
+
+    for (files) |file| {
+        const expanded = pendingDiffExpandedForPath(target.items, file.path);
+        const owned_path = allocator.dupe(u8, file.path) catch {
+            freePendingDiffFiles(allocator, &next);
+            return;
+        };
+        const owned_patch = if (file.patch) |patch|
+            allocator.dupe(u8, patch) catch {
+                allocator.free(owned_path);
+                freePendingDiffFiles(allocator, &next);
+                return;
+            }
+        else
+            null;
+
+        next.append(allocator, .{
+            .path = owned_path,
+            .additions = file.additions,
+            .deletions = file.deletions,
+            .patch = owned_patch,
+            .expanded = expanded,
+        }) catch {
+            allocator.free(owned_path);
+            if (owned_patch) |patch| allocator.free(patch);
+            freePendingDiffFiles(allocator, &next);
+            return;
+        };
+    }
+
+    freePendingDiffFiles(allocator, target);
+    target.* = next;
+}
+
+fn appendPendingDiffSummaryEvent(
+    allocator: std.mem.Allocator,
+    events: *std.ArrayListUnmanaged(PendingTimelineEvent),
+    files: []const PendingDiffFile,
+) void {
+    if (files.len == 0) return;
+
+    var body_builder: std.ArrayListUnmanaged(u8) = .empty;
+    defer body_builder.deinit(allocator);
+
+    body_builder.appendSlice(allocator, PERSISTED_DIFF_MARKER) catch return;
+
+    for (files) |file| {
+        const patch = file.patch orelse "";
+        std.fmt.format(body_builder.writer(allocator), "FILE\t{s}\t{d}\t{d}\t{d}\n", .{
+            file.path,
+            file.additions,
+            file.deletions,
+            patch.len,
+        }) catch return;
+        body_builder.appendSlice(allocator, patch) catch return;
+        body_builder.append(allocator, '\n') catch return;
+    }
+
+    const owned_title = allocator.dupe(u8, "Changed files") catch return;
+    errdefer allocator.free(owned_title);
+    const owned_body = body_builder.toOwnedSlice(allocator) catch {
+        allocator.free(owned_title);
+        return;
+    };
+
+    events.append(allocator, .{
+        .title = owned_title,
+        .body = owned_body,
+    }) catch {
+        allocator.free(owned_title);
+        allocator.free(owned_body);
+    };
+}
+
+fn pendingDiffExpandedForPath(files: []const PendingDiffFile, path: []const u8) bool {
+    for (files) |file| {
+        if (std.mem.eql(u8, file.path, path)) return file.expanded;
+    }
+    return false;
 }
 
 fn freePendingApproval(allocator: std.mem.Allocator, approval: *?PendingApproval) void {
