@@ -366,6 +366,11 @@ const SendResultPayload = struct {
     reply_text: []const u8,
 };
 
+const PendingTimelineEvent = struct {
+    title: []u8,
+    body: []u8,
+};
+
 const SendState = struct {
     mutex: std.Thread.Mutex = .{},
     status: SendStatus = .idle,
@@ -374,6 +379,7 @@ const SendState = struct {
     project_index: ?usize = null,
     thread_index: ?usize = null,
     partial_text: std.ArrayListUnmanaged(u8) = .empty,
+    pending_events: std.ArrayListUnmanaged(PendingTimelineEvent) = .empty,
     worker: ?std.Thread = null,
 };
 
@@ -772,6 +778,7 @@ const AppState = struct {
         self.send_state.project_index = request.project_index;
         self.send_state.thread_index = request.thread_index;
         self.send_state.partial_text.clearRetainingCapacity();
+        freePendingTimelineEventsLocked(page_alloc, &self.send_state.pending_events);
         self.send_state.worker = try std.Thread.spawn(.{}, sendWorker, .{ &self.send_state, request });
     }
 
@@ -1001,6 +1008,7 @@ const AppState = struct {
         self.finishPickerThread();
         self.finishSendThread();
         self.send_state.partial_text.deinit(std.heap.page_allocator);
+        freePendingTimelineEvents(std.heap.page_allocator, &self.send_state.pending_events);
         self.clearProjects();
         self.projects.deinit(self.allocator);
     }
@@ -1056,6 +1064,7 @@ const AppState = struct {
         var completed_result: ?SendResultPayload = null;
         var failed_message: ?[]u8 = null;
         var next_status: SendStatus = .idle;
+        var completed_events: std.ArrayListUnmanaged(PendingTimelineEvent) = .empty;
 
         self.send_state.mutex.lock();
         switch (self.send_state.status) {
@@ -1063,6 +1072,8 @@ const AppState = struct {
                 completed_result = self.send_state.result;
                 self.send_state.result = null;
                 self.send_state.partial_text.clearRetainingCapacity();
+                completed_events = self.send_state.pending_events;
+                self.send_state.pending_events = .empty;
                 self.send_state.project_index = null;
                 self.send_state.thread_index = null;
                 self.send_state.status = .idle;
@@ -1072,6 +1083,7 @@ const AppState = struct {
                 failed_message = self.send_state.error_message;
                 self.send_state.error_message = null;
                 self.send_state.partial_text.clearRetainingCapacity();
+                freePendingTimelineEventsLocked(std.heap.page_allocator, &self.send_state.pending_events);
                 self.send_state.project_index = null;
                 self.send_state.thread_index = null;
                 self.send_state.status = .idle;
@@ -1090,6 +1102,10 @@ const AppState = struct {
                 if (completed_result) |result| {
                     defer std.heap.page_allocator.free(result.provider_thread_id);
                     defer std.heap.page_allocator.free(result.reply_text);
+                    defer freePendingTimelineEvents(std.heap.page_allocator, &completed_events);
+                    self.applyPendingTimelineEvents(result, &completed_events) catch |err| {
+                        log.err("failed to apply timeline events: {s}", .{@errorName(err)});
+                    };
                     self.applySendSuccess(result) catch |err| {
                         log.err("failed to apply send result: {s}", .{@errorName(err)});
                         self.setSidebarNotice("Failed to apply provider reply.");
@@ -1158,6 +1174,24 @@ const AppState = struct {
         thread.touch();
         self.markDirty();
         self.setSidebarNotice("Provider session updated.");
+    }
+
+    fn applyPendingTimelineEvents(self: *AppState, result: SendResultPayload, events: *std.ArrayListUnmanaged(PendingTimelineEvent)) !void {
+        if (events.items.len == 0) return;
+        if (result.project_index >= self.projects.items.len) return;
+        const project = &self.projects.items[result.project_index];
+        if (result.thread_index >= project.threads.items.len) return;
+        const thread = &project.threads.items[result.thread_index];
+
+        for (events.items) |event| {
+            try thread.messages.append(self.allocator, .{
+                .role = .system,
+                .author = try self.dupeZ(event.title),
+                .body = try self.dupeZ(event.body),
+            });
+        }
+        thread.touch();
+        self.markDirty();
     }
 
     fn resolveProjectPath(self: *AppState, raw_path: []const u8) ![]u8 {
@@ -1598,12 +1632,27 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
     }
 
     if (has_pending_stream) {
+        renderPendingTimelineEvents(state);
         renderPendingTranscriptBubble(state);
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 
     if (should_follow_stream) {
         zgui.setScrollHereY(.{ .center_y_ratio = 1.0 });
+    }
+}
+
+fn renderPendingTimelineEvents(state: *AppState) void {
+    state.send_state.mutex.lock();
+    defer state.send_state.mutex.unlock();
+
+    if (state.send_state.status != .pending) return;
+    if (state.send_state.project_index != state.selected_project_index) return;
+    if (state.send_state.thread_index != state.currentProject().selected_thread_index) return;
+
+    for (state.send_state.pending_events.items, 0..) |event, index| {
+        renderTranscriptBubbleId(@intCast(50_000 + index), .system, event.title, event.body);
+        zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 }
 
@@ -1785,7 +1834,7 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
     renderComposerPickers(state);
     zgui.sameLine(.{ .spacing = 18.0 });
     if (isSendPending(state)) {
-        zgui.textColored(COLOR_YELLOW, "Sending to provider...", .{});
+        zgui.textColored(COLOR_YELLOW, "Working...", .{});
     } else {
         zgui.textColored(COLOR_TEXT_SUBTLE, "Enter sends. Ctrl+Enter keeps a newline.", .{});
     }
@@ -2214,6 +2263,48 @@ fn handleSendStreamDelta(context: ?*anyopaque, delta: []const u8) void {
     send_state.partial_text.appendSlice(page_alloc, delta) catch return;
 }
 
+fn handleSendStreamEvent(context: ?*anyopaque, event: ai_harness.StreamEvent) void {
+    const send_state: *SendState = @ptrCast(@alignCast(context orelse return));
+    const page_alloc = std.heap.page_allocator;
+
+    send_state.mutex.lock();
+    defer send_state.mutex.unlock();
+    if (send_state.status != .pending) return;
+
+    if (send_state.pending_events.items.len > 0) {
+        const last = send_state.pending_events.items[send_state.pending_events.items.len - 1];
+        if (std.mem.eql(u8, last.title, event.title) and std.mem.eql(u8, last.body, event.body)) {
+            return;
+        }
+    }
+
+    const owned_title = page_alloc.dupe(u8, event.title) catch return;
+    errdefer page_alloc.free(owned_title);
+    const owned_body = page_alloc.dupe(u8, event.body) catch return;
+    errdefer page_alloc.free(owned_body);
+
+    send_state.pending_events.append(page_alloc, .{
+        .title = owned_title,
+        .body = owned_body,
+    }) catch {
+        page_alloc.free(owned_title);
+        page_alloc.free(owned_body);
+    };
+}
+
+fn freePendingTimelineEvents(allocator: std.mem.Allocator, events: *std.ArrayListUnmanaged(PendingTimelineEvent)) void {
+    for (events.items) |event| {
+        allocator.free(event.title);
+        allocator.free(event.body);
+    }
+    events.deinit(allocator);
+    events.* = .empty;
+}
+
+fn freePendingTimelineEventsLocked(allocator: std.mem.Allocator, events: *std.ArrayListUnmanaged(PendingTimelineEvent)) void {
+    freePendingTimelineEvents(allocator, events);
+}
+
 fn runSendWorker(
     allocator: std.mem.Allocator,
     request: *const SendWorkerRequest,
@@ -2249,6 +2340,7 @@ fn runSendWorker(
         .reasoning_effort = request.reasoning_effort,
         .stream_context = request.send_state_ptr,
         .on_stream_delta = handleSendStreamDelta,
+        .on_stream_event = handleSendStreamEvent,
     });
 
     return .{

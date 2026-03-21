@@ -41,6 +41,11 @@ pub const ReasoningEffort = enum(u8) {
     xhigh,
 };
 
+pub const StreamEvent = struct {
+    title: []const u8,
+    body: []const u8,
+};
+
 pub const SendPromptRequest = struct {
     thread_id: ?[]const u8 = null,
     prompt: []const u8,
@@ -49,6 +54,7 @@ pub const SendPromptRequest = struct {
     reasoning_effort: ?ReasoningEffort = null,
     stream_context: ?*anyopaque = null,
     on_stream_delta: ?*const fn (?*anyopaque, []const u8) void = null,
+    on_stream_event: ?*const fn (?*anyopaque, StreamEvent) void = null,
 };
 
 pub const SendPromptResult = struct {

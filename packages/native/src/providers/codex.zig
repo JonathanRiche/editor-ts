@@ -384,6 +384,8 @@ pub const Client = struct {
 
             if (!turn_started) continue;
 
+            emitNotificationEvent(root, request);
+
             if (try appendNotificationDelta(root, allocator, &reply)) {
                 if (request.on_stream_delta) |on_stream_delta| {
                     if (extractNotificationDelta(root)) |delta| {
@@ -856,6 +858,115 @@ fn extractNotificationDelta(root: std.json.Value) ?[]const u8 {
         findFirstStringByPath(params, &.{"text"});
 }
 
+fn emitNotificationEvent(root: std.json.Value, request: provider_types.SendPromptRequest) void {
+    const on_stream_event = request.on_stream_event orelse return;
+    const method = getOptionalObjectString(root, "method") orelse return;
+
+    if (std.mem.eql(u8, method, "turn/diff/updated")) {
+        if (buildDiffSummary(root, request.stream_context, on_stream_event)) {
+            return;
+        }
+    }
+
+    if (std.mem.indexOf(u8, method, "toolCall") != null or
+        std.mem.indexOf(u8, method, "exec") != null or
+        std.mem.eql(u8, method, "command/exec"))
+    {
+        if (extractCommandSummary(root)) |command| {
+            on_stream_event(request.stream_context, .{
+                .title = "Ran command",
+                .body = command,
+            });
+            return;
+        }
+
+        on_stream_event(request.stream_context, .{
+            .title = "Tool call",
+            .body = method,
+        });
+    }
+}
+
+fn buildDiffSummary(
+    root: std.json.Value,
+    context: ?*anyopaque,
+    on_stream_event: *const fn (?*anyopaque, provider_types.StreamEvent) void,
+) bool {
+    const params = getObjectField(root, "params") orelse return false;
+    var lines: std.ArrayList(u8) = .empty;
+    defer lines.deinit(std.heap.page_allocator);
+
+    if (!appendChangedFiles(params, &lines)) return false;
+    const owned = lines.toOwnedSlice(std.heap.page_allocator) catch return false;
+    defer std.heap.page_allocator.free(owned);
+
+    on_stream_event(context, .{
+        .title = "Changed files",
+        .body = owned,
+    });
+    return true;
+}
+
+fn appendChangedFiles(value: std.json.Value, lines: *std.ArrayList(u8)) bool {
+    switch (value) {
+        .object => |obj| {
+            if (obj.get("path")) |path_value| {
+                if (stringValue(path_value)) |path| {
+                    const additions = findFirstIntegerByField(value, "additions") orelse
+                        findFirstIntegerByField(value, "addedLines") orelse
+                        findFirstIntegerByField(value, "added") orelse 0;
+                    const deletions = findFirstIntegerByField(value, "deletions") orelse
+                        findFirstIntegerByField(value, "removedLines") orelse
+                        findFirstIntegerByField(value, "removed") orelse 0;
+                    if (lines.items.len > 0) {
+                        lines.append(std.heap.page_allocator, '\n') catch return true;
+                    }
+                    std.fmt.format(lines.writer(std.heap.page_allocator), "{s}  +{d} / -{d}", .{ path, additions, deletions }) catch return true;
+                    return true;
+                }
+            }
+            if (obj.get("filePath")) |path_value| {
+                if (stringValue(path_value)) |path| {
+                    const additions = findFirstIntegerByField(value, "additions") orelse
+                        findFirstIntegerByField(value, "addedLines") orelse
+                        findFirstIntegerByField(value, "added") orelse 0;
+                    const deletions = findFirstIntegerByField(value, "deletions") orelse
+                        findFirstIntegerByField(value, "removedLines") orelse
+                        findFirstIntegerByField(value, "removed") orelse 0;
+                    if (lines.items.len > 0) {
+                        lines.append(std.heap.page_allocator, '\n') catch return true;
+                    }
+                    std.fmt.format(lines.writer(std.heap.page_allocator), "{s}  +{d} / -{d}", .{ path, additions, deletions }) catch return true;
+                    return true;
+                }
+            }
+
+            var found = false;
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                found = appendChangedFiles(entry.value_ptr.*, lines) or found;
+            }
+            return found;
+        },
+        .array => |arr| {
+            var found = false;
+            for (arr.items) |item| {
+                found = appendChangedFiles(item, lines) or found;
+            }
+            return found;
+        },
+        else => return false,
+    }
+}
+
+fn extractCommandSummary(root: std.json.Value) ?[]const u8 {
+    const params = getObjectField(root, "params") orelse return null;
+    return findFirstStringByField(params, "command") orelse
+        findFirstStringByField(params, "rawInput") orelse
+        findFirstStringByField(params, "cmd") orelse
+        findFirstStringByField(params, "commandLine");
+}
+
 fn isTurnCompleted(root: std.json.Value) bool {
     const method = getOptionalObjectString(root, "method") orelse return false;
     return std.mem.eql(u8, method, "turn/completed");
@@ -867,6 +978,53 @@ fn findFirstStringByPath(value: std.json.Value, fields: []const []const u8) ?[]c
         current = getObjectField(current, field) orelse return null;
     }
     return stringValue(current);
+}
+
+fn findFirstStringByField(value: std.json.Value, field: []const u8) ?[]const u8 {
+    switch (value) {
+        .object => |obj| {
+            if (obj.get(field)) |candidate| {
+                if (stringValue(candidate)) |text| return text;
+            }
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                if (findFirstStringByField(entry.value_ptr.*, field)) |text| return text;
+            }
+            return null;
+        },
+        .array => |arr| {
+            for (arr.items) |item| {
+                if (findFirstStringByField(item, field)) |text| return text;
+            }
+            return null;
+        },
+        else => return null,
+    }
+}
+
+fn findFirstIntegerByField(value: std.json.Value, field: []const u8) ?i64 {
+    switch (value) {
+        .object => |obj| {
+            if (obj.get(field)) |candidate| {
+                switch (candidate) {
+                    .integer => |number| return number,
+                    else => {},
+                }
+            }
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                if (findFirstIntegerByField(entry.value_ptr.*, field)) |number| return number;
+            }
+            return null;
+        },
+        .array => |arr| {
+            for (arr.items) |item| {
+                if (findFirstIntegerByField(item, field)) |number| return number;
+            }
+            return null;
+        },
+        else => return null,
+    }
 }
 
 test "build request target preserves path and query" {
