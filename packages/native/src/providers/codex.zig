@@ -364,31 +364,7 @@ pub const Client = struct {
         thread_id: []const u8,
         request: provider_types.SendPromptRequest,
     ) ![]u8 {
-        const request_id = if (request.cwd) |working_dir|
-            if (request.model) |selected_model|
-                try self.sendRequest("turn/start", .{
-                    .threadId = thread_id,
-                    .cwd = working_dir,
-                    .model = selected_model,
-                    .input = &.{.{ .type = "text", .text = request.prompt }},
-                })
-            else
-                try self.sendRequest("turn/start", .{
-                    .threadId = thread_id,
-                    .cwd = working_dir,
-                    .input = &.{.{ .type = "text", .text = request.prompt }},
-                })
-        else if (request.model) |selected_model|
-            try self.sendRequest("turn/start", .{
-                .threadId = thread_id,
-                .model = selected_model,
-                .input = &.{.{ .type = "text", .text = request.prompt }},
-            })
-        else
-            try self.sendRequest("turn/start", .{
-                .threadId = thread_id,
-                .input = &.{.{ .type = "text", .text = request.prompt }},
-            });
+        const request_id = try self.sendTurnStartRequest(thread_id, request);
         var turn_started = false;
         var reply: std.ArrayList(u8) = .empty;
         defer reply.deinit(allocator);
@@ -423,6 +399,61 @@ pub const Client = struct {
         }
 
         return reply.toOwnedSlice(allocator);
+    }
+
+    fn sendTurnStartRequest(
+        self: *Client,
+        thread_id: []const u8,
+        request: provider_types.SendPromptRequest,
+    ) !u64 {
+        const id = self.next_request_id;
+        self.next_request_id += 1;
+
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer writer.deinit();
+
+        var stringify: std.json.Stringify = .{
+            .writer = &writer.writer,
+            .options = .{},
+        };
+
+        try stringify.beginObject();
+        try stringify.objectField("method");
+        try stringify.write("turn/start");
+        try stringify.objectField("id");
+        try stringify.write(id);
+        try stringify.objectField("params");
+        try stringify.beginObject();
+        try stringify.objectField("threadId");
+        try stringify.write(thread_id);
+        if (request.cwd) |working_dir| {
+            try stringify.objectField("cwd");
+            try stringify.write(working_dir);
+        }
+        if (request.model) |selected_model| {
+            try stringify.objectField("model");
+            try stringify.write(selected_model);
+        }
+        if (request.reasoning_effort) |effort| {
+            try stringify.objectField("effort");
+            try stringify.write(effort);
+        }
+        try stringify.objectField("input");
+        try stringify.beginArray();
+        try stringify.beginObject();
+        try stringify.objectField("type");
+        try stringify.write("text");
+        try stringify.objectField("text");
+        try stringify.write(request.prompt);
+        try stringify.endObject();
+        try stringify.endArray();
+        try stringify.endObject();
+        try stringify.endObject();
+
+        const payload = try writer.toOwnedSlice();
+        defer self.allocator.free(payload);
+        try self.writeTextMessage(payload);
+        return id;
     }
 
     fn freeLoadedThreads(self: *Client) void {

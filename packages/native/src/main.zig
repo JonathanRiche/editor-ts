@@ -1,6 +1,7 @@
 //! Minimal native shell prototype for the desktop chat workflow.
 
 const std = @import("std");
+const app_config = @import("config.zig");
 const keybinds = @import("keybinds.zig");
 const zgui = @import("zgui");
 const sdl = @import("zsdl3");
@@ -11,7 +12,7 @@ const ORG_NAME: [:0]const u8 = "Verde";
 const APP_NAME: [:0]const u8 = "Native";
 const STATE_FILE_NAME = "state.json";
 const GEIST_SANS_BYTES = @embedFile("assets/fonts/Geist-Regular.ttf");
-const BASE_FONT_SIZE: f32 = 16.0;
+const DEFAULT_FONT_SIZE: f32 = 18.0;
 
 const COLOR_GREEN = rgb(0x05, 0xa5, 0x4c);
 const COLOR_YELLOW = rgb(0xfb, 0xbf, 0x24);
@@ -42,9 +43,26 @@ const Harness = enum(u8) {
     remote_session,
 };
 
+const ReasoningEffort = ai_harness.ReasoningEffort;
+
+const FastMode = enum(u8) {
+    off,
+    on,
+};
+
 const ModelOption = struct {
     label: [:0]const u8,
     value: ?[:0]const u8 = null,
+};
+
+const ReasoningOption = struct {
+    label: [:0]const u8,
+    value: ?ReasoningEffort = null,
+};
+
+const FastModeOption = struct {
+    label: [:0]const u8,
+    value: FastMode,
 };
 
 const OPENCODE_MODEL_OPTIONS = [_]ModelOption{
@@ -65,6 +83,19 @@ const CODEX_MODEL_OPTIONS = [_]ModelOption{
     .{ .label = "GPT-5.2", .value = "gpt-5.2" },
 };
 
+const CODEX_REASONING_OPTIONS = [_]ReasoningOption{
+    .{ .label = "Default", .value = null },
+    .{ .label = "Low", .value = .low },
+    .{ .label = "Medium", .value = .medium },
+    .{ .label = "High", .value = .high },
+    .{ .label = "Extra High", .value = .xhigh },
+};
+
+const CODEX_FAST_MODE_OPTIONS = [_]FastModeOption{
+    .{ .label = "Off", .value = .off },
+    .{ .label = "On", .value = .on },
+};
+
 const ChatMessage = struct {
     role: ChatRole,
     author: [:0]const u8,
@@ -77,6 +108,8 @@ const ChatThread = struct {
     last_activity_at: i64 = 0,
     provider_thread_id: ?[:0]const u8 = null,
     model_ref: ?[:0]const u8 = null,
+    reasoning_effort: ?ReasoningEffort = null,
+    fast_mode: FastMode = .off,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     messages: std.ArrayList(ChatMessage),
@@ -241,6 +274,8 @@ const PersistedThread = struct {
     last_activity_at: ?i64 = null,
     provider_thread_id: ?[]const u8 = null,
     model_ref: ?[]const u8 = null,
+    reasoning_effort: ?ReasoningEffort = null,
+    fast_mode: ?FastMode = null,
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     draft: []const u8 = "",
@@ -277,6 +312,8 @@ const SaveThread = struct {
     last_activity_at: i64,
     provider_thread_id: ?[]const u8,
     model_ref: ?[]const u8,
+    reasoning_effort: ?ReasoningEffort,
+    fast_mode: FastMode,
     provider: Provider,
     harness: Harness,
     draft: []const u8,
@@ -345,6 +382,8 @@ const SendWorkerRequest = struct {
     prompt: []u8,
     provider_thread_id: ?[]u8,
     model_ref: ?[]u8,
+    reasoning_effort: ?ReasoningEffort,
+    fast_mode: FastMode,
 };
 
 const Storage = struct {
@@ -420,6 +459,10 @@ const Storage = struct {
                 try stringify.write(thread.provider_thread_id);
                 try stringify.objectField("model_ref");
                 try stringify.write(thread.model_ref);
+                try stringify.objectField("reasoning_effort");
+                try stringify.write(thread.reasoning_effort);
+                try stringify.objectField("fast_mode");
+                try stringify.write(thread.fast_mode);
                 try stringify.objectField("provider");
                 try stringify.write(thread.provider);
                 try stringify.objectField("harness");
@@ -685,6 +728,7 @@ const AppState = struct {
             .prompt = prompt,
             .cwd = project.path,
             .model = if (thread.model_ref) |model_ref| model_ref else null,
+            .reasoning_effort = thread.reasoning_effort,
         });
     }
 
@@ -705,6 +749,8 @@ const AppState = struct {
             .prompt = try page_alloc.dupe(u8, prompt),
             .provider_thread_id = if (thread.provider_thread_id) |thread_id| try page_alloc.dupe(u8, thread_id) else null,
             .model_ref = if (thread.model_ref) |model_ref| try page_alloc.dupe(u8, model_ref) else null,
+            .reasoning_effort = thread.reasoning_effort,
+            .fast_mode = thread.fast_mode,
         };
         errdefer {
             page_alloc.free(request.project_path);
@@ -762,6 +808,8 @@ const AppState = struct {
                         try self.allocator.dupeZ(u8, model_ref)
                     else
                         null;
+                    thread.reasoning_effort = persisted_thread.reasoning_effort;
+                    thread.fast_mode = persisted_thread.fast_mode orelse .off;
                     thread.provider = persisted_thread.provider;
                     thread.harness = persisted_thread.harness;
                     thread.setDraft(persisted_thread.draft);
@@ -1210,9 +1258,14 @@ pub fn main() !void {
     try sdl.gl.makeCurrent(window, gl_context);
     try sdl.gl.setSwapInterval(1);
 
+    const ui_config = app_config.loadAppConfig(allocator) catch |err| blk: {
+        log.warn("failed to load app config: {s}", .{@errorName(err)});
+        break :blk app_config.AppConfig{ .font_size = DEFAULT_FONT_SIZE };
+    };
+
     zgui.init(allocator);
     defer zgui.deinit();
-    installFonts();
+    installFonts(ui_config.font_size);
     zgui.backend.init(window, gl_context);
     defer zgui.backend.deinit();
 
@@ -1763,6 +1816,8 @@ fn renderComposerPickers(state: *AppState) void {
                         state.allocator.free(model_ref);
                     }
                     thread.model_ref = null;
+                    thread.reasoning_effort = null;
+                    thread.fast_mode = .off;
                     state.markDirty();
                 }
             }
@@ -1785,6 +1840,47 @@ fn renderComposerPickers(state: *AppState) void {
             const row_label = comboRowLabel(&row_buf, option.label, is_selected);
             if (zgui.selectable(row_label, .{ .selected = is_selected, .h = 28.0 })) {
                 setThreadModelRef(state, thread, option.value);
+            }
+        }
+    }
+
+    if (thread.provider == .codex) {
+        zgui.sameLine(.{ .spacing = 12.0 });
+        const reasoning_preview = selectedReasoningLabel(thread);
+        var reasoning_preview_buf = std.mem.zeroes([80:0]u8);
+        const reasoning_preview_label = comboPreviewLabel(&reasoning_preview_buf, reasoning_preview);
+        zgui.setNextItemWidth(148.0);
+        if (zgui.beginCombo("##reasoning-picker", .{ .preview_value = reasoning_preview_label })) {
+            defer zgui.endCombo();
+            for (CODEX_REASONING_OPTIONS) |option| {
+                const is_selected = if (option.value) |value|
+                    thread.reasoning_effort != null and thread.reasoning_effort.? == value
+                else
+                    thread.reasoning_effort == null;
+                var row_buf = std.mem.zeroes([96:0]u8);
+                const row_label = comboRowLabel(&row_buf, option.label, is_selected);
+                if (zgui.selectable(row_label, .{ .selected = is_selected, .h = 28.0 })) {
+                    thread.reasoning_effort = option.value;
+                    state.markDirty();
+                }
+            }
+        }
+
+        zgui.sameLine(.{ .spacing = 12.0 });
+        const fast_mode_preview = fastModeLabel(thread.fast_mode);
+        var fast_mode_preview_buf = std.mem.zeroes([64:0]u8);
+        const fast_mode_preview_label = comboPreviewLabel(&fast_mode_preview_buf, fast_mode_preview);
+        zgui.setNextItemWidth(108.0);
+        if (zgui.beginCombo("##fast-mode-picker", .{ .preview_value = fast_mode_preview_label })) {
+            defer zgui.endCombo();
+            for (CODEX_FAST_MODE_OPTIONS) |option| {
+                const is_selected = thread.fast_mode == option.value;
+                var row_buf = std.mem.zeroes([64:0]u8);
+                const row_label = comboRowLabel(&row_buf, option.label, is_selected);
+                if (zgui.selectable(row_label, .{ .selected = is_selected, .h = 28.0 })) {
+                    thread.fast_mode = option.value;
+                    state.markDirty();
+                }
             }
         }
     }
@@ -1827,6 +1923,24 @@ fn selectedModelLabel(thread: *const ChatThread) [:0]const u8 {
     return "Default";
 }
 
+fn selectedReasoningLabel(thread: *const ChatThread) [:0]const u8 {
+    if (thread.reasoning_effort) |effort| {
+        for (CODEX_REASONING_OPTIONS) |option| {
+            if (option.value) |value| {
+                if (value == effort) return option.label;
+            }
+        }
+    }
+    return "Reasoning";
+}
+
+fn fastModeLabel(mode: FastMode) [:0]const u8 {
+    return switch (mode) {
+        .off => "Fast Off",
+        .on => "Fast On",
+    };
+}
+
 fn comboPreviewLabel(buffer: []u8, label: []const u8) [:0]const u8 {
     return std.fmt.bufPrintZ(buffer, "{s}  v", .{label}) catch "Select  v";
 }
@@ -1835,8 +1949,8 @@ fn comboRowLabel(buffer: []u8, label: []const u8, selected: bool) [:0]const u8 {
     return std.fmt.bufPrintZ(buffer, "{s} {s}", .{ if (selected) ">" else " ", label }) catch " row";
 }
 
-fn installFonts() void {
-    const font = zgui.io.addFontFromMemory(GEIST_SANS_BYTES[0..GEIST_SANS_BYTES.len], BASE_FONT_SIZE);
+fn installFonts(font_size: f32) void {
+    const font = zgui.io.addFontFromMemory(GEIST_SANS_BYTES[0..GEIST_SANS_BYTES.len], font_size);
     zgui.io.setDefaultFont(font);
 }
 
@@ -2128,6 +2242,7 @@ fn runSendWorker(
         .prompt = request.prompt,
         .cwd = request.project_path,
         .model = request.model_ref,
+        .reasoning_effort = request.reasoning_effort,
         .stream_context = request.send_state_ptr,
         .on_stream_delta = handleSendStreamDelta,
     });

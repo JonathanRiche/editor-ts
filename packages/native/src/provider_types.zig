@@ -34,11 +34,19 @@ pub const ChatThreadSummary = struct {
     title: []const u8,
 };
 
+pub const ReasoningEffort = enum(u8) {
+    low,
+    medium,
+    high,
+    xhigh,
+};
+
 pub const SendPromptRequest = struct {
     thread_id: ?[]const u8 = null,
     prompt: []const u8,
     cwd: ?[]const u8 = null,
     model: ?[]const u8 = null,
+    reasoning_effort: ?ReasoningEffort = null,
     stream_context: ?*anyopaque = null,
     on_stream_delta: ?*const fn (?*anyopaque, []const u8) void = null,
 };

@@ -3,9 +3,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const sdl = @import("zsdl3");
+const shared_config = @import("config.zig");
 
 const log = std.log.scoped(.native_keybinds);
-const VERDE_CONFIG_RELATIVE_PATH = ".config/verde/verde.json";
 
 pub const NativeKeyboardAction = enum {
     refresh,
@@ -54,31 +54,15 @@ pub const NativeKeyboardConfig = struct {
             .refresh = try cloneDefaultKeybinds(allocator),
         };
 
-        const config_path = resolveConfigPath(allocator) catch |err| {
-            log.warn("failed to resolve config path: {s}", .{@errorName(err)});
+        var parsed = shared_config.readRootValue(allocator) catch |err| {
+            log.warn("failed to read verde config: {s}", .{@errorName(err)});
             return config;
         };
-        defer allocator.free(config_path);
+        if (parsed == null) return config;
+        defer parsed.?.deinit();
 
-        const raw_bytes = readConfigFile(allocator, config_path) catch |err| switch (err) {
-            error.FileNotFound => return config,
-            else => {
-                log.warn("failed to read {s}: {s}", .{ config_path, @errorName(err) });
-                return config;
-            },
-        };
-        defer allocator.free(raw_bytes);
-
-        var parsed = std.json.parseFromSlice(std.json.Value, allocator, raw_bytes, .{
-            .allocate = .alloc_always,
-        }) catch |err| {
-            log.warn("failed to parse {s}: {s}", .{ config_path, @errorName(err) });
-            return config;
-        };
-        defer parsed.deinit();
-
-        config.applyOverrides(parsed.value);
-        log.info("loaded keybinds from {s}", .{config_path});
+        config.applyOverrides(parsed.?.value);
+        log.info("loaded keybinds from verde config", .{});
         return config;
     }
 
@@ -216,28 +200,6 @@ fn containsKeybind(bindings: []const Keybind, needle: Keybind) bool {
 fn hasModifier(modifier_state: sdl.Keymod, modifier_mask: u16) bool {
     const state_bits = @as(*const u16, @ptrCast(&modifier_state)).*;
     return (state_bits & modifier_mask) != 0;
-}
-
-fn resolveConfigPath(allocator: std.mem.Allocator) ![]u8 {
-    if (std.posix.getenv("XDG_CONFIG_HOME")) |xdg_config_home| {
-        const trimmed = std.mem.trim(u8, std.mem.sliceTo(xdg_config_home, 0), &std.ascii.whitespace);
-        if (trimmed.len > 0) {
-            return std.fs.path.join(allocator, &.{ trimmed, "verde", "verde.json" });
-        }
-    }
-
-    const home = std.posix.getenv("HOME") orelse return error.EnvironmentVariableNotFound;
-    return std.fs.path.join(allocator, &.{ std.mem.sliceTo(home, 0), VERDE_CONFIG_RELATIVE_PATH });
-}
-
-fn readConfigFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const file = std.fs.openFileAbsolute(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return error.FileNotFound,
-        else => return err,
-    };
-    defer file.close();
-
-    return file.readToEndAlloc(allocator, 1024 * 128);
 }
 
 fn parseAccelerator(binding: []const u8) ?Keybind {

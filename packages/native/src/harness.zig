@@ -11,6 +11,7 @@ pub const AuthState = types.AuthState;
 pub const MessageRole = types.MessageRole;
 pub const ChatMessage = types.ChatMessage;
 pub const ChatThreadSummary = types.ChatThreadSummary;
+pub const ReasoningEffort = types.ReasoningEffort;
 pub const SendPromptRequest = types.SendPromptRequest;
 pub const SendPromptResult = types.SendPromptResult;
 
