@@ -2906,7 +2906,7 @@ fn handleSendStreamEvent(context: ?*anyopaque, event: ai_harness.StreamEvent) vo
             };
         },
         .diff => |diff| {
-            replacePendingDiffFilesLocked(page_alloc, &send_state.pending_diff_files, diff.files);
+            mergePendingDiffFilesLocked(page_alloc, &send_state.pending_diff_files, diff.files);
         },
     }
 }
@@ -2975,44 +2975,43 @@ fn freePendingDiffFilesLocked(allocator: std.mem.Allocator, files: *std.ArrayLis
     freePendingDiffFiles(allocator, files);
 }
 
-fn replacePendingDiffFilesLocked(
+fn mergePendingDiffFilesLocked(
     allocator: std.mem.Allocator,
     target: *std.ArrayListUnmanaged(PendingDiffFile),
     files: []const ai_harness.StreamDiffFile,
 ) void {
-    var next: std.ArrayListUnmanaged(PendingDiffFile) = .empty;
-
     for (files) |file| {
-        const expanded = pendingDiffExpandedForPath(target.items, file.path);
-        const owned_path = allocator.dupe(u8, file.path) catch {
-            freePendingDiffFiles(allocator, &next);
-            return;
-        };
-        const owned_patch = if (file.patch) |patch|
-            allocator.dupe(u8, patch) catch {
-                allocator.free(owned_path);
-                freePendingDiffFiles(allocator, &next);
-                return;
-            }
-        else
-            null;
+        if (upsertPendingDiffFileLocked(allocator, target, file)) |_| {} else |_| return;
+    }
+}
 
-        next.append(allocator, .{
-            .path = owned_path,
-            .additions = file.additions,
-            .deletions = file.deletions,
-            .patch = owned_patch,
-            .expanded = expanded,
-        }) catch {
-            allocator.free(owned_path);
-            if (owned_patch) |patch| allocator.free(patch);
-            freePendingDiffFiles(allocator, &next);
-            return;
-        };
+fn upsertPendingDiffFileLocked(
+    allocator: std.mem.Allocator,
+    target: *std.ArrayListUnmanaged(PendingDiffFile),
+    file: ai_harness.StreamDiffFile,
+) !void {
+    for (target.items) |*existing| {
+        if (!std.mem.eql(u8, existing.path, file.path)) continue;
+
+        existing.additions = file.additions;
+        existing.deletions = file.deletions;
+        if (existing.patch) |patch| {
+            allocator.free(patch);
+            existing.patch = null;
+        }
+        if (file.patch) |patch| {
+            existing.patch = try allocator.dupe(u8, patch);
+        }
+        return;
     }
 
-    freePendingDiffFiles(allocator, target);
-    target.* = next;
+    try target.append(allocator, .{
+        .path = try allocator.dupe(u8, file.path),
+        .additions = file.additions,
+        .deletions = file.deletions,
+        .patch = if (file.patch) |patch| try allocator.dupe(u8, patch) else null,
+        .expanded = false,
+    });
 }
 
 fn appendPendingDiffSummaryEvent(
@@ -3053,13 +3052,6 @@ fn appendPendingDiffSummaryEvent(
         allocator.free(owned_title);
         allocator.free(owned_body);
     };
-}
-
-fn pendingDiffExpandedForPath(files: []const PendingDiffFile, path: []const u8) bool {
-    for (files) |file| {
-        if (std.mem.eql(u8, file.path, path)) return file.expanded;
-    }
-    return false;
 }
 
 fn freePendingApproval(allocator: std.mem.Allocator, approval: *?PendingApproval) void {
