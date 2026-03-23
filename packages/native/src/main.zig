@@ -41,6 +41,9 @@ const IMAGE_MODAL_ID: [:0]const u8 = "AttachmentPreviewModal";
 const PROJECT_RENAME_MODAL_ID: [:0]const u8 = "ProjectRenameModal";
 const RESPONSIVE_BASE_FONT_SIZE: f32 = 18.0;
 
+var heading_font: ?zgui.Font = null;
+var heading_font_size: f32 = DEFAULT_FONT_SIZE * 1.28;
+
 const GL_TEXTURE_2D = 0x0DE1;
 const GL_RGBA = 0x1908;
 const GL_UNSIGNED_BYTE = 0x1401;
@@ -2235,6 +2238,14 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
 
     const project_header_button_width = clampf(width * 0.11, scaledUi(28.0), scaledUi(38.0));
     const rail_inner_width = @max(width - scaledUi(22.0), scaledUi(140.0));
+    if (heading_font) |font| {
+        zgui.pushFont(font, heading_font_size);
+        zgui.textColored(COLOR_WHITE, "Verde", .{});
+        zgui.popFont();
+    } else {
+        zgui.textColored(COLOR_WHITE, "Verde", .{});
+    }
+    zgui.dummy(.{ .w = 0.0, .h = scaledUi(2.0) });
     zgui.textColored(COLOR_TEXT_MUTED, "PROJECTS", .{});
     zgui.sameLine(.{ .spacing = 0.0 });
     zgui.setCursorPosX(@max(zgui.getCursorPosX(), width - project_header_button_width - scaledUi(10.0)));
@@ -3682,6 +3693,8 @@ fn comboRowLabel(buffer: []u8, label: []const u8, selected: bool) [:0]const u8 {
 fn installFonts(font_size: f32) void {
     const font = zgui.io.addFontFromMemory(GEIST_SANS_BYTES[0..GEIST_SANS_BYTES.len], font_size);
     zgui.io.setDefaultFont(font);
+    heading_font_size = font_size * 1.28;
+    heading_font = zgui.io.addFontFromMemory(GEIST_SANS_BYTES[0..GEIST_SANS_BYTES.len], heading_font_size);
 }
 
 fn applyTheme(ui_scale: f32) void {
