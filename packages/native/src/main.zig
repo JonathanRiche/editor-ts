@@ -1751,7 +1751,8 @@ fn renderChatWorkspace(state: *AppState, width: f32, height: f32) void {
     zgui.separator();
 
     const content = zgui.getContentRegionAvail();
-    const transcript_height = @max(content[1] - 164.0, 180.0);
+    const composer_reserved: f32 = 224.0;
+    const transcript_height = @max(content[1] - composer_reserved, 120.0);
     renderTranscript(state, width - 24.0, transcript_height);
     renderComposer(state, width - 24.0, content[1] - transcript_height - 8.0);
 }
