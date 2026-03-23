@@ -115,6 +115,7 @@ const CODEX_ACCESS_MODE_OPTIONS = [_]AccessModeOption{
 };
 
 const DEFAULT_CODEX_MODEL: [:0]const u8 = "gpt-5.4";
+const SIDEBAR_VISIBLE_THREAD_LIMIT: usize = 6;
 
 const ChatMessage = struct {
     role: ChatRole,
@@ -216,6 +217,7 @@ const Project = struct {
     path: [:0]const u8,
     unread_count: u8 = 0,
     collapsed: bool = false,
+    thread_list_expanded: bool = false,
     threads: std.ArrayList(ChatThread),
     selected_thread_index: usize = 0,
 
@@ -226,6 +228,7 @@ const Project = struct {
             .path = try allocator.dupeZ(u8, path),
             .unread_count = unread_count,
             .collapsed = false,
+            .thread_list_expanded = false,
             .threads = .empty,
             .selected_thread_index = 0,
         };
@@ -303,6 +306,7 @@ const PersistedProject = struct {
     path: []const u8,
     unread_count: u8 = 0,
     collapsed: ?bool = null,
+    thread_list_expanded: ?bool = null,
     selected_thread_index: usize = 0,
     threads: ?[]const PersistedThread = null,
     provider: Provider = .opencode,
@@ -347,6 +351,7 @@ const SaveProject = struct {
     path: []const u8,
     unread_count: u8,
     collapsed: bool,
+    thread_list_expanded: bool,
     selected_thread_index: usize,
     threads: []const SaveThread,
 };
@@ -509,6 +514,8 @@ const Storage = struct {
             try stringify.write(project.unread_count);
             try stringify.objectField("collapsed");
             try stringify.write(project.collapsed);
+            try stringify.objectField("thread_list_expanded");
+            try stringify.write(project.thread_list_expanded);
             try stringify.objectField("selected_thread_index");
             try stringify.write(selected_save_index);
             try stringify.objectField("threads");
@@ -865,6 +872,7 @@ const AppState = struct {
 
             var loaded = try Project.init(self.allocator, project_id, project.label, project.path, project.unread_count);
             loaded.collapsed = project.collapsed orelse false;
+            loaded.thread_list_expanded = project.thread_list_expanded orelse false;
             for (loaded.threads.items) |*thread| {
                 thread.deinit(self.allocator);
             }
@@ -1653,39 +1661,29 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         }
         if (is_selected and !is_collapsed) {
             zgui.indent(.{ .indent_w = 12.0 });
-            for (project.threads.items, 0..) |thread, thread_index| {
-                if (!thread.committed) continue;
-                zgui.pushIntId(@intCast(thread_index + 1000));
-                defer zgui.popId();
-                const thread_selected = project.selected_thread_index == thread_index;
-                var row_label_buf = std.mem.zeroes([96:0]u8);
-                const row_label = formatThreadRowLabel(&row_label_buf, &thread);
-                if (thread_selected) {
-                    zgui.pushStyleColor4f(.{ .idx = .header, .c = COLOR_PANEL_ALT });
-                    zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = lighten(COLOR_PANEL_ALT, 0.06) });
-                    zgui.pushStyleColor4f(.{ .idx = .header_active, .c = lighten(COLOR_PANEL_ALT, 0.12) });
-                }
-                zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 6.0, 5.0 } });
-                if (zgui.selectable(row_label, .{
-                    .selected = thread_selected,
-                    .w = width - 44.0,
-                    .h = 24.0,
+            var sorted_indices = collectCommittedThreadIndicesSorted(state.allocator, &project) catch blk: {
+                break :blk std.ArrayList(usize).empty;
+            };
+            defer sorted_indices.deinit(state.allocator);
+
+            const show_all_threads = project.thread_list_expanded or sorted_indices.items.len <= SIDEBAR_VISIBLE_THREAD_LIMIT;
+            const visible_count = if (show_all_threads) sorted_indices.items.len else @min(sorted_indices.items.len, SIDEBAR_VISIBLE_THREAD_LIMIT);
+
+            for (sorted_indices.items[0..visible_count]) |thread_index| {
+                const thread = &project.threads.items[thread_index];
+                renderSidebarThreadRow(state, index, width, thread, thread_index);
+            }
+
+            if (sorted_indices.items.len > SIDEBAR_VISIBLE_THREAD_LIMIT) {
+                zgui.dummy(.{ .w = 0.0, .h = 4.0 });
+                if (zgui.button(if (project.thread_list_expanded) "Show less" else "Show more", .{
+                    .w = width - 56.0,
+                    .h = 28.0,
                 })) {
-                    state.selected_project_index = index;
-                    state.projects.items[index].selected_thread_index = thread_index;
-                    state.syncRenameBuffer();
+                    state.projects.items[index].thread_list_expanded = !state.projects.items[index].thread_list_expanded;
                     state.markDirty();
                 }
-                zgui.popStyleVar(.{ .count = 1 });
-                var preview_buf = std.mem.zeroes([72:0]u8);
-                const preview = formatThreadPreview(&preview_buf, &thread);
-                if (preview.len > 0) {
-                    zgui.textColored(if (thread_selected) COLOR_TEXT_MUTED else COLOR_TEXT_SUBTLE, "{s}", .{preview});
-                }
-                if (thread_selected) {
-                    zgui.popStyleColor(.{ .count = 3 });
-                }
-                zgui.dummy(.{ .w = 0.0, .h = 2.0 });
+                zgui.dummy(.{ .w = 0.0, .h = 4.0 });
             }
             if (!active_thread.committed) {
                 zgui.textColored(COLOR_TEXT_SUBTLE, "New chat will appear here after the first prompt.", .{});
@@ -2769,17 +2767,6 @@ fn formatThreadPreview(buffer: *[72:0]u8, thread: *const ChatThread) [:0]const u
     return buffer[0..max_len :0];
 }
 
-fn formatThreadRowLabel(buffer: *[96:0]u8, thread: *const ChatThread) [:0]const u8 {
-    var time_buf: [24]u8 = undefined;
-    const relative_time = formatRelativeTime(&time_buf, thread.last_activity_at);
-    const max_title_len = if (relative_time.len + 4 >= buffer.len - 1) 8 else (buffer.len - 1) - (relative_time.len + 4);
-
-    var title_buf = std.mem.zeroes([64:0]u8);
-    const title = truncatedThreadTitle(&title_buf, thread.title, max_title_len);
-    const label = std.fmt.bufPrintZ(buffer, "{s}  {s}", .{ title, relative_time }) catch thread.title;
-    return label;
-}
-
 fn truncatedThreadTitle(buffer: *[64:0]u8, value: []const u8, max_len: usize) [:0]const u8 {
     const bounded_max = @min(buffer.len - 1, max_len);
     if (value.len <= bounded_max) return std.fmt.bufPrintZ(buffer, "{s}", .{value}) catch value[0..bounded_max :0];
@@ -2805,6 +2792,85 @@ fn formatRelativeTime(buffer: []u8, timestamp: i64) []const u8 {
     }
     const days = @divFloor(elapsed, 86_400);
     return std.fmt.bufPrint(buffer, "{d}d ago", .{days}) catch "recent";
+}
+
+fn collectCommittedThreadIndicesSorted(
+    allocator: std.mem.Allocator,
+    project: *const Project,
+) !std.ArrayList(usize) {
+    var indices: std.ArrayList(usize) = .empty;
+    errdefer indices.deinit(allocator);
+
+    for (project.threads.items, 0..) |thread, index| {
+        if (!thread.committed) continue;
+        try indices.append(allocator, index);
+    }
+
+    std.mem.sort(usize, indices.items, project, lessThanCommittedThreadIndex);
+    return indices;
+}
+
+fn lessThanCommittedThreadIndex(project: *const Project, lhs: usize, rhs: usize) bool {
+    const left = project.threads.items[lhs];
+    const right = project.threads.items[rhs];
+    if (left.last_activity_at != right.last_activity_at) {
+        return left.last_activity_at > right.last_activity_at;
+    }
+    return lhs > rhs;
+}
+
+fn renderSidebarThreadRow(
+    state: *AppState,
+    project_index: usize,
+    width: f32,
+    thread: *const ChatThread,
+    thread_index: usize,
+) void {
+    const project = &state.projects.items[project_index];
+    const thread_selected = project.selected_thread_index == thread_index;
+    const row_width = width - 56.0;
+    const timestamp_width: f32 = 54.0;
+    const title_width_chars: usize = @intFromFloat(@max((row_width - timestamp_width - 12.0) / 7.2, 10.0));
+
+    zgui.pushIntId(@intCast(thread_index + 1000));
+    defer zgui.popId();
+
+    if (thread_selected) {
+        zgui.pushStyleColor4f(.{ .idx = .header, .c = COLOR_PANEL_ALT });
+        zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = lighten(COLOR_PANEL_ALT, 0.06) });
+        zgui.pushStyleColor4f(.{ .idx = .header_active, .c = lighten(COLOR_PANEL_ALT, 0.12) });
+    }
+
+    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 6.0, 5.0 } });
+    var title_buf = std.mem.zeroes([64:0]u8);
+    const row_label = truncatedThreadTitle(&title_buf, thread.title, title_width_chars);
+    if (zgui.selectable(row_label, .{
+        .selected = thread_selected,
+        .w = row_width - timestamp_width,
+        .h = 24.0,
+    })) {
+        state.selected_project_index = project_index;
+        state.projects.items[project_index].selected_thread_index = thread_index;
+        state.syncRenameBuffer();
+        state.markDirty();
+    }
+    zgui.popStyleVar(.{ .count = 1 });
+
+    var time_buf: [24]u8 = undefined;
+    const relative_time = formatRelativeTime(&time_buf, thread.last_activity_at);
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{relative_time});
+
+    var preview_buf = std.mem.zeroes([72:0]u8);
+    const preview = formatThreadPreview(&preview_buf, thread);
+    if (preview.len > 0) {
+        zgui.textColored(if (thread_selected) COLOR_TEXT_MUTED else COLOR_TEXT_SUBTLE, "{s}", .{preview});
+    }
+
+    if (thread_selected) {
+        zgui.popStyleColor(.{ .count = 3 });
+    }
+    zgui.dummy(.{ .w = 0.0, .h = 2.0 });
 }
 
 fn sanitizeChatRole(role: *ChatRole) void {
