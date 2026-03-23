@@ -2899,8 +2899,9 @@ fn renderComposerAttachmentPreview(state: *AppState, image: ChatImageAttachment)
 fn renderImageAttachmentCard(state: *AppState, image: ChatImageAttachment, compact: bool) void {
     const card_height: f32 = if (compact) 72.0 else 196.0;
     const card_width: f32 = if (compact) 220.0 else @min(zgui.getContentRegionAvail()[0], 260.0);
-    const preview_width: f32 = if (compact) 56.0 else card_width - 16.0;
-    const preview_height: f32 = if (compact) card_height - 16.0 else 150.0;
+    const card_padding: f32 = if (compact) 8.0 else 10.0;
+    const preview_width: f32 = if (compact) 56.0 else card_width - (card_padding * 2.0);
+    const preview_height: f32 = if (compact) card_height - (card_padding * 2.0) else 142.0;
     const start = zgui.getCursorScreenPos();
     var byte_size_buf = std.mem.zeroes([32:0]u8);
     const byte_size_text = formatByteSize(&byte_size_buf, image.byte_size);
@@ -2921,8 +2922,8 @@ fn renderImageAttachmentCard(state: *AppState, image: ChatImageAttachment, compa
         .thickness = 1.0,
     });
     draw_list.addRectFilled(.{
-        .pmin = .{ start[0] + 8.0, start[1] + 8.0 },
-        .pmax = .{ start[0] + 8.0 + preview_width, start[1] + 8.0 + preview_height },
+        .pmin = .{ start[0] + card_padding, start[1] + card_padding },
+        .pmax = .{ start[0] + card_padding + preview_width, start[1] + card_padding + preview_height },
         .col = zgui.colorConvertFloat4ToU32(rgba(24, 25, 31, 255)),
         .rounding = 10.0,
     });
@@ -2930,20 +2931,33 @@ fn renderImageAttachmentCard(state: *AppState, image: ChatImageAttachment, compa
     zgui.pushStrIdZ(image.path);
     defer zgui.popId();
 
-    zgui.setCursorScreenPos(.{ start[0] + 8.0, start[1] + 8.0 });
+    zgui.setCursorScreenPos(.{ start[0] + card_padding, start[1] + card_padding });
     const texture = state.ensureImageTexture(image.path);
     if (texture) |cached| {
         const dims = scaledImageSize(cached.width, cached.height, preview_width, preview_height);
         const x_offset = (preview_width - dims[0]) * 0.5;
         const y_offset = (preview_height - dims[1]) * 0.5;
-        zgui.setCursorScreenPos(.{ start[0] + 8.0 + x_offset, start[1] + 8.0 + y_offset });
-        if (zgui.imageButton("##attachment-thumb", textureRefFromGlId(cached.texture_id), .{
+        const image_pos = [2]f32{ start[0] + card_padding + x_offset, start[1] + card_padding + y_offset };
+        zgui.setCursorScreenPos(image_pos);
+        zgui.image(textureRefFromGlId(cached.texture_id), .{
             .w = dims[0],
             .h = dims[1],
-            .bg_col = .{ 0.0, 0.0, 0.0, 0.0 },
-            .tint_col = .{ 1.0, 1.0, 1.0, 1.0 },
+        });
+        zgui.setCursorScreenPos(image_pos);
+        if (zgui.invisibleButton("##attachment-thumb", .{
+            .w = dims[0],
+            .h = dims[1],
         })) {
             state.openImageModal(image.path);
+        }
+        if (zgui.isItemHovered(.{})) {
+            draw_list.addRect(.{
+                .pmin = .{ image_pos[0], image_pos[1] },
+                .pmax = .{ image_pos[0] + dims[0], image_pos[1] + dims[1] },
+                .col = zgui.colorConvertFloat4ToU32(rgba(120, 124, 136, 180)),
+                .rounding = 8.0,
+                .thickness = 1.0,
+            });
         }
     } else {
         if (zgui.button("Image", .{ .w = preview_width, .h = preview_height })) {
@@ -2952,12 +2966,12 @@ fn renderImageAttachmentCard(state: *AppState, image: ChatImageAttachment, compa
     }
 
     if (compact) {
-        zgui.setCursorScreenPos(.{ start[0] + preview_width + 18.0, start[1] + 11.0 });
+        zgui.setCursorScreenPos(.{ start[0] + card_padding + preview_width + 10.0, start[1] + 11.0 });
         zgui.textColored(COLOR_WHITE, "{s}", .{image.file_name});
         zgui.textColored(COLOR_TEXT_MUTED, "{s}  {s}", .{ image.mime, byte_size_text });
         zgui.textColored(COLOR_TEXT_SUBTLE, "Clipboard image", .{});
     } else {
-        zgui.setCursorScreenPos(.{ start[0] + 12.0, start[1] + preview_height + 14.0 });
+        zgui.setCursorScreenPos(.{ start[0] + 12.0, start[1] + card_padding + preview_height + 10.0 });
         zgui.textColored(COLOR_WHITE, "{s}", .{image.file_name});
         zgui.textColored(COLOR_TEXT_MUTED, "{s}  {s}", .{ image.mime, byte_size_text });
     }
