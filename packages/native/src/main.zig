@@ -408,7 +408,8 @@ const SendResultPayload = struct {
 };
 
 const PendingTimelineEvent = struct {
-    title: []u8,
+    role: ChatRole,
+    author: []u8,
     body: []u8,
 };
 
@@ -424,6 +425,7 @@ const SendState = struct {
     status: SendStatus = .idle,
     result: ?SendResultPayload = null,
     error_message: ?[]u8 = null,
+    provider: ?Provider = null,
     project_index: ?usize = null,
     thread_index: ?usize = null,
     partial_text: std.ArrayListUnmanaged(u8) = .empty,
@@ -834,6 +836,7 @@ const AppState = struct {
         self.send_state.status = .pending;
         self.send_state.result = null;
         self.send_state.error_message = null;
+        self.send_state.provider = thread.provider;
         self.send_state.project_index = request.project_index;
         self.send_state.thread_index = request.thread_index;
         self.send_state.partial_text.clearRetainingCapacity();
@@ -1138,13 +1141,14 @@ const AppState = struct {
             .completed => {
                 completed_result = self.send_state.result;
                 self.send_state.result = null;
-                self.send_state.partial_text.clearRetainingCapacity();
+                flushPendingAssistantTextLocked(&self.send_state, std.heap.page_allocator);
                 completed_events = self.send_state.pending_events;
                 self.send_state.pending_events = .empty;
                 completed_diff_files = self.send_state.pending_diff_files;
                 self.send_state.pending_diff_files = .empty;
                 freePendingApprovalLocked(std.heap.page_allocator, &self.send_state.pending_approval);
                 self.send_state.approval_decision = null;
+                self.send_state.provider = null;
                 self.send_state.project_index = null;
                 self.send_state.thread_index = null;
                 self.send_state.status = .idle;
@@ -1158,6 +1162,7 @@ const AppState = struct {
                 freePendingDiffFilesLocked(std.heap.page_allocator, &self.send_state.pending_diff_files);
                 freePendingApprovalLocked(std.heap.page_allocator, &self.send_state.pending_approval);
                 self.send_state.approval_decision = null;
+                self.send_state.provider = null;
                 self.send_state.project_index = null;
                 self.send_state.thread_index = null;
                 self.send_state.status = .idle;
@@ -1179,10 +1184,11 @@ const AppState = struct {
                     defer freePendingTimelineEvents(std.heap.page_allocator, &completed_events);
                     defer freePendingDiffFiles(std.heap.page_allocator, &completed_diff_files);
                     appendPendingDiffSummaryEvent(std.heap.page_allocator, &completed_events, completed_diff_files.items);
+                    const should_append_reply_text = !pendingTimelineEventsContainAssistant(completed_events.items);
                     self.applyPendingTimelineEvents(result, &completed_events) catch |err| {
                         log.err("failed to apply timeline events: {s}", .{@errorName(err)});
                     };
-                    self.applySendSuccess(result) catch |err| {
+                    self.applySendSuccess(result, should_append_reply_text) catch |err| {
                         log.err("failed to apply send result: {s}", .{@errorName(err)});
                         self.setSidebarNotice("Failed to apply provider reply.");
                     };
@@ -1255,7 +1261,7 @@ const AppState = struct {
         self.send_state.condition.broadcast();
     }
 
-    fn applySendSuccess(self: *AppState, result: SendResultPayload) !void {
+    fn applySendSuccess(self: *AppState, result: SendResultPayload, append_reply_text: bool) !void {
         if (result.project_index >= self.projects.items.len) return;
         const project = &self.projects.items[result.project_index];
         if (result.thread_index >= project.threads.items.len) return;
@@ -1265,11 +1271,28 @@ const AppState = struct {
             self.allocator.free(thread_id);
         }
         thread.provider_thread_id = try self.allocator.dupeZ(u8, result.provider_thread_id);
-        try thread.messages.append(self.allocator, .{
-            .role = .assistant,
-            .author = try self.dupeZ(providerLabel(thread.provider)),
-            .body = try self.dupeZ(result.reply_text),
-        });
+        if (!append_reply_text) {
+            thread.touch();
+            self.markDirty();
+            self.setSidebarNotice("Provider session updated.");
+            return;
+        }
+        if (std.mem.trim(u8, result.reply_text, &std.ascii.whitespace).len > 0 and thread.messages.items.len > 0) {
+            const last_message = thread.messages.items[thread.messages.items.len - 1];
+            if (last_message.role != .assistant or !std.mem.eql(u8, last_message.body, result.reply_text)) {
+                try thread.messages.append(self.allocator, .{
+                    .role = .assistant,
+                    .author = try self.dupeZ(providerLabel(thread.provider)),
+                    .body = try self.dupeZ(result.reply_text),
+                });
+            }
+        } else if (std.mem.trim(u8, result.reply_text, &std.ascii.whitespace).len > 0) {
+            try thread.messages.append(self.allocator, .{
+                .role = .assistant,
+                .author = try self.dupeZ(providerLabel(thread.provider)),
+                .body = try self.dupeZ(result.reply_text),
+            });
+        }
         thread.touch();
         self.markDirty();
         self.setSidebarNotice("Provider session updated.");
@@ -1284,8 +1307,8 @@ const AppState = struct {
 
         for (events.items) |event| {
             try thread.messages.append(self.allocator, .{
-                .role = .system,
-                .author = try self.dupeZ(event.title),
+                .role = event.role,
+                .author = try self.dupeZ(event.author),
                 .body = try self.dupeZ(event.body),
             });
         }
@@ -1787,7 +1810,7 @@ fn renderPendingTimelineEvents(state: *AppState) void {
     if (state.send_state.thread_index != state.currentProject().selected_thread_index) return;
 
     for (state.send_state.pending_events.items, 0..) |event, index| {
-        renderTranscriptMessage(@intCast(50_000 + index), .system, event.title, event.body);
+        renderTranscriptMessage(@intCast(50_000 + index), event.role, event.author, event.body);
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 }
@@ -2317,6 +2340,15 @@ fn countTextLines(text: []const u8) usize {
         if (char == '\n') count += 1;
     }
     return count;
+}
+
+fn pendingTimelineEventsContainAssistant(events: []const PendingTimelineEvent) bool {
+    for (events) |event| {
+        if (event.role == .assistant and std.mem.trim(u8, event.body, &std.ascii.whitespace).len > 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 fn transcriptBubbleHeight(author: []const u8, body: []const u8) f32 {
@@ -2875,6 +2907,33 @@ fn handleSendStreamDelta(context: ?*anyopaque, delta: []const u8) void {
     send_state.partial_text.appendSlice(page_alloc, delta) catch return;
 }
 
+fn flushPendingAssistantTextLocked(send_state: *SendState, allocator: std.mem.Allocator) void {
+    if (send_state.partial_text.items.len == 0) return;
+    const provider = send_state.provider orelse return;
+    const trimmed = std.mem.trim(u8, send_state.partial_text.items, &std.ascii.whitespace);
+    if (trimmed.len == 0) {
+        send_state.partial_text.clearRetainingCapacity();
+        return;
+    }
+
+    const owned_author = allocator.dupe(u8, providerLabel(provider)) catch return;
+    errdefer allocator.free(owned_author);
+    const owned_body = allocator.dupe(u8, send_state.partial_text.items) catch return;
+    errdefer allocator.free(owned_body);
+
+    send_state.pending_events.append(allocator, .{
+        .role = .assistant,
+        .author = owned_author,
+        .body = owned_body,
+    }) catch {
+        allocator.free(owned_author);
+        allocator.free(owned_body);
+        return;
+    };
+
+    send_state.partial_text.clearRetainingCapacity();
+}
+
 fn handleSendStreamEvent(context: ?*anyopaque, event: ai_harness.StreamEvent) void {
     const send_state: *SendState = @ptrCast(@alignCast(context orelse return));
     const page_alloc = std.heap.page_allocator;
@@ -2885,27 +2944,30 @@ fn handleSendStreamEvent(context: ?*anyopaque, event: ai_harness.StreamEvent) vo
 
     switch (event) {
         .message => |message| {
+            flushPendingAssistantTextLocked(send_state, page_alloc);
             if (send_state.pending_events.items.len > 0) {
                 const last = send_state.pending_events.items[send_state.pending_events.items.len - 1];
-                if (std.mem.eql(u8, last.title, message.title) and std.mem.eql(u8, last.body, message.body)) {
+                if (last.role == .system and std.mem.eql(u8, last.author, message.title) and std.mem.eql(u8, last.body, message.body)) {
                     return;
                 }
             }
 
-            const owned_title = page_alloc.dupe(u8, message.title) catch return;
-            errdefer page_alloc.free(owned_title);
+            const owned_author = page_alloc.dupe(u8, message.title) catch return;
+            errdefer page_alloc.free(owned_author);
             const owned_body = page_alloc.dupe(u8, message.body) catch return;
             errdefer page_alloc.free(owned_body);
 
             send_state.pending_events.append(page_alloc, .{
-                .title = owned_title,
+                .role = .system,
+                .author = owned_author,
                 .body = owned_body,
             }) catch {
-                page_alloc.free(owned_title);
+                page_alloc.free(owned_author);
                 page_alloc.free(owned_body);
             };
         },
         .diff => |diff| {
+            flushPendingAssistantTextLocked(send_state, page_alloc);
             mergePendingDiffFilesLocked(page_alloc, &send_state.pending_diff_files, diff.files);
         },
     }
@@ -2931,6 +2993,7 @@ fn handleSendApprovalRequest(context: ?*anyopaque, request: ai_harness.ApprovalR
         return .deny;
     }
 
+    flushPendingAssistantTextLocked(send_state, page_alloc);
     freePendingApprovalLocked(page_alloc, &send_state.pending_approval);
     send_state.pending_approval = .{
         .call_id = owned_call_id,
@@ -2951,7 +3014,7 @@ fn handleSendApprovalRequest(context: ?*anyopaque, request: ai_harness.ApprovalR
 
 fn freePendingTimelineEvents(allocator: std.mem.Allocator, events: *std.ArrayListUnmanaged(PendingTimelineEvent)) void {
     for (events.items) |event| {
-        allocator.free(event.title);
+        allocator.free(event.author);
         allocator.free(event.body);
     }
     events.deinit(allocator);
@@ -3046,7 +3109,8 @@ fn appendPendingDiffSummaryEvent(
     };
 
     events.append(allocator, .{
-        .title = owned_title,
+        .role = .system,
+        .author = owned_title,
         .body = owned_body,
     }) catch {
         allocator.free(owned_title);
