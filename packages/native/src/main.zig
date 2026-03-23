@@ -3976,14 +3976,21 @@ fn sanitizeHarness(harness: *Harness) void {
     harness.* = std.meta.intToEnum(Harness, raw) catch .local_cli;
 }
 
-fn pickDirectory(allocator: std.mem.Allocator, start_path: []const u8) ![]u8 {
+const PickDirectoryError = std.process.Child.RunError || std.mem.Allocator.Error || error{
+    UnsupportedOperatingSystem,
+    FolderPickerUnavailable,
+    UserCancelled,
+    ChildProcessFailed,
+};
+
+fn pickDirectory(allocator: std.mem.Allocator, start_path: []const u8) PickDirectoryError![]u8 {
     return switch (@import("builtin").os.tag) {
         .linux, .freebsd, .netbsd, .openbsd, .dragonfly => pickDirectoryLinux(allocator, start_path),
         else => error.UnsupportedOperatingSystem,
     };
 }
 
-fn pickDirectoryLinux(allocator: std.mem.Allocator, start_path: []const u8) ![]u8 {
+fn pickDirectoryLinux(allocator: std.mem.Allocator, start_path: []const u8) PickDirectoryError![]u8 {
     const argv = detectLinuxPicker(start_path) orelse return error.FolderPickerUnavailable;
     const result = try std.process.Child.run(.{
         .allocator = allocator,
@@ -4582,7 +4589,11 @@ fn convertClipboardTiffToPng(allocator: std.mem.Allocator, capture: ClipboardIma
         else => return null,
     }
 
-    const png_bytes = try std.fs.readFileAbsoluteAlloc(allocator, output_path, CLIPBOARD_IMAGE_MAX_BYTES);
+    const png_bytes = png_bytes: {
+        const png_file = try std.fs.openFileAbsolute(output_path, .{});
+        defer png_file.close();
+        break :png_bytes try png_file.readToEndAlloc(allocator, CLIPBOARD_IMAGE_MAX_BYTES);
+    };
     std.fs.deleteFileAbsolute(input_path) catch {};
     std.fs.deleteFileAbsolute(output_path) catch {};
 
