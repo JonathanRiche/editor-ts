@@ -1,30 +1,19 @@
 //! Minimal native shell prototype for the desktop chat workflow.
 
 const std = @import("std");
+
+const sdl = @import("zsdl3");
+const zgui = @import("zgui");
+
+const ai_harness = @import("harness.zig");
+const ReasoningEffort = ai_harness.ReasoningEffort;
 const app_config = @import("config.zig");
 const keybinds = @import("keybinds.zig");
-const zgui = @import("zgui");
-const sdl = @import("zsdl3");
-const ai_harness = @import("harness.zig");
 const stb_image = @import("stb_image.zig");
-const ui_theme = @import("ui/theme.zig");
 const ui_layout = @import("ui/layout.zig");
+const ui_theme = @import("ui/theme.zig");
 
-pub const log = std.log.scoped(.native_shell);
-const ORG_NAME: [:0]const u8 = "verde";
-const APP_NAME: [:0]const u8 = "Native";
-const STATE_FILE_NAME = "state.json";
-const CAL_SANS_BYTES = @embedFile("assets/fonts/CalSans-Regular.ttf");
-const VERDE_LOGO_BYTES = @embedFile("assets/verde_logo.png");
 const DEFAULT_FONT_SIZE: f32 = ui_theme.DEFAULT_FONT_SIZE;
-const DEFAULT_WINDOW_WIDTH: c_int = 1360;
-const DEFAULT_WINDOW_HEIGHT: c_int = 860;
-const MIN_WINDOW_WIDTH: c_int = 960;
-const MIN_WINDOW_HEIGHT: c_int = 680;
-const MAX_WINDOW_WIDTH: c_int = 1520;
-const MAX_WINDOW_HEIGHT: c_int = 980;
-
-//for hex in fornt of each 2 chars add 0x
 pub const COLOR_GREEN = ui_theme.COLOR_GREEN;
 pub const COLOR_SECONDARY_GREEN = ui_theme.COLOR_SECONDARY_GREEN;
 pub const COLOR_YELLOW = ui_theme.COLOR_YELLOW;
@@ -42,10 +31,25 @@ pub const COLOR_ACCENT_DIM = ui_theme.COLOR_ACCENT_DIM;
 pub const TRANSCRIPT_BUBBLE_PADDING_X = ui_theme.TRANSCRIPT_BUBBLE_PADDING_X;
 pub const TRANSCRIPT_BUBBLE_PADDING_Y = ui_theme.TRANSCRIPT_BUBBLE_PADDING_Y;
 pub const TRANSCRIPT_BUBBLE_ROUNDING = ui_theme.TRANSCRIPT_BUBBLE_ROUNDING;
+const RESPONSIVE_BASE_FONT_SIZE: f32 = ui_theme.RESPONSIVE_BASE_FONT_SIZE;
+
+pub const log = std.log.scoped(.native_shell);
+const ORG_NAME: [:0]const u8 = "verde";
+const APP_NAME: [:0]const u8 = "Native";
+const STATE_FILE_NAME = "state.json";
+const CAL_SANS_BYTES = @embedFile("assets/fonts/CalSans-Regular.ttf");
+const VERDE_LOGO_BYTES = @embedFile("assets/verde_logo.png");
+const DEFAULT_WINDOW_WIDTH: c_int = 1360;
+const DEFAULT_WINDOW_HEIGHT: c_int = 860;
+const MIN_WINDOW_WIDTH: c_int = 960;
+const MIN_WINDOW_HEIGHT: c_int = 680;
+const MAX_WINDOW_WIDTH: c_int = 1520;
+const MAX_WINDOW_HEIGHT: c_int = 980;
+
+//for hex in fornt of each 2 chars add 0x
 pub const PERSISTED_DIFF_MARKER = "EDITORTS_DIFF_V1\n";
 pub const IMAGE_MODAL_ID: [:0]const u8 = "AttachmentPreviewModal";
 pub const PROJECT_RENAME_MODAL_ID: [:0]const u8 = "ProjectRenameModal";
-const RESPONSIVE_BASE_FONT_SIZE: f32 = ui_theme.RESPONSIVE_BASE_FONT_SIZE;
 var heading_font: ?zgui.Font = null;
 var heading_font_size: f32 = DEFAULT_FONT_SIZE * 1.28;
 
@@ -95,8 +99,6 @@ pub const Harness = enum(u8) {
     local_cli,
     remote_session,
 };
-
-const ReasoningEffort = ai_harness.ReasoningEffort;
 
 pub const FastMode = enum(u8) {
     off,
@@ -2181,9 +2183,9 @@ fn renderImageModal(state: *AppState, width: f32, height: f32) void {
     const header_text_width = @max(header_avail[0] - close_size - header_gap, 160.0);
     const close_x = header_start[0] + header_avail[0] - close_size;
     zgui.setCursorScreenPos(.{ close_x, header_start[1] });
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(46, 48, 56, 220) });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(68, 70, 79, 240) });
-    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(90, 92, 102, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = ui_theme.rgba(46, 48, 56, 220) });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = ui_theme.rgba(68, 70, 79, 240) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = ui_theme.rgba(90, 92, 102, 255) });
     if (zgui.button("x", .{ .w = close_size, .h = close_size })) {
         state.closeImageModal();
         zgui.closeCurrentPopup();
@@ -2295,8 +2297,8 @@ fn renderProjectRenameModal(state: *AppState, width: f32, height: f32) void {
 
     const button_width = @max((modal_width - scaledUi(10.0)) * 0.5, scaledUi(96.0));
     zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.08) });
-    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.14) });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = ui_theme.lighten(COLOR_PANEL_ALT, 0.08) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = ui_theme.lighten(COLOR_PANEL_ALT, 0.14) });
     if (zgui.button("Cancel", .{ .w = button_width, .h = scaledUi(34.0) })) {
         state.cancelProjectRename();
         zgui.closeCurrentPopup();
@@ -2307,8 +2309,8 @@ fn renderProjectRenameModal(state: *AppState, width: f32, height: f32) void {
 
     zgui.sameLine(.{ .spacing = scaledUi(10.0) });
     zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_SECONDARY_GREEN });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_SECONDARY_GREEN, 0.10) });
-    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_SECONDARY_GREEN, 0.10) });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = ui_theme.lighten(COLOR_SECONDARY_GREEN, 0.10) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = ui_theme.darken(COLOR_SECONDARY_GREEN, 0.10) });
     if (zgui.button("Rename", .{ .w = button_width, .h = scaledUi(34.0) })) {
         state.finishProjectRename();
         zgui.closeCurrentPopup();
@@ -2340,7 +2342,7 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         draw_list.addLine(.{
             .p1 = .{ pos[0] + size[0] - 1.0, pos[1] },
             .p2 = .{ pos[0] + size[0] - 1.0, pos[1] + size[1] },
-            .col = zgui.colorConvertFloat4ToU32(rgba(48, 50, 56, 255)),
+            .col = zgui.colorConvertFloat4ToU32(ui_theme.rgba(48, 50, 56, 255)),
             .thickness = 1.0,
         });
     }
@@ -2354,8 +2356,8 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
     zgui.setCursorPosX(@max(zgui.getCursorPosX(), width - project_header_button_width - scaledUi(10.0)));
     if (state.show_project_creator) {
         zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.06) });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.12) });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = ui_theme.lighten(COLOR_PANEL_ALT, 0.06) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = ui_theme.lighten(COLOR_PANEL_ALT, 0.12) });
         if (zgui.button("x", .{ .w = project_header_button_width, .h = scaledUi(24.0) })) {
             state.show_project_creator = false;
             state.clearImportPath();
@@ -2364,8 +2366,8 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         zgui.popStyleColor(.{ .count = 3 });
     } else {
         zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_SECONDARY_GREEN });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_SECONDARY_GREEN, 0.10) });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_SECONDARY_GREEN, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = ui_theme.lighten(COLOR_SECONDARY_GREEN, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = ui_theme.darken(COLOR_SECONDARY_GREEN, 0.10) });
         if (zgui.button("+", .{ .w = project_header_button_width, .h = scaledUi(24.0) })) {
             state.show_project_creator = true;
             state.setSidebarNotice("");
@@ -2380,9 +2382,9 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ scaledUi(12.0), scaledUi(10.0) } });
         zgui.pushStyleVar2f(.{ .idx = .item_spacing, .v = .{ field_spacing, field_spacing } });
         zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.05) });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.10) });
-        zgui.pushStyleColor4f(.{ .idx = .border, .c = lighten(COLOR_PANEL_MUTED, 0.08) });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = ui_theme.lighten(COLOR_PANEL_ALT, 0.05) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = ui_theme.lighten(COLOR_PANEL_ALT, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .border, .c = ui_theme.lighten(COLOR_PANEL_MUTED, 0.08) });
         if (zgui.button("[]  Browse for folder", .{ .w = rail_inner_width, .h = scaledUi(40.0) })) {
             state.browseForProjectDirectory();
         }
@@ -2396,8 +2398,8 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         zgui.popItemWidth();
         zgui.sameLine(.{ .spacing = field_spacing });
         zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_SECONDARY_GREEN });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_SECONDARY_GREEN, 0.10) });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_SECONDARY_GREEN, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = ui_theme.lighten(COLOR_SECONDARY_GREEN, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = ui_theme.darken(COLOR_SECONDARY_GREEN, 0.10) });
         if (zgui.button("Add", .{ .w = add_button_width, .h = scaledUi(40.0) })) {
             state.importProjectFromInput() catch |err| {
                 state.setSidebarNotice(@errorName(err));
@@ -2434,11 +2436,11 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
             // Hover/selected background
             if (is_selected or hovered) {
                 const bg_col = if (is_selected and hovered)
-                    rgba(44, 46, 54, 255)
+                    ui_theme.rgba(44, 46, 54, 255)
                 else if (is_selected)
-                    rgba(38, 40, 48, 255)
+                    ui_theme.rgba(38, 40, 48, 255)
                 else
-                    rgba(36, 38, 44, 255);
+                    ui_theme.rgba(36, 38, 44, 255);
                 dl.addRectFilled(.{
                     .pmin = row_pos,
                     .pmax = .{ row_pos[0] + row_width, row_pos[1] + row_height },
@@ -2521,8 +2523,8 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         // "+" new chat button
         zgui.sameLine(.{ .spacing = scaledUi(6.0) });
         zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.08) });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.14) });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = ui_theme.lighten(COLOR_PANEL_ALT, 0.08) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = ui_theme.lighten(COLOR_PANEL_ALT, 0.14) });
         if (zgui.button("+", .{ .w = project_action_width, .h = row_height })) {
             state.createThreadForProject(index);
         }
@@ -2720,9 +2722,9 @@ fn renderPendingApproval(state: *AppState) void {
             state.resolvePendingApproval(.approve);
         }
         zgui.sameLine(.{ .spacing = scaledUi(10.0) });
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(52, 54, 60, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(64, 66, 74, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(44, 46, 52, 255) });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = ui_theme.rgba(52, 54, 60, 255) });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = ui_theme.rgba(64, 66, 74, 255) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = ui_theme.rgba(44, 46, 52, 255) });
         if (zgui.button("Deny", .{ .w = button_width, .h = scaledUi(34.0) })) {
             state.resolvePendingApproval(.deny);
         }
@@ -2764,8 +2766,8 @@ fn renderPendingDiffCardLocked(files: *std.ArrayListUnmanaged(PendingDiffFile)) 
 
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 12.0 });
     zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 14.0, 10.0 } });
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(32, 33, 38, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(58, 60, 68, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = ui_theme.rgba(32, 33, 38, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = ui_theme.rgba(58, 60, 68, 255) });
     _ = zgui.beginChild("pending-diff-card", .{
         .w = 0.0,
         .h = card_height,
@@ -2909,8 +2911,8 @@ fn renderCommandEventRowId(id: u32, author: []const u8, body: []const u8) void {
     const row_height: f32 = 38.0;
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 10.0 });
     zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 14.0, 9.0 } });
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(28, 29, 34, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(46, 48, 56, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = ui_theme.rgba(28, 29, 34, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = ui_theme.rgba(46, 48, 56, 255) });
     _ = zgui.beginChildId(id, .{
         .w = 0.0,
         .h = row_height,
@@ -2948,8 +2950,8 @@ fn renderChangedFilesCardId(id: u32, body: []const u8) void {
 
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 12.0 });
     zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 14.0, 10.0 } });
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(32, 33, 38, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(58, 60, 68, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = ui_theme.rgba(32, 33, 38, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = ui_theme.rgba(58, 60, 68, 255) });
     _ = zgui.beginChildId(id, .{
         .w = 0.0,
         .h = card_height,
@@ -3015,9 +3017,9 @@ fn renderChangedFilesHeader(file_count: usize, additions: i64, deletions: i64) v
 fn renderChangedFilesAction(label: [:0]const u8) bool {
     zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 8.0 });
     zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 10.0, 4.0 } });
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(52, 54, 60, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(62, 64, 72, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(68, 70, 78, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = ui_theme.rgba(52, 54, 60, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = ui_theme.rgba(62, 64, 72, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = ui_theme.rgba(68, 70, 78, 255) });
     defer {
         zgui.popStyleColor(.{ .count = 3 });
         zgui.popStyleVar(.{ .count = 2 });
@@ -3116,8 +3118,8 @@ fn renderPendingDiffPatch(patch: []const u8, index: usize) void {
     zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 10.0 });
     zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 10.0, 10.0 } });
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(24, 24, 24, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(52, 52, 52, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = ui_theme.rgba(24, 24, 24, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = ui_theme.rgba(52, 52, 52, 255) });
     _ = zgui.beginChildId(@intCast(80_000 + index), .{
         .w = 0.0,
         .h = patch_height,
@@ -3311,9 +3313,9 @@ fn renderComposerAttachmentPreview(state: *AppState, image: ChatImageAttachment)
 
     renderImageAttachmentCard(state, image, true);
     zgui.sameLine(.{ .spacing = scaledUi(8.0) });
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(52, 54, 61, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(74, 76, 84, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(92, 94, 102, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = ui_theme.rgba(52, 54, 61, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = ui_theme.rgba(74, 76, 84, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = ui_theme.rgba(92, 94, 102, 255) });
     if (zgui.button("x", .{ .w = scaledUi(26.0), .h = scaledUi(26.0) })) {
         state.clearCurrentDraftImage();
     }
@@ -3342,20 +3344,20 @@ fn renderImageAttachmentCard(state: *AppState, image: ChatImageAttachment, compa
     draw_list.addRectFilled(.{
         .pmin = start,
         .pmax = .{ start[0] + card_width, start[1] + card_height },
-        .col = zgui.colorConvertFloat4ToU32(rgba(42, 43, 50, 255)),
+        .col = zgui.colorConvertFloat4ToU32(ui_theme.rgba(42, 43, 50, 255)),
         .rounding = scaledUi(12.0),
     });
     draw_list.addRect(.{
         .pmin = start,
         .pmax = .{ start[0] + card_width, start[1] + card_height },
-        .col = zgui.colorConvertFloat4ToU32(rgba(68, 71, 82, 255)),
+        .col = zgui.colorConvertFloat4ToU32(ui_theme.rgba(68, 71, 82, 255)),
         .rounding = scaledUi(12.0),
         .thickness = 1.0,
     });
     draw_list.addRectFilled(.{
         .pmin = .{ start[0] + card_padding, start[1] + card_padding },
         .pmax = .{ start[0] + card_padding + preview_width, start[1] + card_padding + preview_height },
-        .col = zgui.colorConvertFloat4ToU32(rgba(24, 25, 31, 255)),
+        .col = zgui.colorConvertFloat4ToU32(ui_theme.rgba(24, 25, 31, 255)),
         .rounding = scaledUi(10.0),
     });
 
@@ -3385,7 +3387,7 @@ fn renderImageAttachmentCard(state: *AppState, image: ChatImageAttachment, compa
             draw_list.addRect(.{
                 .pmin = .{ image_pos[0], image_pos[1] },
                 .pmax = .{ image_pos[0] + dims[0], image_pos[1] + dims[1] },
-                .col = zgui.colorConvertFloat4ToU32(rgba(120, 124, 136, 180)),
+                .col = zgui.colorConvertFloat4ToU32(ui_theme.rgba(120, 124, 136, 180)),
                 .rounding = scaledUi(8.0),
                 .thickness = 1.0,
             });
@@ -3445,19 +3447,19 @@ const TranscriptBubbleTheme = struct {
 fn transcriptBubbleTheme(role: ChatRole) TranscriptBubbleTheme {
     return switch (role) {
         .user => .{
-            .background = rgba(18, 62, 42, 255),
-            .border = rgba(28, 140, 80, 180),
-            .author = rgba(130, 255, 180, 255),
+            .background = ui_theme.rgba(18, 62, 42, 255),
+            .border = ui_theme.rgba(28, 140, 80, 180),
+            .author = ui_theme.rgba(130, 255, 180, 255),
         },
         .assistant => .{
-            .background = rgba(38, 39, 44, 255),
-            .border = rgba(62, 64, 72, 255),
-            .author = rgba(180, 185, 200, 255),
+            .background = ui_theme.rgba(38, 39, 44, 255),
+            .border = ui_theme.rgba(62, 64, 72, 255),
+            .author = ui_theme.rgba(180, 185, 200, 255),
         },
         .system => .{
-            .background = rgba(52, 42, 18, 255),
-            .border = rgba(140, 112, 28, 180),
-            .author = rgba(255, 230, 150, 255),
+            .background = ui_theme.rgba(52, 42, 18, 255),
+            .border = ui_theme.rgba(140, 112, 28, 180),
+            .author = ui_theme.rgba(255, 230, 150, 255),
         },
     };
 }
@@ -3471,7 +3473,7 @@ fn transcriptShouldAutoFollow(state: *AppState) bool {
 }
 
 fn renderComposer(state: *AppState, width: f32, height: f32) void {
-    const composer_bg = rgba(30, 31, 36, 255);
+    const composer_bg = ui_theme.rgba(30, 31, 36, 255);
     const composer_rounding = scaledUi(18.0);
     state.composer_focused = false;
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = composer_rounding });
@@ -3492,9 +3494,9 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
         zgui.popStyleVar(.{ .count = 2 });
 
         const border_color = if (focused)
-            rgba(124, 221, 94, 140)
+            ui_theme.rgba(124, 221, 94, 140)
         else
-            rgba(58, 62, 78, 255);
+            ui_theme.rgba(58, 62, 78, 255);
         const draw_list = zgui.getWindowDrawList();
         draw_list.addRect(.{
             .pmin = composer_screen_pos,
@@ -3540,7 +3542,7 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
     if (buf[0] == 0) {
         const hint_pos = .{ cursor_before[0] + scaledUi(4.0), cursor_before[1] + scaledUi(6.0) };
         const fg_draw_list = zgui.getForegroundDrawList();
-        fg_draw_list.addText(hint_pos, zgui.colorConvertFloat4ToU32(rgba(100, 102, 115, 255)), "Ask anything, or use / to show available commands", .{});
+        fg_draw_list.addText(hint_pos, zgui.colorConvertFloat4ToU32(ui_theme.rgba(100, 102, 115, 255)), "Ask anything, or use / to show available commands", .{});
     }
 
     // --- Bottom toolbar row ---
@@ -3567,9 +3569,9 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
 
         // Circle background
         const circle_color = if (pending)
-            rgba(80, 72, 24, 255)
+            ui_theme.rgba(80, 72, 24, 255)
         else if (hovered)
-            lighten(COLOR_SECONDARY_GREEN, 0.12)
+            ui_theme.lighten(COLOR_SECONDARY_GREEN, 0.12)
         else
             COLOR_SECONDARY_GREEN;
         draw_list.addCircleFilled(.{
@@ -3621,20 +3623,21 @@ pub fn renderComposerPickers(state: *AppState) void {
     const thread = state.currentThreadMutable();
 
     // Subtle combo styling — transparent background, no visual frame
-    const transparent = rgba(0, 0, 0, 0);
-    const picker_text_color = rgba(160, 164, 180, 255);
-    const picker_hover_bg = rgba(50, 52, 60, 255);
-    const separator_color = rgba(60, 62, 72, 255);
+
+    const transparent = ui_theme.rgba(0, 0, 0, 0);
+    const picker_text_color = ui_theme.rgba(160, 164, 180, 255);
+    const picker_hover_bg = ui_theme.rgba(50, 52, 60, 255);
+    const separator_color = ui_theme.rgba(60, 62, 72, 255);
 
     zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 8.0 });
     zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 8.0, 6.0 } });
     zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = transparent });
     zgui.pushStyleColor4f(.{ .idx = .frame_bg_hovered, .c = picker_hover_bg });
     zgui.pushStyleColor4f(.{ .idx = .frame_bg_active, .c = picker_hover_bg });
-    zgui.pushStyleColor4f(.{ .idx = .popup_bg, .c = rgba(26, 27, 32, 250) });
-    zgui.pushStyleColor4f(.{ .idx = .header, .c = rgba(42, 44, 52, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = rgba(52, 54, 64, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .header_active, .c = rgba(58, 60, 70, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .popup_bg, .c = ui_theme.rgba(26, 27, 32, 250) });
+    zgui.pushStyleColor4f(.{ .idx = .header, .c = ui_theme.rgba(42, 44, 52, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = ui_theme.rgba(52, 54, 64, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .header_active, .c = ui_theme.rgba(58, 60, 70, 255) });
     zgui.pushStyleColor4f(.{ .idx = .text, .c = picker_text_color });
     defer {
         zgui.popStyleColor(.{ .count = 8 });
@@ -4031,9 +4034,9 @@ fn renderSidebarThreadRow(
     defer zgui.popId();
 
     if (thread_selected) {
-        zgui.pushStyleColor4f(.{ .idx = .header, .c = rgba(36, 38, 44, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = rgba(42, 44, 50, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .header_active, .c = rgba(48, 50, 56, 255) });
+        zgui.pushStyleColor4f(.{ .idx = .header, .c = ui_theme.rgba(36, 38, 44, 255) });
+        zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = ui_theme.rgba(42, 44, 50, 255) });
+        zgui.pushStyleColor4f(.{ .idx = .header_active, .c = ui_theme.rgba(48, 50, 56, 255) });
     }
 
     zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ scaledUi(8.0), scaledUi(6.0) } });
@@ -4927,40 +4930,9 @@ fn commandExists(name: []const u8) bool {
 
 fn messageBubbleColor(role: ChatRole) [4]f32 {
     return switch (role) {
-        .user => darken(COLOR_GREEN, 0.22),
+        .user => ui_theme.darken(COLOR_GREEN, 0.22),
         .assistant => COLOR_PANEL_ALT,
-        .system => darken(COLOR_YELLOW, 0.48),
-    };
-}
-
-fn rgb(r: u8, g: u8, b: u8) [4]f32 {
-    return rgba(r, g, b, 255);
-}
-
-fn rgba(r: u8, g: u8, b: u8, a: u8) [4]f32 {
-    return .{
-        @as(f32, @floatFromInt(r)) / 255.0,
-        @as(f32, @floatFromInt(g)) / 255.0,
-        @as(f32, @floatFromInt(b)) / 255.0,
-        @as(f32, @floatFromInt(a)) / 255.0,
-    };
-}
-
-fn lighten(color: [4]f32, amount: f32) [4]f32 {
-    return .{
-        color[0] + ((1.0 - color[0]) * amount),
-        color[1] + ((1.0 - color[1]) * amount),
-        color[2] + ((1.0 - color[2]) * amount),
-        color[3],
-    };
-}
-
-fn darken(color: [4]f32, amount: f32) [4]f32 {
-    return .{
-        color[0] * (1.0 - amount),
-        color[1] * (1.0 - amount),
-        color[2] * (1.0 - amount),
-        color[3],
+        .system => ui_theme.darken(COLOR_YELLOW, 0.48),
     };
 }
 
