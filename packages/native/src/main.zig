@@ -117,11 +117,35 @@ const CODEX_ACCESS_MODE_OPTIONS = [_]AccessModeOption{
 
 const DEFAULT_CODEX_MODEL: [:0]const u8 = "gpt-5.4";
 const SIDEBAR_VISIBLE_THREAD_LIMIT: usize = 6;
+const CLIPBOARD_IMAGE_MAX_BYTES: usize = 10 * 1024 * 1024;
+
+const ChatImageAttachment = struct {
+    path: [:0]const u8,
+    file_name: [:0]const u8,
+    mime: [:0]const u8,
+    byte_size: usize,
+
+    fn init(allocator: std.mem.Allocator, path: []const u8, mime: []const u8, byte_size: usize) !ChatImageAttachment {
+        return .{
+            .path = try allocator.dupeZ(u8, path),
+            .file_name = try allocator.dupeZ(u8, std.fs.path.basename(path)),
+            .mime = try allocator.dupeZ(u8, mime),
+            .byte_size = byte_size,
+        };
+    }
+
+    fn deinit(self: ChatImageAttachment, allocator: std.mem.Allocator) void {
+        allocator.free(self.path);
+        allocator.free(self.file_name);
+        allocator.free(self.mime);
+    }
+};
 
 const ChatMessage = struct {
     role: ChatRole,
     author: [:0]const u8,
     body: [:0]const u8,
+    image: ?ChatImageAttachment = null,
 };
 
 const ChangedFileEntry = struct {
@@ -151,6 +175,7 @@ const ChatThread = struct {
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     messages: std.ArrayList(ChatMessage),
+    draft_image: ?ChatImageAttachment = null,
     draft_storage: [AppState.DRAFT_CAPACITY:0]u8,
 
     fn init(allocator: std.mem.Allocator, title: []const u8) !ChatThread {
@@ -165,6 +190,7 @@ const ChatThread = struct {
             .provider = .codex,
             .harness = .local_cli,
             .messages = .empty,
+            .draft_image = null,
             .draft_storage = std.mem.zeroes([AppState.DRAFT_CAPACITY:0]u8),
         };
     }
@@ -188,6 +214,18 @@ const ChatThread = struct {
         self.draft_storage[0] = 0;
     }
 
+    fn setDraftImage(self: *ChatThread, allocator: std.mem.Allocator, path: []const u8, mime: []const u8, byte_size: usize) !void {
+        self.clearDraftImage(allocator);
+        self.draft_image = try ChatImageAttachment.init(allocator, path, mime, byte_size);
+    }
+
+    fn clearDraftImage(self: *ChatThread, allocator: std.mem.Allocator) void {
+        if (self.draft_image) |*image| {
+            image.deinit(allocator);
+            self.draft_image = null;
+        }
+    }
+
     fn commitFromPrompt(self: *ChatThread, allocator: std.mem.Allocator, prompt: []const u8) !void {
         self.committed = true;
         self.last_activity_at = std.time.timestamp();
@@ -207,8 +245,10 @@ const ChatThread = struct {
         for (self.messages.items) |message| {
             allocator.free(message.author);
             allocator.free(message.body);
+            if (message.image) |*image| image.deinit(allocator);
         }
         self.messages.deinit(allocator);
+        self.clearDraftImage(allocator);
     }
 };
 
@@ -328,6 +368,7 @@ const PersistedThread = struct {
     provider: Provider = .opencode,
     harness: Harness = .local_cli,
     draft: []const u8 = "",
+    draft_image: ?PersistedImageAttachment = null,
     messages: []const PersistedMessage = &.{},
 };
 
@@ -335,6 +376,13 @@ const PersistedMessage = struct {
     role: ChatRole,
     author: []const u8,
     body: []const u8,
+    image: ?PersistedImageAttachment = null,
+};
+
+const PersistedImageAttachment = struct {
+    path: []const u8,
+    mime: []const u8,
+    byte_size: usize = 0,
 };
 
 const PersistedState = struct {
@@ -369,6 +417,7 @@ const SaveThread = struct {
     provider: Provider,
     harness: Harness,
     draft: []const u8,
+    draft_image: ?SaveImageAttachment,
     messages: []const SaveMessage,
 };
 
@@ -376,6 +425,13 @@ const SaveMessage = struct {
     role: ChatRole,
     author: []const u8,
     body: []const u8,
+    image: ?SaveImageAttachment,
+};
+
+const SaveImageAttachment = struct {
+    path: []const u8,
+    mime: []const u8,
+    byte_size: usize,
 };
 
 const SaveState = struct {
@@ -450,6 +506,7 @@ const SendWorkerRequest = struct {
     harness: Harness,
     project_path: []u8,
     prompt: []u8,
+    image_path: ?[]u8,
     provider_thread_id: ?[]u8,
     model_ref: ?[]u8,
     reasoning_effort: ?ReasoningEffort,
@@ -546,6 +603,19 @@ const Storage = struct {
                 try stringify.write(thread.harness);
                 try stringify.objectField("draft");
                 try stringify.write(thread.currentDraft());
+                try stringify.objectField("draft_image");
+                if (thread.draft_image) |image| {
+                    try stringify.beginObject();
+                    try stringify.objectField("path");
+                    try stringify.write(image.path);
+                    try stringify.objectField("mime");
+                    try stringify.write(image.mime);
+                    try stringify.objectField("byte_size");
+                    try stringify.write(image.byte_size);
+                    try stringify.endObject();
+                } else {
+                    try stringify.write(null);
+                }
                 try stringify.objectField("messages");
                 try stringify.beginArray();
                 for (thread.messages.items) |message| {
@@ -556,6 +626,19 @@ const Storage = struct {
                     try stringify.write(message.author);
                     try stringify.objectField("body");
                     try stringify.write(message.body);
+                    try stringify.objectField("image");
+                    if (message.image) |image| {
+                        try stringify.beginObject();
+                        try stringify.objectField("path");
+                        try stringify.write(image.path);
+                        try stringify.objectField("mime");
+                        try stringify.write(image.mime);
+                        try stringify.objectField("byte_size");
+                        try stringify.write(image.byte_size);
+                        try stringify.endObject();
+                    } else {
+                        try stringify.write(null);
+                    }
                     try stringify.endObject();
                 }
                 try stringify.endArray();
@@ -591,6 +674,7 @@ const AppState = struct {
     import_path_storage: [DRAFT_CAPACITY:0]u8,
     rename_storage: [256:0]u8,
     sidebar_notice_storage: [256:0]u8,
+    composer_focused: bool,
     show_project_creator: bool,
     picker_state: PickerState,
     send_state: SendState,
@@ -607,6 +691,7 @@ const AppState = struct {
             .import_path_storage = std.mem.zeroes([DRAFT_CAPACITY:0]u8),
             .rename_storage = std.mem.zeroes([256:0]u8),
             .sidebar_notice_storage = std.mem.zeroes([256:0]u8),
+            .composer_focused = false,
             .show_project_creator = false,
             .picker_state = .{},
             .send_state = .{},
@@ -630,18 +715,23 @@ const AppState = struct {
         self.markDirty();
     }
 
-    fn appendMessage(self: *AppState, role: ChatRole, author: []const u8, body: []const u8) !void {
+    fn appendMessage(self: *AppState, role: ChatRole, author: []const u8, body: []const u8, image: ?*const ChatImageAttachment) !void {
         const thread = self.currentThreadMutable();
         if (thread.messages.items.len == 24) {
             const removed = thread.messages.orderedRemove(0);
             self.allocator.free(removed.author);
             self.allocator.free(removed.body);
+            if (removed.image) |*removed_image| removed_image.deinit(self.allocator);
         }
 
         try thread.messages.append(self.allocator, .{
             .role = role,
             .author = try self.dupeZ(author),
             .body = try self.dupeZ(body),
+            .image = if (image) |attachment|
+                try ChatImageAttachment.init(self.allocator, attachment.path, attachment.mime, attachment.byte_size)
+            else
+                null,
         });
         thread.touch();
         self.markDirty();
@@ -754,7 +844,8 @@ const AppState = struct {
 
     fn sendDraft(self: *AppState) !void {
         const draft = self.currentDraft();
-        if (draft.len == 0) return;
+        const draft_image = self.currentThread().draft_image;
+        if (draft.len == 0 and draft_image == null) return;
 
         self.send_state.mutex.lock();
         const send_pending = self.send_state.status == .pending;
@@ -764,14 +855,21 @@ const AppState = struct {
             return;
         }
 
+        if (draft_image != null and self.currentThread().provider != .codex) {
+            self.setSidebarNotice("Image attachments are available for Codex threads only right now.");
+            return;
+        }
+
         const trimmed_title = std.mem.trim(u8, draft, &std.ascii.whitespace);
         const thread = self.currentThreadMutable();
         if (!thread.committed) {
-            try thread.commitFromPrompt(self.allocator, trimmed_title);
+            try thread.commitFromPrompt(self.allocator, if (trimmed_title.len > 0) trimmed_title else "Image");
         }
-        try self.appendMessage(.user, "You", draft);
+        var draft_image_copy = draft_image;
+        try self.appendMessage(.user, "You", draft, if (draft_image_copy) |*image| image else null);
         try self.beginSendDraft(draft);
         self.clearDraft();
+        thread.clearDraftImage(self.allocator);
         self.setSidebarNotice("Waiting for provider reply...");
     }
 
@@ -828,6 +926,7 @@ const AppState = struct {
             .harness = thread.harness,
             .project_path = try page_alloc.dupe(u8, project.path),
             .prompt = try page_alloc.dupe(u8, prompt),
+            .image_path = if (thread.draft_image) |image| try page_alloc.dupe(u8, image.path) else null,
             .provider_thread_id = if (thread.provider_thread_id) |thread_id| try page_alloc.dupe(u8, thread_id) else null,
             .model_ref = if (thread.model_ref) |model_ref| try page_alloc.dupe(u8, model_ref) else null,
             .reasoning_effort = thread.reasoning_effort,
@@ -837,6 +936,7 @@ const AppState = struct {
         errdefer {
             page_alloc.free(request.project_path);
             page_alloc.free(request.prompt);
+            if (request.image_path) |image_path| page_alloc.free(image_path);
             if (request.provider_thread_id) |thread_id| page_alloc.free(thread_id);
             if (request.model_ref) |model_ref| page_alloc.free(model_ref);
         }
@@ -903,11 +1003,18 @@ const AppState = struct {
                     thread.provider = persisted_thread.provider;
                     thread.harness = persisted_thread.harness;
                     thread.setDraft(persisted_thread.draft);
+                    if (persisted_thread.draft_image) |image| {
+                        try thread.setDraftImage(self.allocator, image.path, image.mime, image.byte_size);
+                    }
                     for (persisted_thread.messages) |message| {
                         try thread.messages.append(self.allocator, .{
                             .role = message.role,
                             .author = try self.dupeZ(message.author),
                             .body = try self.dupeZ(message.body),
+                            .image = if (message.image) |image|
+                                try ChatImageAttachment.init(self.allocator, image.path, image.mime, image.byte_size)
+                            else
+                                null,
                         });
                     }
                     if (thread.last_activity_at == 0 and thread.messages.items.len > 0) {
@@ -931,6 +1038,10 @@ const AppState = struct {
                         .role = message.role,
                         .author = try self.dupeZ(message.author),
                         .body = try self.dupeZ(message.body),
+                        .image = if (message.image) |image|
+                            try ChatImageAttachment.init(self.allocator, image.path, image.mime, image.byte_size)
+                        else
+                            null,
                     });
                 }
                 try loaded.threads.append(self.allocator, thread);
@@ -947,6 +1058,10 @@ const AppState = struct {
                         .role = message.role,
                         .author = try self.dupeZ(message.author),
                         .body = try self.dupeZ(message.body),
+                        .image = if (message.image) |image|
+                            try ChatImageAttachment.init(self.allocator, image.path, image.mime, image.byte_size)
+                        else
+                            null,
                     });
                 }
             }
@@ -977,6 +1092,61 @@ const AppState = struct {
 
     fn currentProjectMutable(self: *AppState) *Project {
         return &self.projects.items[self.selected_project_index];
+    }
+
+    fn attachClipboardImageToCurrentDraft(self: *AppState) void {
+        const capture = captureClipboardImage(self.allocator) catch |err| {
+            log.err("failed to capture clipboard image: {s}", .{@errorName(err)});
+            self.setSidebarNotice("Clipboard image paste failed.");
+            return;
+        };
+        if (capture == null) {
+            self.setSidebarNotice("No image found on the clipboard.");
+            return;
+        }
+
+        const image = capture.?;
+        defer self.allocator.free(image.bytes);
+
+        const image_path = self.writeClipboardImageToStorage(image.mime, image.bytes) catch |err| {
+            log.err("failed to persist clipboard image: {s}", .{@errorName(err)});
+            self.setSidebarNotice("Failed to save clipboard image.");
+            return;
+        };
+        defer self.allocator.free(image_path);
+
+        const thread = self.currentThreadMutable();
+        thread.setDraftImage(self.allocator, image_path, image.mime, image.bytes.len) catch |err| {
+            log.err("failed to attach draft image: {s}", .{@errorName(err)});
+            self.setSidebarNotice("Failed to attach clipboard image.");
+            return;
+        };
+        self.setSidebarNotice("Clipboard image attached.");
+        self.markDirty();
+    }
+
+    fn clearCurrentDraftImage(self: *AppState) void {
+        self.currentThreadMutable().clearDraftImage(self.allocator);
+        self.markDirty();
+    }
+
+    fn writeClipboardImageToStorage(self: *AppState, mime: []const u8, bytes: []const u8) ![]u8 {
+        const images_dir = try std.fs.path.join(self.allocator, &.{ self.storage.pref_path, "clipboard-images" });
+        defer self.allocator.free(images_dir);
+        try std.fs.makeDirAbsolute(images_dir);
+
+        const ext = extensionForImageMime(mime);
+        const timestamp_ms = @as(u64, @intCast(@max(@as(i64, 0), std.time.milliTimestamp())));
+        const file_name = try std.fmt.allocPrint(self.allocator, "clipboard-{d}.{s}", .{ timestamp_ms, ext });
+        defer self.allocator.free(file_name);
+
+        const image_path = try std.fs.path.join(self.allocator, &.{ images_dir, file_name });
+        errdefer self.allocator.free(image_path);
+
+        var file = try std.fs.createFileAbsolute(image_path, .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(bytes);
+        return image_path;
     }
 
     fn currentDraft(self: *const AppState) []const u8 {
@@ -1302,6 +1472,7 @@ const AppState = struct {
                     .role = .assistant,
                     .author = try self.dupeZ(providerLabel(thread.provider)),
                     .body = try self.dupeZ(result.reply_text),
+                    .image = null,
                 });
             }
         } else if (std.mem.trim(u8, result.reply_text, &std.ascii.whitespace).len > 0) {
@@ -1309,6 +1480,7 @@ const AppState = struct {
                 .role = .assistant,
                 .author = try self.dupeZ(providerLabel(thread.provider)),
                 .body = try self.dupeZ(result.reply_text),
+                .image = null,
             });
         }
         thread.touch();
@@ -1328,6 +1500,7 @@ const AppState = struct {
                 .role = event.role,
                 .author = try self.dupeZ(event.author),
                 .body = try self.dupeZ(event.body),
+                .image = null,
             });
         }
         thread.touch();
@@ -1478,6 +1651,10 @@ fn processEvents(state: *AppState, keyboard: *keybinds.NativeKeyboardConfig) boo
         switch (event.type) {
             .quit => return false,
             .key_down => {
+                if (shouldPasteClipboardImage(state, &event.key)) {
+                    state.attachClipboardImageToCurrentDraft();
+                    continue;
+                }
                 const action = keyboard.actionForEvent(&event.key) orelse continue;
                 handleKeyboardAction(state, keyboard, action);
             },
@@ -1486,6 +1663,14 @@ fn processEvents(state: *AppState, keyboard: *keybinds.NativeKeyboardConfig) boo
     }
 
     return true;
+}
+
+fn shouldPasteClipboardImage(state: *const AppState, event: *const sdl.KeyboardEvent) bool {
+    if (!state.composer_focused) return false;
+    if (!event.down or event.repeat) return false;
+    if (event.scancode != .v) return false;
+    const keyboard_state = sdl.getKeyboardState();
+    return keyboard_state[@intFromEnum(sdl.Scancode.lctrl)] or keyboard_state[@intFromEnum(sdl.Scancode.rctrl)];
 }
 
 fn handleKeyboardAction(
@@ -1790,7 +1975,7 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
     }
 
     for (state.currentThread().messages.items, 0..) |message, index| {
-        renderTranscriptBubbleId(@intCast(index + 1), message.role, message.author, message.body);
+        renderTranscriptBubbleId(@intCast(index + 1), message.role, message.author, message.body, message.image);
         zgui.dummy(.{ .w = 0.0, .h = 10.0 });
     }
 
@@ -1815,7 +2000,7 @@ fn renderPendingApproval(state: *AppState) void {
     defer freePendingApproval(state.allocator, &snapshot);
 
     if (snapshot) |approval| {
-        renderTranscriptBubble("pending-approval-body", .system, approval.title, approval.body, false);
+        renderTranscriptBubble("pending-approval-body", .system, approval.title, approval.body, null, false);
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
         if (zgui.button("Approve", .{ .w = 116.0, .h = 34.0 })) {
             state.resolvePendingApproval(.approve);
@@ -1841,7 +2026,7 @@ fn renderPendingTimelineEvents(state: *AppState) void {
     if (state.send_state.thread_index != state.currentProject().selected_thread_index) return;
 
     for (state.send_state.pending_events.items, 0..) |event, index| {
-        renderTranscriptMessage(@intCast(50_000 + index), event.role, event.author, event.body);
+        renderTranscriptMessage(@intCast(50_000 + index), event.role, event.author, event.body, null);
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 }
@@ -1911,15 +2096,16 @@ fn renderPendingTranscriptBubble(state: *AppState) void {
         .assistant,
         providerLabel(state.currentThread().provider),
         if (stream_text.len > 0) stream_text else "Waiting for streamed output...",
+        null,
         stream_text.len == 0,
     );
 }
 
-fn renderTranscriptBubbleId(id: u32, role: ChatRole, author: []const u8, body: []const u8) void {
-    renderTranscriptMessage(id, role, author, body);
+fn renderTranscriptBubbleId(id: u32, role: ChatRole, author: []const u8, body: []const u8, image: ?ChatImageAttachment) void {
+    renderTranscriptMessage(id, role, author, body, image);
 }
 
-fn renderTranscriptMessage(id: u32, role: ChatRole, author: []const u8, body: []const u8) void {
+fn renderTranscriptMessage(id: u32, role: ChatRole, author: []const u8, body: []const u8, image: ?ChatImageAttachment) void {
     if (role == .system and std.mem.eql(u8, author, "Changed files")) {
         renderChangedFilesCardId(id, body);
         return;
@@ -1930,7 +2116,7 @@ fn renderTranscriptMessage(id: u32, role: ChatRole, author: []const u8, body: []
     }
 
     const theme = transcriptBubbleTheme(role);
-    const bubble_height = transcriptBubbleHeight(author, body);
+    const bubble_height = transcriptBubbleHeight(author, body, image);
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = TRANSCRIPT_BUBBLE_ROUNDING });
     zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ TRANSCRIPT_BUBBLE_PADDING_X, TRANSCRIPT_BUBBLE_PADDING_Y } });
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.background });
@@ -1953,14 +2139,20 @@ fn renderTranscriptMessage(id: u32, role: ChatRole, author: []const u8, body: []
 
     zgui.textColored(theme.author, "{s}", .{author});
     zgui.dummy(.{ .w = 0.0, .h = 2.0 });
+    if (image) |attachment| {
+        renderImageAttachmentCard(attachment, false);
+        if (body.len > 0) {
+            zgui.dummy(.{ .w = 0.0, .h = 8.0 });
+        }
+    }
     zgui.pushTextWrapPos(0.0);
     zgui.textWrapped("{s}", .{body});
     zgui.popTextWrapPos();
 }
 
-fn renderTranscriptBubble(id: [:0]const u8, role: ChatRole, author: []const u8, body: []const u8, muted_body: bool) void {
+fn renderTranscriptBubble(id: [:0]const u8, role: ChatRole, author: []const u8, body: []const u8, image: ?ChatImageAttachment, muted_body: bool) void {
     const theme = transcriptBubbleTheme(role);
-    const bubble_height = transcriptBubbleHeight(author, body);
+    const bubble_height = transcriptBubbleHeight(author, body, image);
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = TRANSCRIPT_BUBBLE_ROUNDING });
     zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ TRANSCRIPT_BUBBLE_PADDING_X, TRANSCRIPT_BUBBLE_PADDING_Y } });
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.background });
@@ -1983,6 +2175,12 @@ fn renderTranscriptBubble(id: [:0]const u8, role: ChatRole, author: []const u8, 
 
     zgui.textColored(theme.author, "{s}", .{author});
     zgui.dummy(.{ .w = 0.0, .h = 2.0 });
+    if (image) |attachment| {
+        renderImageAttachmentCard(attachment, false);
+        if (body.len > 0) {
+            zgui.dummy(.{ .w = 0.0, .h = 8.0 });
+        }
+    }
     zgui.pushTextWrapPos(0.0);
     if (muted_body) {
         zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{body});
@@ -2378,16 +2576,83 @@ fn pendingTimelineEventsContainAssistant(events: []const PendingTimelineEvent) b
     return false;
 }
 
-fn transcriptBubbleHeight(author: []const u8, body: []const u8) f32 {
+fn transcriptBubbleHeight(author: []const u8, body: []const u8, image: ?ChatImageAttachment) f32 {
     const style = zgui.getStyle();
     const avail = zgui.getContentRegionAvail();
     const inner_width = @max(avail[0] - (TRANSCRIPT_BUBBLE_PADDING_X * 2.0), 64.0);
     const author_size = zgui.calcTextSize(author, .{});
     const body_size = zgui.calcTextSize(body, .{ .wrap_width = inner_width });
+    const image_height: f32 = if (image != null) 76.0 else 0.0;
+    const image_gap: f32 = if (image != null and body.len > 0) 8.0 else 0.0;
     const vertical_padding = TRANSCRIPT_BUBBLE_PADDING_Y * 2.0;
     const text_gap = 2.0 + style.item_spacing[1];
     const border_allowance = 4.0;
-    return @max(author_size[1] + body_size[1] + vertical_padding + text_gap + border_allowance, 56.0);
+    return @max(author_size[1] + body_size[1] + image_height + image_gap + vertical_padding + text_gap + border_allowance, 56.0);
+}
+
+fn renderComposerAttachmentPreview(state: *AppState, image: ChatImageAttachment) void {
+    zgui.beginGroup();
+    defer zgui.endGroup();
+
+    renderImageAttachmentCard(image, true);
+    zgui.sameLine(.{ .spacing = 8.0 });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(52, 54, 61, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(74, 76, 84, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(92, 94, 102, 255) });
+    if (zgui.button("x", .{ .w = 26.0, .h = 26.0 })) {
+        state.clearCurrentDraftImage();
+    }
+    zgui.popStyleColor(.{ .count = 3 });
+}
+
+fn renderImageAttachmentCard(image: ChatImageAttachment, compact: bool) void {
+    const card_height: f32 = if (compact) 72.0 else 64.0;
+    const card_width: f32 = if (compact) 220.0 else @min(zgui.getContentRegionAvail()[0], 260.0);
+    const preview_width: f32 = 56.0;
+    const start = zgui.getCursorScreenPos();
+
+    zgui.dummy(.{ .w = card_width, .h = card_height });
+    const draw_list = zgui.getWindowDrawList();
+    draw_list.addRectFilled(.{
+        .pmin = start,
+        .pmax = .{ start[0] + card_width, start[1] + card_height },
+        .col = zgui.colorConvertFloat4ToU32(rgba(42, 43, 50, 255)),
+        .rounding = 12.0,
+    });
+    draw_list.addRect(.{
+        .pmin = start,
+        .pmax = .{ start[0] + card_width, start[1] + card_height },
+        .col = zgui.colorConvertFloat4ToU32(rgba(68, 71, 82, 255)),
+        .rounding = 12.0,
+        .thickness = 1.0,
+    });
+    draw_list.addRectFilled(.{
+        .pmin = .{ start[0] + 8.0, start[1] + 8.0 },
+        .pmax = .{ start[0] + 8.0 + preview_width, start[1] + card_height - 8.0 },
+        .col = zgui.colorConvertFloat4ToU32(rgba(24, 25, 31, 255)),
+        .rounding = 10.0,
+    });
+    draw_list.addText(.{ start[0] + 22.0, start[1] + 24.0 }, zgui.colorConvertFloat4ToU32(COLOR_YELLOW), "[]", .{});
+
+    zgui.setCursorScreenPos(.{ start[0] + preview_width + 18.0, start[1] + 11.0 });
+    zgui.textColored(COLOR_WHITE, "{s}", .{image.file_name});
+    zgui.textColored(COLOR_TEXT_MUTED, "{s}  {s}", .{ image.mime, formatByteSize(image.byte_size) });
+    if (compact) {
+        zgui.textColored(COLOR_TEXT_SUBTLE, "Clipboard image", .{});
+    }
+    zgui.setCursorScreenPos(.{ start[0], start[1] + card_height });
+}
+
+fn formatByteSize(size: usize) [32:0]u8 {
+    var buffer = std.mem.zeroes([32:0]u8);
+    if (size >= 1024 * 1024) {
+        _ = std.fmt.bufPrintZ(&buffer, "{d:.1} MB", .{@as(f64, @floatFromInt(size)) / (1024.0 * 1024.0)}) catch {};
+    } else if (size >= 1024) {
+        _ = std.fmt.bufPrintZ(&buffer, "{d:.1} KB", .{@as(f64, @floatFromInt(size)) / 1024.0}) catch {};
+    } else {
+        _ = std.fmt.bufPrintZ(&buffer, "{d} B", .{size}) catch {};
+    }
+    return buffer;
 }
 
 const TranscriptBubbleTheme = struct {
@@ -2427,6 +2692,7 @@ fn transcriptShouldAutoFollow(state: *AppState) bool {
 fn renderComposer(state: *AppState, width: f32, height: f32) void {
     const composer_bg = rgba(30, 31, 36, 255);
     const composer_rounding: f32 = 18.0;
+    state.composer_focused = false;
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = composer_rounding });
     zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 18.0, 14.0 } });
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = composer_bg });
@@ -2459,7 +2725,13 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
     }
 
     // --- Text input (frameless, blends with container) ---
-    const input_h: f32 = @max(height - 86.0, 48.0);
+    if (state.currentThread().draft_image) |image| {
+        renderComposerAttachmentPreview(state, image);
+        zgui.dummy(.{ .w = 0.0, .h = 10.0 });
+    }
+
+    const attachment_height: f32 = if (state.currentThread().draft_image != null) 82.0 else 0.0;
+    const input_h: f32 = @max(height - 86.0 - attachment_height, 48.0);
     zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 0.0 });
     zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 4.0, 6.0 } });
     zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = composer_bg });
@@ -2478,6 +2750,7 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
             .enter_returns_true = true,
         },
     });
+    state.composer_focused = zgui.isItemFocused();
     zgui.popStyleColor(.{ .count = 4 });
     zgui.popStyleVar(.{ .count = 2 });
 
@@ -3088,6 +3361,7 @@ fn sendWorker(state: *SendState, request: *SendWorkerRequest) void {
     defer {
         page_alloc.free(request.project_path);
         page_alloc.free(request.prompt);
+        if (request.image_path) |image_path| page_alloc.free(image_path);
         if (request.provider_thread_id) |thread_id| page_alloc.free(thread_id);
         if (request.model_ref) |model_ref| page_alloc.free(model_ref);
         page_alloc.destroy(request);
@@ -3390,6 +3664,7 @@ fn runSendWorker(
     const result = try client.sendPrompt(allocator, .{
         .thread_id = request.provider_thread_id,
         .prompt = request.prompt,
+        .image = if (request.image_path) |image_path| .{ .path = image_path } else null,
         .cwd = request.project_path,
         .model = request.model_ref,
         .reasoning_effort = request.reasoning_effort,
@@ -3457,6 +3732,326 @@ fn detectLinuxPicker(start_path: []const u8) ?[]const []const u8 {
     }
 
     return null;
+}
+
+const ClipboardImageCapture = struct {
+    bytes: []u8,
+    mime: []const u8,
+};
+
+fn captureClipboardImage(allocator: std.mem.Allocator) !?ClipboardImageCapture {
+    return switch (@import("builtin").os.tag) {
+        .macos => captureClipboardImageMacOS(allocator),
+        .linux, .freebsd, .netbsd, .openbsd, .dragonfly => {
+            if (try captureClipboardImageWayland(allocator)) |image| return image;
+            return try captureClipboardImageX11(allocator);
+        },
+        else => null,
+    };
+}
+
+const MacClipboardImageFlavor = struct {
+    class_code: []const u8,
+    mime: []const u8,
+};
+
+fn captureClipboardImageMacOS(allocator: std.mem.Allocator) !?ClipboardImageCapture {
+    const info_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "osascript", "-e", "clipboard info" },
+        .cwd = ".",
+        .max_output_bytes = 16 * 1024,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(info_result.stdout);
+    defer allocator.free(info_result.stderr);
+
+    switch (info_result.term) {
+        .Exited => |code| if (code != 0) return null,
+        else => return null,
+    }
+
+    const preferred = selectMacClipboardImageFlavor(info_result.stdout) orelse return null;
+    var capture = try readMacClipboardImageFlavor(allocator, preferred.class_code, preferred.mime);
+    if (capture == null and std.mem.eql(u8, preferred.class_code, "PNGf")) {
+        capture = try readMacClipboardImageFlavor(allocator, "TIFF", "image/tiff");
+    }
+    if (capture == null) return null;
+
+    if (std.mem.eql(u8, capture.?.mime, "image/tiff")) {
+        return try convertClipboardTiffToPng(allocator, capture.?);
+    }
+
+    return capture;
+}
+
+fn selectMacClipboardImageFlavor(info_output: []const u8) ?MacClipboardImageFlavor {
+    const candidates = [_]MacClipboardImageFlavor{
+        .{ .class_code = "PNGf", .mime = "image/png" },
+        .{ .class_code = "JPEG", .mime = "image/jpeg" },
+        .{ .class_code = "TIFF", .mime = "image/tiff" },
+    };
+
+    for (candidates) |candidate| {
+        if (std.mem.indexOf(u8, info_output, candidate.class_code) != null) {
+            return candidate;
+        }
+    }
+    if (std.mem.indexOf(u8, info_output, "TIFF picture") != null) {
+        return .{ .class_code = "TIFF", .mime = "image/tiff" };
+    }
+    if (std.mem.indexOf(u8, info_output, "JPEG picture") != null) {
+        return .{ .class_code = "JPEG", .mime = "image/jpeg" };
+    }
+    return null;
+}
+
+fn readMacClipboardImageFlavor(allocator: std.mem.Allocator, class_code: []const u8, mime: []const u8) !?ClipboardImageCapture {
+    const command = try std.fmt.allocPrint(allocator, "get the clipboard as «class {s}»", .{class_code});
+    defer allocator.free(command);
+
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "osascript", "-e", command },
+        .cwd = ".",
+        .max_output_bytes = CLIPBOARD_IMAGE_MAX_BYTES * 4,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| if (code != 0) {
+            allocator.free(result.stdout);
+            return null;
+        },
+        else => {
+            allocator.free(result.stdout);
+            return null;
+        },
+    }
+
+    const decoded = decodeAppleScriptClipboardData(allocator, result.stdout, class_code) catch {
+        allocator.free(result.stdout);
+        return null;
+    };
+    allocator.free(result.stdout);
+
+    if (decoded.len == 0) {
+        allocator.free(decoded);
+        return null;
+    }
+
+    return .{
+        .bytes = decoded,
+        .mime = mime,
+    };
+}
+
+fn decodeAppleScriptClipboardData(allocator: std.mem.Allocator, encoded: []const u8, class_code: []const u8) ![]u8 {
+    const prefix = try std.fmt.allocPrint(allocator, "«data {s}", .{class_code});
+    defer allocator.free(prefix);
+
+    const start_index = std.mem.indexOf(u8, encoded, prefix) orelse return error.InvalidClipboardPayload;
+    const payload_start = start_index + prefix.len;
+    const suffix_rel = std.mem.indexOfScalar(u8, encoded[payload_start..], '»') orelse return error.InvalidClipboardPayload;
+    const payload_raw = encoded[payload_start .. payload_start + suffix_rel];
+
+    var hex_only: std.ArrayList(u8) = .empty;
+    defer hex_only.deinit(allocator);
+
+    for (payload_raw) |char| {
+        if (std.ascii.isWhitespace(char)) continue;
+        try hex_only.append(allocator, char);
+    }
+
+    if (hex_only.items.len == 0 or (hex_only.items.len % 2) != 0) {
+        return error.InvalidClipboardPayload;
+    }
+
+    const decoded = try allocator.alloc(u8, hex_only.items.len / 2);
+    errdefer allocator.free(decoded);
+    _ = try std.fmt.hexToBytes(decoded, hex_only.items);
+    return decoded;
+}
+
+fn convertClipboardTiffToPng(allocator: std.mem.Allocator, capture: ClipboardImageCapture) !?ClipboardImageCapture {
+    defer allocator.free(capture.bytes);
+
+    const temp_dir = std.fs.path.join(allocator, &.{ "/tmp", "editorts-native-clipboard" }) catch return error.OutOfMemory;
+    defer allocator.free(temp_dir);
+    try std.fs.makeDirAbsolute(temp_dir);
+
+    const timestamp_ms = @as(u64, @intCast(@max(@as(i64, 0), std.time.milliTimestamp())));
+    const input_path = try std.fmt.allocPrint(allocator, "{s}/clipboard-{d}.tiff", .{ temp_dir, timestamp_ms });
+    defer allocator.free(input_path);
+    const output_path = try std.fmt.allocPrint(allocator, "{s}/clipboard-{d}.png", .{ temp_dir, timestamp_ms });
+    defer allocator.free(output_path);
+
+    {
+        var file = try std.fs.createFileAbsolute(input_path, .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(capture.bytes);
+    }
+
+    const convert_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "sips", "-s", "format", "png", input_path, "--out", output_path },
+        .cwd = ".",
+        .max_output_bytes = 16 * 1024,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(convert_result.stdout);
+    defer allocator.free(convert_result.stderr);
+
+    switch (convert_result.term) {
+        .Exited => |code| if (code != 0) return null,
+        else => return null,
+    }
+
+    const png_bytes = try std.fs.readFileAbsoluteAlloc(allocator, output_path, CLIPBOARD_IMAGE_MAX_BYTES);
+    std.fs.deleteFileAbsolute(input_path) catch {};
+    std.fs.deleteFileAbsolute(output_path) catch {};
+
+    return .{
+        .bytes = png_bytes,
+        .mime = "image/png",
+    };
+}
+
+fn captureClipboardImageWayland(allocator: std.mem.Allocator) !?ClipboardImageCapture {
+    const types_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "wl-paste", "--list-types" },
+        .cwd = ".",
+        .max_output_bytes = 16 * 1024,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(types_result.stdout);
+    defer allocator.free(types_result.stderr);
+
+    switch (types_result.term) {
+        .Exited => |code| if (code != 0) return null,
+        else => return null,
+    }
+
+    const mime = selectClipboardImageMime(types_result.stdout) orelse return null;
+    const image_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "wl-paste", "--no-newline", "--type", mime },
+        .cwd = ".",
+        .max_output_bytes = CLIPBOARD_IMAGE_MAX_BYTES,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(image_result.stderr);
+
+    switch (image_result.term) {
+        .Exited => |code| if (code != 0) {
+            allocator.free(image_result.stdout);
+            return null;
+        },
+        else => {
+            allocator.free(image_result.stdout);
+            return null;
+        },
+    }
+
+    if (image_result.stdout.len == 0) {
+        allocator.free(image_result.stdout);
+        return null;
+    }
+
+    return .{
+        .bytes = image_result.stdout,
+        .mime = mime,
+    };
+}
+
+fn captureClipboardImageX11(allocator: std.mem.Allocator) !?ClipboardImageCapture {
+    const targets_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "xclip", "-selection", "clipboard", "-t", "TARGETS", "-o" },
+        .cwd = ".",
+        .max_output_bytes = 16 * 1024,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(targets_result.stdout);
+    defer allocator.free(targets_result.stderr);
+
+    switch (targets_result.term) {
+        .Exited => |code| if (code != 0) return null,
+        else => return null,
+    }
+
+    const mime = selectClipboardImageMime(targets_result.stdout) orelse return null;
+    const image_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "xclip", "-selection", "clipboard", "-t", mime, "-o" },
+        .cwd = ".",
+        .max_output_bytes = CLIPBOARD_IMAGE_MAX_BYTES,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(image_result.stderr);
+
+    switch (image_result.term) {
+        .Exited => |code| if (code != 0) {
+            allocator.free(image_result.stdout);
+            return null;
+        },
+        else => {
+            allocator.free(image_result.stdout);
+            return null;
+        },
+    }
+
+    if (image_result.stdout.len == 0) {
+        allocator.free(image_result.stdout);
+        return null;
+    }
+
+    return .{
+        .bytes = image_result.stdout,
+        .mime = mime,
+    };
+}
+
+fn selectClipboardImageMime(types_output: []const u8) ?[]const u8 {
+    const candidates = [_][]const u8{
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif",
+        "image/bmp",
+    };
+
+    for (candidates) |candidate| {
+        if (std.mem.indexOf(u8, types_output, candidate) != null) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
+fn extensionForImageMime(mime: []const u8) []const u8 {
+    if (std.mem.eql(u8, mime, "image/png")) return "png";
+    if (std.mem.eql(u8, mime, "image/jpeg")) return "jpg";
+    if (std.mem.eql(u8, mime, "image/webp")) return "webp";
+    if (std.mem.eql(u8, mime, "image/gif")) return "gif";
+    if (std.mem.eql(u8, mime, "image/bmp")) return "bmp";
+    return "img";
 }
 
 fn commandExists(name: []const u8) bool {

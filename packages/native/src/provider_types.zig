@@ -29,6 +29,10 @@ pub const ChatMessage = struct {
     body: []const u8,
 };
 
+pub const ImageAttachment = struct {
+    path: []const u8,
+};
+
 pub const ChatThreadSummary = struct {
     id: []const u8,
     title: []const u8,
@@ -82,6 +86,7 @@ pub const StreamEvent = union(enum) {
 pub const SendPromptRequest = struct {
     thread_id: ?[]const u8 = null,
     prompt: []const u8,
+    image: ?ImageAttachment = null,
     cwd: ?[]const u8 = null,
     model: ?[]const u8 = null,
     reasoning_effort: ?ReasoningEffort = null,

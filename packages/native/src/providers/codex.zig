@@ -490,6 +490,14 @@ pub const Client = struct {
         try stringify.objectField("text");
         try stringify.write(request.prompt);
         try stringify.endObject();
+        if (request.image) |image| {
+            try stringify.beginObject();
+            try stringify.objectField("type");
+            try stringify.write("localImage");
+            try stringify.objectField("path");
+            try stringify.write(image.path);
+            try stringify.endObject();
+        }
         try stringify.endArray();
         try stringify.endObject();
         try stringify.endObject();
