@@ -3985,9 +3985,59 @@ const PickDirectoryError = std.process.Child.RunError || std.mem.Allocator.Error
 
 fn pickDirectory(allocator: std.mem.Allocator, start_path: []const u8) PickDirectoryError![]u8 {
     return switch (@import("builtin").os.tag) {
+        .macos => pickDirectoryMacOS(allocator, start_path),
         .linux, .freebsd, .netbsd, .openbsd, .dragonfly => pickDirectoryLinux(allocator, start_path),
         else => error.UnsupportedOperatingSystem,
     };
+}
+
+fn pickDirectoryMacOS(allocator: std.mem.Allocator, start_path: []const u8) PickDirectoryError![]u8 {
+    if (!commandExists("osascript")) return error.FolderPickerUnavailable;
+
+    const escaped_start_path = try escapeAppleScriptString(allocator, start_path);
+    defer allocator.free(escaped_start_path);
+
+    const script = try std.fmt.allocPrint(
+        allocator,
+        \\try
+        \\set defaultLocation to POSIX file "{s}"
+        \\return POSIX path of (choose folder with prompt "Select project folder" default location defaultLocation)
+        \\on error number -128
+        \\error "User cancelled" number 1
+        \\end try
+    ,
+        .{escaped_start_path},
+    );
+    defer allocator.free(script);
+
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "osascript", "-e", script },
+        .max_output_bytes = 16 * 1024,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return error.FolderPickerUnavailable,
+        else => return err,
+    };
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                if (std.mem.indexOf(u8, result.stderr, "User cancelled") != null or
+                    std.mem.indexOf(u8, result.stderr, "(-128)") != null)
+                {
+                    return error.UserCancelled;
+                }
+                return error.ChildProcessFailed;
+            }
+        },
+        else => return error.ChildProcessFailed,
+    }
+
+    const trimmed = std.mem.trim(u8, result.stdout, &std.ascii.whitespace);
+    if (trimmed.len == 0) return error.UserCancelled;
+    return allocator.dupe(u8, trimmed);
 }
 
 fn pickDirectoryLinux(allocator: std.mem.Allocator, start_path: []const u8) PickDirectoryError![]u8 {
@@ -4026,6 +4076,7 @@ fn pickerWorker(state: *PickerState, start_path: []u8) void {
         state.status = .selected;
     } else |err| switch (err) {
         error.UserCancelled => state.status = .cancelled,
+        error.UnsupportedOperatingSystem => state.status = .unavailable,
         error.FolderPickerUnavailable => state.status = .unavailable,
         else => state.status = .failed,
     }
@@ -4407,6 +4458,23 @@ fn detectLinuxPicker(start_path: []const u8) ?[]const []const u8 {
     }
 
     return null;
+}
+
+fn escapeAppleScriptString(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
+    var escaped: std.ArrayList(u8) = .empty;
+    errdefer escaped.deinit(allocator);
+
+    for (value) |char| {
+        switch (char) {
+            '\\', '"' => {
+                try escaped.append(allocator, '\\');
+                try escaped.append(allocator, char);
+            },
+            else => try escaped.append(allocator, char),
+        }
+    }
+
+    return escaped.toOwnedSlice(allocator);
 }
 
 const ClipboardImageCapture = struct {
