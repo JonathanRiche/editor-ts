@@ -7,14 +7,16 @@ const zgui = @import("zgui");
 const sdl = @import("zsdl3");
 const ai_harness = @import("harness.zig");
 const stb_image = @import("stb_image.zig");
+const ui_theme = @import("ui/theme.zig");
+const ui_layout = @import("ui/layout.zig");
 
-const log = std.log.scoped(.native_shell);
+pub const log = std.log.scoped(.native_shell);
 const ORG_NAME: [:0]const u8 = "verde";
 const APP_NAME: [:0]const u8 = "Native";
 const STATE_FILE_NAME = "state.json";
 const CAL_SANS_BYTES = @embedFile("assets/fonts/CalSans-Regular.ttf");
 const VERDE_LOGO_BYTES = @embedFile("assets/verde_logo.png");
-const DEFAULT_FONT_SIZE: f32 = 18.0;
+const DEFAULT_FONT_SIZE: f32 = ui_theme.DEFAULT_FONT_SIZE;
 const DEFAULT_WINDOW_WIDTH: c_int = 1360;
 const DEFAULT_WINDOW_HEIGHT: c_int = 860;
 const MIN_WINDOW_WIDTH: c_int = 960;
@@ -23,28 +25,27 @@ const MAX_WINDOW_WIDTH: c_int = 1520;
 const MAX_WINDOW_HEIGHT: c_int = 980;
 
 //for hex in fornt of each 2 chars add 0x
-const COLOR_GREEN = rgb(0x50, 0xc8, 0x78);
-const COLOR_SECONDARY_GREEN = rgb(0x37, 0x58, 0x46);
-const COLOR_YELLOW = rgb(0xfb, 0xbf, 0x24);
-const COLOR_NAV_CHAT_BG = rgba(0x20, 0x27, 0x2A, 255);
+pub const COLOR_GREEN = ui_theme.COLOR_GREEN;
+pub const COLOR_SECONDARY_GREEN = ui_theme.COLOR_SECONDARY_GREEN;
+pub const COLOR_YELLOW = ui_theme.COLOR_YELLOW;
+pub const COLOR_NAV_CHAT_BG = ui_theme.COLOR_NAV_CHAT_BG;
 const COLOR_BLACK = COLOR_NAV_CHAT_BG;
-const COLOR_WHITE = rgba(240, 240, 245, 255);
-const COLOR_PANEL = COLOR_NAV_CHAT_BG;
-const COLOR_PANEL_ALT = rgba(40, 41, 46, 255);
-const COLOR_PANEL_MUTED = rgba(56, 57, 62, 255);
-const COLOR_TEXT_MUTED = rgba(185, 187, 195, 255);
-const COLOR_TEXT_SUBTLE = rgba(120, 122, 135, 255);
-const COLOR_DIFF_ADD = rgba(52, 224, 148, 255);
-const COLOR_DIFF_REMOVE = rgba(255, 100, 100, 255);
-const COLOR_ACCENT_DIM = rgba(124, 221, 94, 48);
-const TRANSCRIPT_BUBBLE_PADDING_X: f32 = 18.0;
-const TRANSCRIPT_BUBBLE_PADDING_Y: f32 = 14.0;
-const TRANSCRIPT_BUBBLE_ROUNDING: f32 = 14.0;
-const PERSISTED_DIFF_MARKER = "EDITORTS_DIFF_V1\n";
-const IMAGE_MODAL_ID: [:0]const u8 = "AttachmentPreviewModal";
-const PROJECT_RENAME_MODAL_ID: [:0]const u8 = "ProjectRenameModal";
-const RESPONSIVE_BASE_FONT_SIZE: f32 = 18.0;
-
+pub const COLOR_WHITE = ui_theme.COLOR_WHITE;
+pub const COLOR_PANEL = ui_theme.COLOR_PANEL;
+pub const COLOR_PANEL_ALT = ui_theme.COLOR_PANEL_ALT;
+pub const COLOR_PANEL_MUTED = ui_theme.COLOR_PANEL_MUTED;
+pub const COLOR_TEXT_MUTED = ui_theme.COLOR_TEXT_MUTED;
+pub const COLOR_TEXT_SUBTLE = ui_theme.COLOR_TEXT_SUBTLE;
+pub const COLOR_DIFF_ADD = ui_theme.COLOR_DIFF_ADD;
+pub const COLOR_DIFF_REMOVE = ui_theme.COLOR_DIFF_REMOVE;
+pub const COLOR_ACCENT_DIM = ui_theme.COLOR_ACCENT_DIM;
+pub const TRANSCRIPT_BUBBLE_PADDING_X = ui_theme.TRANSCRIPT_BUBBLE_PADDING_X;
+pub const TRANSCRIPT_BUBBLE_PADDING_Y = ui_theme.TRANSCRIPT_BUBBLE_PADDING_Y;
+pub const TRANSCRIPT_BUBBLE_ROUNDING = ui_theme.TRANSCRIPT_BUBBLE_ROUNDING;
+pub const PERSISTED_DIFF_MARKER = "EDITORTS_DIFF_V1\n";
+pub const IMAGE_MODAL_ID: [:0]const u8 = "AttachmentPreviewModal";
+pub const PROJECT_RENAME_MODAL_ID: [:0]const u8 = "ProjectRenameModal";
+const RESPONSIVE_BASE_FONT_SIZE: f32 = ui_theme.RESPONSIVE_BASE_FONT_SIZE;
 var heading_font: ?zgui.Font = null;
 var heading_font_size: f32 = DEFAULT_FONT_SIZE * 1.28;
 
@@ -79,30 +80,30 @@ const SdlRect = extern struct {
     h: c_int,
 };
 
-const ChatRole = enum(u8) {
+pub const ChatRole = enum(u8) {
     user,
     assistant,
     system,
 };
 
-const Provider = enum(u8) {
+pub const Provider = enum(u8) {
     opencode,
     codex,
 };
 
-const Harness = enum(u8) {
+pub const Harness = enum(u8) {
     local_cli,
     remote_session,
 };
 
 const ReasoningEffort = ai_harness.ReasoningEffort;
 
-const FastMode = enum(u8) {
+pub const FastMode = enum(u8) {
     off,
     on,
 };
 
-const AccessMode = enum(u8) {
+pub const AccessMode = enum(u8) {
     full_access,
     supervised,
 };
@@ -164,13 +165,13 @@ const CODEX_ACCESS_MODE_OPTIONS = [_]AccessModeOption{
 };
 
 const DEFAULT_CODEX_MODEL: [:0]const u8 = "gpt-5.4";
-const SIDEBAR_VISIBLE_THREAD_LIMIT: usize = 6;
+pub const SIDEBAR_VISIBLE_THREAD_LIMIT: usize = 6;
 const CLIPBOARD_IMAGE_MAX_BYTES: usize = 10 * 1024 * 1024;
 const MAX_THREAD_MESSAGES: usize = 24;
 const ACTIVE_WAIT_TIMEOUT_MS: c_int = 16;
 const IDLE_WAIT_TIMEOUT_MS: c_int = 50;
 
-const ChatImageAttachment = struct {
+pub const ChatImageAttachment = struct {
     path: [:0]const u8,
     file_name: [:0]const u8,
     mime: [:0]const u8,
@@ -199,14 +200,14 @@ const ChatMessage = struct {
     image: ?ChatImageAttachment = null,
 };
 
-const ChangedFileEntry = struct {
+pub const ChangedFileEntry = struct {
     path: []const u8,
     additions: i64,
     deletions: i64,
     patch: ?[]const u8 = null,
 };
 
-const PendingDiffFile = struct {
+pub const PendingDiffFile = struct {
     path: []u8,
     additions: i64,
     deletions: i64,
@@ -328,11 +329,11 @@ const Project = struct {
         return project;
     }
 
-    fn currentThread(self: *const Project) *const ChatThread {
+    pub fn currentThread(self: *const Project) *const ChatThread {
         return &self.threads.items[self.selected_thread_index];
     }
 
-    fn currentThreadMutable(self: *Project) *ChatThread {
+    pub fn currentThreadMutable(self: *Project) *ChatThread {
         return &self.threads.items[self.selected_thread_index];
     }
 
@@ -373,7 +374,7 @@ const Project = struct {
         }
     }
 
-    fn committedThreadCount(self: *const Project) usize {
+    pub fn committedThreadCount(self: *const Project) usize {
         var count: usize = 0;
         for (self.threads.items) |thread| {
             if (thread.committed) count += 1;
@@ -727,7 +728,7 @@ const Storage = struct {
     }
 };
 
-const AppState = struct {
+pub const AppState = struct {
     const DRAFT_CAPACITY = 1024;
 
     allocator: std.mem.Allocator,
@@ -805,7 +806,7 @@ const AppState = struct {
         self.markDirty();
     }
 
-    fn importProjectFromInput(self: *AppState) !void {
+    pub fn importProjectFromInput(self: *AppState) !void {
         const trimmed = std.mem.trim(u8, self.importPath(), &std.ascii.whitespace);
         if (trimmed.len == 0) {
             self.setSidebarNotice("Enter a project directory path first.");
@@ -830,7 +831,7 @@ const AppState = struct {
         self.markDirty();
     }
 
-    fn browseForProjectDirectory(self: *AppState) void {
+    pub fn browseForProjectDirectory(self: *AppState) void {
         const target_path = self.defaultExplorerPath() catch |err| {
             self.setSidebarNotice(@errorName(err));
             return;
@@ -881,7 +882,7 @@ const AppState = struct {
         self.markDirty();
     }
 
-    fn beginProjectRename(self: *AppState, index: usize) void {
+    pub fn beginProjectRename(self: *AppState, index: usize) void {
         if (index >= self.projects.items.len) return;
         self.selected_project_index = index;
         self.rename_project_index = index;
@@ -889,7 +890,7 @@ const AppState = struct {
         self.setSidebarNotice("");
     }
 
-    fn finishProjectRename(self: *AppState) void {
+    pub fn finishProjectRename(self: *AppState) void {
         if (self.rename_project_index) |index| {
             if (index < self.projects.items.len) {
                 self.selected_project_index = index;
@@ -899,12 +900,12 @@ const AppState = struct {
         self.rename_project_index = null;
     }
 
-    fn cancelProjectRename(self: *AppState) void {
+    pub fn cancelProjectRename(self: *AppState) void {
         self.rename_project_index = null;
         self.syncRenameBuffer();
     }
 
-    fn removeProjectAtIndex(self: *AppState, index: usize) void {
+    pub fn removeProjectAtIndex(self: *AppState, index: usize) void {
         if (index >= self.projects.items.len) return;
         self.selected_project_index = index;
         self.removeSelectedProject();
@@ -927,7 +928,7 @@ const AppState = struct {
         self.markDirty();
     }
 
-    fn createThreadForProject(self: *AppState, index: usize) void {
+    pub fn createThreadForProject(self: *AppState, index: usize) void {
         if (index >= self.projects.items.len) return;
         var project = &self.projects.items[index];
         project.addThread(self.allocator) catch {
@@ -940,7 +941,7 @@ const AppState = struct {
         self.markDirty();
     }
 
-    fn sendDraft(self: *AppState) !void {
+    pub fn sendDraft(self: *AppState) !void {
         const draft = self.currentDraft();
         const draft_image = self.currentThread().draft_image;
         if (draft.len == 0 and draft_image == null) return;
@@ -1184,7 +1185,7 @@ const AppState = struct {
         self.dirty = false;
     }
 
-    fn currentProject(self: *const AppState) *const Project {
+    pub fn currentProject(self: *const AppState) *const Project {
         return &self.projects.items[self.selected_project_index];
     }
 
@@ -1223,7 +1224,7 @@ const AppState = struct {
         self.markDirty();
     }
 
-    fn clearCurrentDraftImage(self: *AppState) void {
+    pub fn clearCurrentDraftImage(self: *AppState) void {
         const thread = self.currentThreadMutable();
         if (thread.draft_image) |image| {
             std.fs.deleteFileAbsolute(image.path) catch {};
@@ -1266,7 +1267,7 @@ const AppState = struct {
         }
     }
 
-    fn ensureImageTexture(self: *AppState, path: [:0]const u8) ?CachedImageTexture {
+    pub fn ensureImageTexture(self: *AppState, path: [:0]const u8) ?CachedImageTexture {
         if (self.image_texture_cache.getPtr(path)) |cached| {
             return if (cached.valid) cached.* else null;
         }
@@ -1328,7 +1329,7 @@ const AppState = struct {
         self.image_texture_cache.clearRetainingCapacity();
     }
 
-    fn openImageModal(self: *AppState, path: [:0]const u8) void {
+    pub fn openImageModal(self: *AppState, path: [:0]const u8) void {
         if (self.modal_image_path) |existing| {
             if (std.mem.eql(u8, existing, path)) {
                 zgui.openPopup(IMAGE_MODAL_ID, .{});
@@ -1340,7 +1341,7 @@ const AppState = struct {
         zgui.openPopup(IMAGE_MODAL_ID, .{});
     }
 
-    fn closeImageModal(self: *AppState) void {
+    pub fn closeImageModal(self: *AppState) void {
         if (self.modal_image_path) |path| {
             self.allocator.free(path);
             self.modal_image_path = null;
@@ -1389,7 +1390,7 @@ const AppState = struct {
         return self.currentProject().currentDraft();
     }
 
-    fn currentThread(self: *const AppState) *const ChatThread {
+    pub fn currentThread(self: *const AppState) *const ChatThread {
         return self.currentProject().currentThread();
     }
 
@@ -1397,7 +1398,7 @@ const AppState = struct {
         return self.currentProjectMutable().currentThreadMutable();
     }
 
-    fn draftBuffer(self: *AppState) [:0]u8 {
+    pub fn draftBuffer(self: *AppState) [:0]u8 {
         return self.currentProjectMutable().draftBuffer();
     }
 
@@ -1411,11 +1412,11 @@ const AppState = struct {
         self.markDirty();
     }
 
-    fn markDirty(self: *AppState) void {
+    pub fn markDirty(self: *AppState) void {
         self.dirty = true;
     }
 
-    fn requestTranscriptScrollToBottom(self: *AppState) void {
+    pub fn requestTranscriptScrollToBottom(self: *AppState) void {
         self.scroll_transcript_to_bottom = true;
     }
 
@@ -1423,11 +1424,11 @@ const AppState = struct {
         return std.mem.sliceTo(self.import_path_storage[0..], 0);
     }
 
-    fn importPathBuffer(self: *AppState) [:0]u8 {
+    pub fn importPathBuffer(self: *AppState) [:0]u8 {
         return self.import_path_storage[0 .. self.import_path_storage.len - 1 :0];
     }
 
-    fn clearImportPath(self: *AppState) void {
+    pub fn clearImportPath(self: *AppState) void {
         self.import_path_storage[0] = 0;
     }
 
@@ -1441,11 +1442,11 @@ const AppState = struct {
         return std.mem.sliceTo(self.rename_storage[0..], 0);
     }
 
-    fn renameBuffer(self: *AppState) [:0]u8 {
+    pub fn renameBuffer(self: *AppState) [:0]u8 {
         return self.rename_storage[0 .. self.rename_storage.len - 1 :0];
     }
 
-    fn syncRenameBuffer(self: *AppState) void {
+    pub fn syncRenameBuffer(self: *AppState) void {
         if (self.projects.items.len == 0) {
             self.rename_storage[0] = 0;
             return;
@@ -1456,11 +1457,11 @@ const AppState = struct {
         @memcpy(self.rename_storage[0..len], label[0..len]);
     }
 
-    fn sidebarNotice(self: *const AppState) []const u8 {
+    pub fn sidebarNotice(self: *const AppState) []const u8 {
         return std.mem.sliceTo(self.sidebar_notice_storage[0..], 0);
     }
 
-    fn setSidebarNotice(self: *AppState, value: []const u8) void {
+    pub fn setSidebarNotice(self: *AppState, value: []const u8) void {
         @memset(&self.sidebar_notice_storage, 0);
         const len = @min(value.len, self.sidebar_notice_storage.len - 1);
         @memcpy(self.sidebar_notice_storage[0..len], value[0..len]);
@@ -1653,7 +1654,7 @@ const AppState = struct {
         }
     }
 
-    fn hasPendingStream(self: *AppState) bool {
+    pub fn hasPendingStream(self: *AppState) bool {
         self.send_state.mutex.lock();
         defer self.send_state.mutex.unlock();
 
@@ -1669,7 +1670,7 @@ const AppState = struct {
         return self.picker_state.status == .pending;
     }
 
-    fn pendingApprovalSnapshot(self: *AppState) !?PendingApproval {
+    pub fn pendingApprovalSnapshot(self: *AppState) !?PendingApproval {
         self.send_state.mutex.lock();
         defer self.send_state.mutex.unlock();
 
@@ -1684,7 +1685,7 @@ const AppState = struct {
         };
     }
 
-    fn resolvePendingApproval(self: *AppState, decision: ai_harness.ApprovalDecision) void {
+    pub fn resolvePendingApproval(self: *AppState, decision: ai_harness.ApprovalDecision) void {
         self.send_state.mutex.lock();
         defer self.send_state.mutex.unlock();
         if (self.send_state.pending_approval == null) return;
@@ -1904,12 +1905,14 @@ pub fn main() !void {
 
     zgui.init(allocator);
     defer zgui.deinit();
-    installFonts(ui_config.font_size);
+    ui_theme.installFonts(CAL_SANS_BYTES[0..CAL_SANS_BYTES.len], ui_config.font_size);
+    heading_font = ui_theme.heading_font;
+    heading_font_size = ui_theme.heading_font_size;
     zgui.backend.init(window, gl_context);
     defer zgui.backend.deinit();
 
     var ui_scale = currentWindowDisplayScale(window);
-    applyTheme(ui_scale);
+    ui_theme.applyTheme(ui_scale);
 
     var state = try AppState.init(allocator, &storage);
     defer state.deinit();
@@ -1929,11 +1932,11 @@ pub fn main() !void {
         const next_ui_scale = currentWindowDisplayScale(window);
         if (@abs(next_ui_scale - ui_scale) > 0.01) {
             ui_scale = next_ui_scale;
-            applyTheme(ui_scale);
+            ui_theme.applyTheme(ui_scale);
         }
 
         zgui.backend.newFrame(@intCast(fb_width), @intCast(fb_height));
-        renderRoot(&state, @floatFromInt(fb_width), @floatFromInt(fb_height));
+        ui_layout.renderRoot(@This(), &state, @floatFromInt(fb_width), @floatFromInt(fb_height));
         state.flushIfDirty();
 
         glClearColor(COLOR_BLACK[0], COLOR_BLACK[1], COLOR_BLACK[2], 1.0);
@@ -3406,7 +3409,7 @@ fn renderImageAttachmentCard(state: *AppState, image: ChatImageAttachment, compa
     zgui.setCursorScreenPos(.{ start[0], start[1] + card_height });
 }
 
-fn scaledImageSize(width: i32, height: i32, max_width: f32, max_height: f32) [2]f32 {
+pub fn scaledImageSize(width: i32, height: i32, max_width: f32, max_height: f32) [2]f32 {
     if (width <= 0 or height <= 0) return .{ max_width, max_height };
     const width_f: f32 = @floatFromInt(width);
     const height_f: f32 = @floatFromInt(height);
@@ -3414,14 +3417,14 @@ fn scaledImageSize(width: i32, height: i32, max_width: f32, max_height: f32) [2]
     return .{ width_f * scale, height_f * scale };
 }
 
-fn textureRefFromGlId(texture_id: c_uint) zgui.TextureRef {
+pub fn textureRefFromGlId(texture_id: c_uint) zgui.TextureRef {
     return .{
         .tex_data = null,
         .tex_id = @enumFromInt(@as(u64, texture_id)),
     };
 }
 
-fn formatByteSize(buffer: *[32:0]u8, size: usize) [:0]const u8 {
+pub fn formatByteSize(buffer: *[32:0]u8, size: usize) [:0]const u8 {
     @memset(buffer, 0);
     if (size >= 1024 * 1024) {
         _ = std.fmt.bufPrintZ(buffer, "{d:.1} MB", .{@as(f64, @floatFromInt(size)) / (1024.0 * 1024.0)}) catch {};
@@ -3614,7 +3617,7 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
     }
 }
 
-fn renderComposerPickers(state: *AppState) void {
+pub fn renderComposerPickers(state: *AppState) void {
     const thread = state.currentThreadMutable();
 
     // Subtle combo styling — transparent background, no visual frame
@@ -3767,7 +3770,7 @@ fn composerPickerTextWidth(label: []const u8) f32 {
     return zgui.calcTextSize(label, .{})[0];
 }
 
-fn isSendPending(state: *AppState) bool {
+pub fn isSendPending(state: *AppState) bool {
     state.send_state.mutex.lock();
     defer state.send_state.mutex.unlock();
     return state.send_state.status == .pending;
@@ -3837,52 +3840,7 @@ fn comboRowLabel(buffer: []u8, label: []const u8, selected: bool) [:0]const u8 {
     return std.fmt.bufPrintZ(buffer, "{s} {s}", .{ if (selected) ">" else " ", label }) catch " row";
 }
 
-fn installFonts(font_size: f32) void {
-    const font = zgui.io.addFontFromMemory(CAL_SANS_BYTES[0..CAL_SANS_BYTES.len], font_size);
-    zgui.io.setDefaultFont(font);
-    heading_font_size = font_size * 1.28;
-    heading_font = zgui.io.addFontFromMemory(CAL_SANS_BYTES[0..CAL_SANS_BYTES.len], heading_font_size);
-}
-
-fn applyTheme(ui_scale: f32) void {
-    const scale = if (std.math.isFinite(ui_scale) and ui_scale > 0.0) ui_scale else 1.0;
-    const style = zgui.getStyle();
-    style.window_padding = .{ 0.0, 0.0 };
-    zgui.styleColorsDark(style);
-
-    style.font_scale_main = scale;
-    style.window_rounding = 12.0 * scale;
-    style.child_rounding = 12.0 * scale;
-    style.frame_rounding = 10.0 * scale;
-    style.grab_rounding = 10.0 * scale;
-    style.window_padding = .{ 14.0 * scale, 12.0 * scale };
-    style.item_spacing = .{ 10.0 * scale, 8.0 * scale };
-
-    style.setColor(.window_bg, COLOR_BLACK);
-    style.setColor(.child_bg, COLOR_PANEL);
-    style.setColor(.frame_bg, COLOR_PANEL_ALT);
-    style.setColor(.frame_bg_hovered, lighten(COLOR_PANEL_ALT, 0.10));
-    style.setColor(.frame_bg_active, lighten(COLOR_PANEL_ALT, 0.16));
-    style.setColor(.button, COLOR_SECONDARY_GREEN);
-    style.setColor(.button_hovered, lighten(COLOR_SECONDARY_GREEN, 0.12));
-    style.setColor(.button_active, darken(COLOR_SECONDARY_GREEN, 0.08));
-    style.setColor(.border, rgba(48, 50, 56, 255));
-    style.setColor(.separator, rgba(48, 50, 56, 255));
-    style.setColor(.check_mark, COLOR_WHITE);
-    style.setColor(.text, COLOR_WHITE);
-    style.setColor(.text_selected_bg, rgba(124, 221, 94, 80));
-    style.setColor(.title_bg, COLOR_PANEL);
-    style.setColor(.title_bg_active, COLOR_PANEL_ALT);
-    style.setColor(.header, COLOR_PANEL_ALT);
-    style.setColor(.header_hovered, lighten(COLOR_PANEL_ALT, 0.08));
-    style.setColor(.header_active, COLOR_GREEN);
-    style.setColor(.scrollbar_bg, rgba(22, 22, 26, 64));
-    style.setColor(.scrollbar_grab, rgba(60, 62, 68, 200));
-    style.setColor(.scrollbar_grab_hovered, rgba(80, 82, 90, 255));
-    style.setColor(.scrollbar_grab_active, COLOR_GREEN);
-}
-
-fn providerLabel(provider: Provider) [:0]const u8 {
+pub fn providerLabel(provider: Provider) [:0]const u8 {
     return switch (provider) {
         .opencode => "OpenCode",
         .codex => "Codex",
