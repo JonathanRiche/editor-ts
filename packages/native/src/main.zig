@@ -6,6 +6,7 @@ const keybinds = @import("keybinds.zig");
 const zgui = @import("zgui");
 const sdl = @import("zsdl3");
 const ai_harness = @import("harness.zig");
+const stb_image = @import("stb_image.zig");
 
 const log = std.log.scoped(.native_shell);
 const ORG_NAME: [:0]const u8 = "Verde";
@@ -30,6 +31,25 @@ const TRANSCRIPT_BUBBLE_PADDING_X: f32 = 18.0;
 const TRANSCRIPT_BUBBLE_PADDING_Y: f32 = 14.0;
 const TRANSCRIPT_BUBBLE_ROUNDING: f32 = 14.0;
 const PERSISTED_DIFF_MARKER = "EDITORTS_DIFF_V1\n";
+const IMAGE_MODAL_ID: [:0]const u8 = "AttachmentPreviewModal";
+
+const GL_TEXTURE_2D = 0x0DE1;
+const GL_RGBA = 0x1908;
+const GL_UNSIGNED_BYTE = 0x1401;
+const GL_LINEAR = 0x2601;
+const GL_TEXTURE_MIN_FILTER = 0x2801;
+const GL_TEXTURE_MAG_FILTER = 0x2800;
+const GL_TEXTURE_WRAP_S = 0x2802;
+const GL_TEXTURE_WRAP_T = 0x2803;
+const GL_CLAMP_TO_EDGE = 0x812F;
+const GL_UNPACK_ALIGNMENT = 0x0CF5;
+
+extern fn glGenTextures(n: c_int, textures: [*]c_uint) void;
+extern fn glBindTexture(target: c_uint, texture: c_uint) void;
+extern fn glTexParameteri(target: c_uint, pname: c_uint, param: c_int) void;
+extern fn glTexImage2D(target: c_uint, level: c_int, internalformat: c_int, width: c_int, height: c_int, border: c_int, format: c_uint, type_: c_uint, pixels: ?*const anyopaque) void;
+extern fn glDeleteTextures(n: c_int, textures: [*]const c_uint) void;
+extern fn glPixelStorei(pname: c_uint, param: c_int) void;
 
 const ChatRole = enum(u8) {
     user,
@@ -439,6 +459,19 @@ const SaveState = struct {
     projects: []const SaveProject,
 };
 
+const CachedImageTexture = struct {
+    texture_id: c_uint,
+    width: i32,
+    height: i32,
+    valid: bool,
+
+    fn deinit(self: CachedImageTexture) void {
+        if (!self.valid or self.texture_id == 0) return;
+        var textures = [_]c_uint{self.texture_id};
+        glDeleteTextures(1, &textures);
+    }
+};
+
 const PickerStatus = enum {
     idle,
     pending,
@@ -675,6 +708,8 @@ const AppState = struct {
     rename_storage: [256:0]u8,
     sidebar_notice_storage: [256:0]u8,
     composer_focused: bool,
+    image_texture_cache: std.StringHashMap(CachedImageTexture),
+    modal_image_path: ?[:0]const u8,
     show_project_creator: bool,
     picker_state: PickerState,
     send_state: SendState,
@@ -692,6 +727,8 @@ const AppState = struct {
             .rename_storage = std.mem.zeroes([256:0]u8),
             .sidebar_notice_storage = std.mem.zeroes([256:0]u8),
             .composer_focused = false,
+            .image_texture_cache = std.StringHashMap(CachedImageTexture).init(allocator),
+            .modal_image_path = null,
             .show_project_creator = false,
             .picker_state = .{},
             .send_state = .{},
@@ -1129,9 +1166,117 @@ const AppState = struct {
         const thread = self.currentThreadMutable();
         if (thread.draft_image) |image| {
             std.fs.deleteFileAbsolute(image.path) catch {};
+            self.evictCachedImageTexture(image.path);
+            if (self.modal_image_path) |modal_path| {
+                if (std.mem.eql(u8, modal_path, image.path)) {
+                    self.allocator.free(modal_path);
+                    self.modal_image_path = null;
+                }
+            }
         }
         thread.clearDraftImage(self.allocator);
         self.markDirty();
+    }
+
+    fn ensureImageTexture(self: *AppState, path: [:0]const u8) ?CachedImageTexture {
+        if (self.image_texture_cache.getPtr(path)) |cached| {
+            return if (cached.valid) cached.* else null;
+        }
+
+        const owned_key = self.allocator.dupe(u8, path) catch return null;
+        errdefer self.allocator.free(owned_key);
+
+        const loaded = stb_image.load(path) catch |err| {
+            log.err("failed to decode attachment preview {s}: {s}", .{ path, @errorName(err) });
+            self.image_texture_cache.put(owned_key, .{
+                .texture_id = 0,
+                .width = 0,
+                .height = 0,
+                .valid = false,
+            }) catch self.allocator.free(owned_key);
+            return null;
+        };
+        defer loaded.deinit();
+
+        var textures = [_]c_uint{0};
+        glGenTextures(1, &textures);
+        const texture_id = textures[0];
+        if (texture_id == 0) {
+            self.image_texture_cache.put(owned_key, .{
+                .texture_id = 0,
+                .width = 0,
+                .height = 0,
+                .valid = false,
+            }) catch self.allocator.free(owned_key);
+            return null;
+        }
+
+        glBindTexture(GL_TEXTURE_2D, texture_id);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA,
+            @intCast(loaded.width),
+            @intCast(loaded.height),
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            loaded.pixels,
+        );
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        const cached: CachedImageTexture = .{
+            .texture_id = texture_id,
+            .width = loaded.width,
+            .height = loaded.height,
+            .valid = true,
+        };
+
+        self.image_texture_cache.put(owned_key, cached) catch {
+            cached.deinit();
+            return null;
+        };
+        return cached;
+    }
+
+    fn evictCachedImageTexture(self: *AppState, path: []const u8) void {
+        if (self.image_texture_cache.fetchRemove(path)) |entry| {
+            self.allocator.free(entry.key);
+            entry.value.deinit();
+        }
+    }
+
+    fn releaseAllImageTextures(self: *AppState) void {
+        var it = self.image_texture_cache.iterator();
+        while (it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            entry.value_ptr.deinit();
+        }
+        self.image_texture_cache.deinit();
+    }
+
+    fn openImageModal(self: *AppState, path: [:0]const u8) void {
+        if (self.modal_image_path) |existing| {
+            if (std.mem.eql(u8, existing, path)) {
+                zgui.openPopup(IMAGE_MODAL_ID, .{});
+                return;
+            }
+            self.allocator.free(existing);
+        }
+        self.modal_image_path = self.allocator.dupeZ(u8, path) catch return;
+        zgui.openPopup(IMAGE_MODAL_ID, .{});
+    }
+
+    fn closeImageModal(self: *AppState) void {
+        if (self.modal_image_path) |path| {
+            self.allocator.free(path);
+            self.modal_image_path = null;
+        }
     }
 
     fn writeClipboardImageToStorage(self: *AppState, mime: []const u8, bytes: []const u8) ![]u8 {
@@ -1289,6 +1434,8 @@ const AppState = struct {
         freePendingTimelineEvents(std.heap.page_allocator, &self.send_state.pending_events);
         freePendingDiffFiles(std.heap.page_allocator, &self.send_state.pending_diff_files);
         freePendingApproval(std.heap.page_allocator, &self.send_state.pending_approval);
+        self.releaseAllImageTextures();
+        if (self.modal_image_path) |path| self.allocator.free(path);
         self.clearProjects();
         self.projects.deinit(self.allocator);
     }
@@ -1742,6 +1889,60 @@ fn renderRoot(state: *AppState, width: f32, height: f32) void {
     renderSidebar(state, 272.0, content[1]);
     zgui.sameLine(.{ .spacing = 16.0 });
     renderChatWorkspace(state, content[0] - 288.0, content[1]);
+    renderImageModal(state, width, height);
+}
+
+fn renderImageModal(state: *AppState, width: f32, height: f32) void {
+    const modal_path = state.modal_image_path orelse return;
+    if (!zgui.isPopupOpen(IMAGE_MODAL_ID, .{})) {
+        zgui.openPopup(IMAGE_MODAL_ID, .{});
+    }
+
+    zgui.setNextWindowSize(.{
+        .w = @min(width * 0.78, 980.0),
+        .h = @min(height * 0.82, 760.0),
+    });
+    if (!zgui.beginPopupModal(IMAGE_MODAL_ID, .{
+        .flags = .{
+            .no_saved_settings = true,
+        },
+    })) return;
+    defer zgui.endPopup();
+
+    const texture = state.ensureImageTexture(modal_path);
+    zgui.textColored(COLOR_WHITE, "{s}", .{std.fs.path.basename(modal_path)});
+    zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{modal_path});
+    zgui.dummy(.{ .w = 0.0, .h = 10.0 });
+
+    const avail = zgui.getContentRegionAvail();
+    const footer_height: f32 = 42.0;
+    const image_max_w = @max(avail[0], 80.0);
+    const image_max_h = @max(avail[1] - footer_height, 80.0);
+
+    if (texture) |cached| {
+        const dims = scaledImageSize(cached.width, cached.height, image_max_w, image_max_h);
+        const x_offset = (image_max_w - dims[0]) * 0.5;
+        if (x_offset > 0.0) {
+            zgui.setCursorPosX(zgui.getCursorPosX() + x_offset);
+        }
+        zgui.image(textureRefFromGlId(cached.texture_id), .{
+            .w = dims[0],
+            .h = dims[1],
+        });
+    } else {
+        _ = zgui.button("Preview unavailable", .{ .w = image_max_w, .h = @min(image_max_h, 240.0) });
+    }
+
+    zgui.dummy(.{ .w = 0.0, .h = 10.0 });
+    const close_w: f32 = 96.0;
+    const trailing = zgui.getContentRegionAvail()[0] - close_w;
+    if (trailing > 0.0) {
+        zgui.sameLine(.{ .spacing = trailing });
+    }
+    if (zgui.button("Close", .{ .w = close_w, .h = 30.0 })) {
+        state.closeImageModal();
+        zgui.closeCurrentPopup();
+    }
 }
 
 fn renderSidebar(state: *AppState, width: f32, height: f32) void {
@@ -1998,7 +2199,7 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
     }
 
     for (state.currentThread().messages.items, 0..) |message, index| {
-        renderTranscriptBubbleId(@intCast(index + 1), message.role, message.author, message.body, message.image);
+        renderTranscriptBubbleId(state, @intCast(index + 1), message.role, message.author, message.body, message.image);
         zgui.dummy(.{ .w = 0.0, .h = 10.0 });
     }
 
@@ -2023,7 +2224,7 @@ fn renderPendingApproval(state: *AppState) void {
     defer freePendingApproval(state.allocator, &snapshot);
 
     if (snapshot) |approval| {
-        renderTranscriptBubble("pending-approval-body", .system, approval.title, approval.body, null, false);
+        renderTranscriptBubble(state, "pending-approval-body", .system, approval.title, approval.body, null, false);
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
         if (zgui.button("Approve", .{ .w = 116.0, .h = 34.0 })) {
             state.resolvePendingApproval(.approve);
@@ -2049,7 +2250,7 @@ fn renderPendingTimelineEvents(state: *AppState) void {
     if (state.send_state.thread_index != state.currentProject().selected_thread_index) return;
 
     for (state.send_state.pending_events.items, 0..) |event, index| {
-        renderTranscriptMessage(@intCast(50_000 + index), event.role, event.author, event.body, null);
+        renderTranscriptMessage(state, @intCast(50_000 + index), event.role, event.author, event.body, null);
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 }
@@ -2115,6 +2316,7 @@ fn renderPendingTranscriptBubble(state: *AppState) void {
 
     const stream_text = state.send_state.partial_text.items;
     renderTranscriptBubble(
+        state,
         "pending-assistant",
         .assistant,
         providerLabel(state.currentThread().provider),
@@ -2124,11 +2326,11 @@ fn renderPendingTranscriptBubble(state: *AppState) void {
     );
 }
 
-fn renderTranscriptBubbleId(id: u32, role: ChatRole, author: []const u8, body: []const u8, image: ?ChatImageAttachment) void {
-    renderTranscriptMessage(id, role, author, body, image);
+fn renderTranscriptBubbleId(state: *AppState, id: u32, role: ChatRole, author: []const u8, body: []const u8, image: ?ChatImageAttachment) void {
+    renderTranscriptMessage(state, id, role, author, body, image);
 }
 
-fn renderTranscriptMessage(id: u32, role: ChatRole, author: []const u8, body: []const u8, image: ?ChatImageAttachment) void {
+fn renderTranscriptMessage(state: *AppState, id: u32, role: ChatRole, author: []const u8, body: []const u8, image: ?ChatImageAttachment) void {
     if (role == .system and std.mem.eql(u8, author, "Changed files")) {
         renderChangedFilesCardId(id, body);
         return;
@@ -2163,7 +2365,7 @@ fn renderTranscriptMessage(id: u32, role: ChatRole, author: []const u8, body: []
     zgui.textColored(theme.author, "{s}", .{author});
     zgui.dummy(.{ .w = 0.0, .h = 2.0 });
     if (image) |attachment| {
-        renderImageAttachmentCard(attachment, false);
+        renderImageAttachmentCard(state, attachment, false);
         if (body.len > 0) {
             zgui.dummy(.{ .w = 0.0, .h = 8.0 });
         }
@@ -2173,7 +2375,7 @@ fn renderTranscriptMessage(id: u32, role: ChatRole, author: []const u8, body: []
     zgui.popTextWrapPos();
 }
 
-fn renderTranscriptBubble(id: [:0]const u8, role: ChatRole, author: []const u8, body: []const u8, image: ?ChatImageAttachment, muted_body: bool) void {
+fn renderTranscriptBubble(state: *AppState, id: [:0]const u8, role: ChatRole, author: []const u8, body: []const u8, image: ?ChatImageAttachment, muted_body: bool) void {
     const theme = transcriptBubbleTheme(role);
     const bubble_height = transcriptBubbleHeight(author, body, image);
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = TRANSCRIPT_BUBBLE_ROUNDING });
@@ -2199,7 +2401,7 @@ fn renderTranscriptBubble(id: [:0]const u8, role: ChatRole, author: []const u8, 
     zgui.textColored(theme.author, "{s}", .{author});
     zgui.dummy(.{ .w = 0.0, .h = 2.0 });
     if (image) |attachment| {
-        renderImageAttachmentCard(attachment, false);
+        renderImageAttachmentCard(state, attachment, false);
         if (body.len > 0) {
             zgui.dummy(.{ .w = 0.0, .h = 8.0 });
         }
@@ -2605,7 +2807,7 @@ fn transcriptBubbleHeight(author: []const u8, body: []const u8, image: ?ChatImag
     const inner_width = @max(avail[0] - (TRANSCRIPT_BUBBLE_PADDING_X * 2.0), 64.0);
     const author_size = zgui.calcTextSize(author, .{});
     const body_size = zgui.calcTextSize(body, .{ .wrap_width = inner_width });
-    const image_height: f32 = if (image != null) 76.0 else 0.0;
+    const image_height: f32 = if (image != null) 196.0 else 0.0;
     const image_gap: f32 = if (image != null and body.len > 0) 8.0 else 0.0;
     const vertical_padding = TRANSCRIPT_BUBBLE_PADDING_Y * 2.0;
     const text_gap = 2.0 + style.item_spacing[1];
@@ -2617,7 +2819,7 @@ fn renderComposerAttachmentPreview(state: *AppState, image: ChatImageAttachment)
     zgui.beginGroup();
     defer zgui.endGroup();
 
-    renderImageAttachmentCard(image, true);
+    renderImageAttachmentCard(state, image, true);
     zgui.sameLine(.{ .spacing = 8.0 });
     zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(52, 54, 61, 255) });
     zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(74, 76, 84, 255) });
@@ -2628,10 +2830,11 @@ fn renderComposerAttachmentPreview(state: *AppState, image: ChatImageAttachment)
     zgui.popStyleColor(.{ .count = 3 });
 }
 
-fn renderImageAttachmentCard(image: ChatImageAttachment, compact: bool) void {
-    const card_height: f32 = if (compact) 72.0 else 64.0;
+fn renderImageAttachmentCard(state: *AppState, image: ChatImageAttachment, compact: bool) void {
+    const card_height: f32 = if (compact) 72.0 else 196.0;
     const card_width: f32 = if (compact) 220.0 else @min(zgui.getContentRegionAvail()[0], 260.0);
-    const preview_width: f32 = 56.0;
+    const preview_width: f32 = if (compact) 56.0 else card_width - 16.0;
+    const preview_height: f32 = if (compact) card_height - 16.0 else 150.0;
     const start = zgui.getCursorScreenPos();
     var byte_size_buf = std.mem.zeroes([32:0]u8);
     const byte_size_text = formatByteSize(&byte_size_buf, image.byte_size);
@@ -2653,19 +2856,61 @@ fn renderImageAttachmentCard(image: ChatImageAttachment, compact: bool) void {
     });
     draw_list.addRectFilled(.{
         .pmin = .{ start[0] + 8.0, start[1] + 8.0 },
-        .pmax = .{ start[0] + 8.0 + preview_width, start[1] + card_height - 8.0 },
+        .pmax = .{ start[0] + 8.0 + preview_width, start[1] + 8.0 + preview_height },
         .col = zgui.colorConvertFloat4ToU32(rgba(24, 25, 31, 255)),
         .rounding = 10.0,
     });
-    draw_list.addText(.{ start[0] + 18.0, start[1] + 24.0 }, zgui.colorConvertFloat4ToU32(COLOR_YELLOW), "IMG", .{});
 
-    zgui.setCursorScreenPos(.{ start[0] + preview_width + 18.0, start[1] + 11.0 });
-    zgui.textColored(COLOR_WHITE, "{s}", .{image.file_name});
-    zgui.textColored(COLOR_TEXT_MUTED, "{s}  {s}", .{ image.mime, byte_size_text });
+    zgui.pushStrIdZ(image.path);
+    defer zgui.popId();
+
+    zgui.setCursorScreenPos(.{ start[0] + 8.0, start[1] + 8.0 });
+    const texture = state.ensureImageTexture(image.path);
+    if (texture) |cached| {
+        const dims = scaledImageSize(cached.width, cached.height, preview_width, preview_height);
+        const x_offset = (preview_width - dims[0]) * 0.5;
+        const y_offset = (preview_height - dims[1]) * 0.5;
+        zgui.setCursorScreenPos(.{ start[0] + 8.0 + x_offset, start[1] + 8.0 + y_offset });
+        if (zgui.imageButton("##attachment-thumb", textureRefFromGlId(cached.texture_id), .{
+            .w = dims[0],
+            .h = dims[1],
+            .bg_col = .{ 0.0, 0.0, 0.0, 0.0 },
+            .tint_col = .{ 1.0, 1.0, 1.0, 1.0 },
+        })) {
+            state.openImageModal(image.path);
+        }
+    } else {
+        if (zgui.button("Image", .{ .w = preview_width, .h = preview_height })) {
+            state.openImageModal(image.path);
+        }
+    }
+
     if (compact) {
+        zgui.setCursorScreenPos(.{ start[0] + preview_width + 18.0, start[1] + 11.0 });
+        zgui.textColored(COLOR_WHITE, "{s}", .{image.file_name});
+        zgui.textColored(COLOR_TEXT_MUTED, "{s}  {s}", .{ image.mime, byte_size_text });
         zgui.textColored(COLOR_TEXT_SUBTLE, "Clipboard image", .{});
+    } else {
+        zgui.setCursorScreenPos(.{ start[0] + 12.0, start[1] + preview_height + 14.0 });
+        zgui.textColored(COLOR_WHITE, "{s}", .{image.file_name});
+        zgui.textColored(COLOR_TEXT_MUTED, "{s}  {s}", .{ image.mime, byte_size_text });
     }
     zgui.setCursorScreenPos(.{ start[0], start[1] + card_height });
+}
+
+fn scaledImageSize(width: i32, height: i32, max_width: f32, max_height: f32) [2]f32 {
+    if (width <= 0 or height <= 0) return .{ max_width, max_height };
+    const width_f: f32 = @floatFromInt(width);
+    const height_f: f32 = @floatFromInt(height);
+    const scale = @min(max_width / width_f, max_height / height_f);
+    return .{ width_f * scale, height_f * scale };
+}
+
+fn textureRefFromGlId(texture_id: c_uint) zgui.TextureRef {
+    return .{
+        .tex_data = null,
+        .tex_id = @enumFromInt(@as(u64, texture_id)),
+    };
 }
 
 fn formatByteSize(buffer: *[32:0]u8, size: usize) [:0]const u8 {

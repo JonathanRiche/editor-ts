@@ -25,6 +25,11 @@ pub fn build(b: *std.Build) void {
     exe.linkLibrary(zgui.artifact("imgui"));
     exe.linkSystemLibrary("SDL3");
     exe.linkLibC();
+    exe.root_module.addIncludePath(b.path("src/vendor"));
+    exe.addCSourceFile(.{
+        .file = b.path("src/vendor/stb_image_impl.c"),
+        .flags = &.{},
+    });
     switch (target.result.os.tag) {
         .linux => exe.linkSystemLibrary("GL"),
         .windows => exe.linkSystemLibrary("opengl32"),
@@ -57,6 +62,12 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    exe_tests.root_module.addIncludePath(b.path("src/vendor"));
+    exe_tests.addCSourceFile(.{
+        .file = b.path("src/vendor/stb_image_impl.c"),
+        .flags = &.{},
+    });
+    exe_tests.linkLibC();
     test_step.dependOn(&b.addRunArtifact(exe_tests).step);
 
     const fmt_check = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });
