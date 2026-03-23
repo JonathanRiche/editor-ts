@@ -1863,8 +1863,8 @@ fn renderPendingDiffCardLocked(files: *std.ArrayListUnmanaged(PendingDiffFile)) 
     const totals = summarizePendingDiffFiles(files.items);
     const card_height = pendingDiffCardHeight(files.items);
 
-    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 14.0 });
-    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 18.0, 16.0 } });
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 12.0 });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 14.0, 10.0 } });
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(32, 33, 38, 255) });
     zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(58, 60, 68, 255) });
     _ = zgui.beginChild("pending-diff-card", .{
@@ -1886,11 +1886,11 @@ fn renderPendingDiffCardLocked(files: *std.ArrayListUnmanaged(PendingDiffFile)) 
     if (renderChangedFilesAction("Expand all")) {
         for (files.items) |*file| file.expanded = true;
     }
-    zgui.sameLine(.{ .spacing = 10.0 });
+    zgui.sameLine(.{ .spacing = 8.0 });
     if (renderChangedFilesAction("Collapse all")) {
         for (files.items) |*file| file.expanded = false;
     }
-    zgui.dummy(.{ .w = 0.0, .h = 10.0 });
+    zgui.dummy(.{ .w = 0.0, .h = 4.0 });
 
     for (files.items, 0..) |*file, index| {
         renderPendingDiffFile(file, index);
@@ -2033,8 +2033,8 @@ fn renderChangedFilesCardId(id: u32, body: []const u8) void {
     var open_all = false;
     var close_all = false;
 
-    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 14.0 });
-    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 18.0, 16.0 } });
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 12.0 });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 14.0, 10.0 } });
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(32, 33, 38, 255) });
     zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(58, 60, 68, 255) });
     _ = zgui.beginChildId(id, .{
@@ -2058,16 +2058,16 @@ fn renderChangedFilesCardId(id: u32, body: []const u8) void {
         if (renderChangedFilesAction("Collapse all")) {
             close_all = true;
         }
-        zgui.sameLine(.{ .spacing = 10.0 });
+        zgui.sameLine(.{ .spacing = 8.0 });
         if (renderChangedFilesAction("View diff")) {
             open_all = true;
         }
     } else {
         _ = renderChangedFilesAction("Collapse all");
-        zgui.sameLine(.{ .spacing = 10.0 });
+        zgui.sameLine(.{ .spacing = 8.0 });
         _ = renderChangedFilesAction("View diff");
     }
-    zgui.dummy(.{ .w = 0.0, .h = 10.0 });
+    zgui.dummy(.{ .w = 0.0, .h = 4.0 });
 
     if (has_patch_details) {
         for (entries.items, 0..) |entry, index| {
@@ -2100,21 +2100,21 @@ fn renderChangedFilesHeader(file_count: usize, additions: i64, deletions: i64) v
 }
 
 fn renderChangedFilesAction(label: [:0]const u8) bool {
-    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 12.0 });
-    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 12.0, 7.0 } });
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(52, 52, 52, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(58, 58, 58, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(64, 64, 64, 255) });
+    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 8.0 });
+    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 10.0, 4.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(52, 54, 60, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(62, 64, 72, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(68, 70, 78, 255) });
     defer {
         zgui.popStyleColor(.{ .count = 3 });
         zgui.popStyleVar(.{ .count = 2 });
     }
-    return zgui.button(label, .{ .h = 32.0 });
+    return zgui.button(label, .{ .h = 26.0 });
 }
 
 fn renderChangedFilesFolder(path: []const u8) void {
     zgui.textColored(COLOR_TEXT_MUTED, "v  {s}", .{path});
-    zgui.dummy(.{ .w = 0.0, .h = 4.0 });
+    zgui.dummy(.{ .w = 0.0, .h = 2.0 });
 }
 
 fn renderChangedFilesEntry(entry: ChangedFileEntry) void {
@@ -2126,7 +2126,7 @@ fn renderChangedFilesEntry(entry: ChangedFileEntry) void {
     zgui.textColored(COLOR_TEXT_SUBTLE, "/", .{});
     zgui.sameLine(.{ .spacing = 8.0 });
     zgui.textColored(COLOR_DIFF_REMOVE, "-{d}", .{entry.deletions});
-    zgui.dummy(.{ .w = 0.0, .h = 6.0 });
+    zgui.dummy(.{ .w = 0.0, .h = 2.0 });
 }
 
 fn renderChangedFilesDetailedEntry(
@@ -2237,34 +2237,30 @@ fn renderPendingDiffPatch(patch: []const u8, index: usize) void {
 }
 
 fn changedFilesCardHeight(file_count: usize) f32 {
-    return @max(92.0 + (@as(f32, @floatFromInt(file_count)) * 32.0), 126.0);
+    // Header row + tight file list, no extra padding
+    return 52.0 + (@as(f32, @floatFromInt(file_count)) * 26.0);
 }
 
 fn detailedChangedFilesCardHeight(entries: []const ChangedFileEntry) f32 {
-    var max_patch_height: f32 = 0.0;
-    for (entries) |entry| {
-        if (entry.patch) |patch| {
-            max_patch_height = @max(max_patch_height, pendingDiffPatchHeight(patch));
-        }
-    }
-    return @min(@max(150.0 + (@as(f32, @floatFromInt(entries.len)) * 30.0) + max_patch_height, 220.0), 560.0);
+    // Compact: just header + file rows. Collapsing headers expand on click.
+    return 52.0 + (@as(f32, @floatFromInt(entries.len)) * 28.0);
 }
 
 fn pendingDiffCardHeight(files: []const PendingDiffFile) f32 {
-    var height: f32 = 86.0;
+    var height: f32 = 52.0; // header row
     for (files) |file| {
-        height += 36.0;
+        height += 30.0; // file row
         if (file.expanded) {
             const patch_height = if (file.patch) |patch| pendingDiffPatchHeight(patch) else 44.0;
-            height += patch_height + 12.0;
+            height += patch_height + 8.0;
         }
     }
-    return @min(@max(height, 160.0), 620.0);
+    return @min(height, 620.0);
 }
 
 fn pendingDiffPatchHeight(patch: []const u8) f32 {
     const line_count = countTextLines(patch);
-    return @min(32.0 + (@as(f32, @floatFromInt(line_count)) * 18.0), 240.0);
+    return @min(28.0 + (@as(f32, @floatFromInt(line_count)) * 18.0), 240.0);
 }
 
 fn parseChangedFileEntries(body: []const u8) std.ArrayListUnmanaged(ChangedFileEntry) {
