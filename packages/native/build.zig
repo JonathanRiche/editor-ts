@@ -30,7 +30,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
     exe.linkLibrary(imgui);
-    exe.linkSystemLibrary("SDL3");
     exe.linkLibC();
     exe.root_module.addIncludePath(b.path("src/vendor"));
     exe.addCSourceFile(.{
@@ -38,9 +37,21 @@ pub fn build(b: *std.Build) void {
         .flags = &.{},
     });
     switch (target.result.os.tag) {
-        .linux => exe.linkSystemLibrary("GL"),
-        .windows => exe.linkSystemLibrary("opengl32"),
-        .macos => exe.linkFramework("OpenGL"),
+        .linux => {
+            exe.linkSystemLibrary("SDL3");
+            exe.linkSystemLibrary("GL");
+        },
+        .windows => {
+            exe.linkSystemLibrary("SDL3");
+            exe.linkSystemLibrary("opengl32");
+        },
+        .macos => {
+            if (zsdl.builder.lazyDependency("sdl3_prebuilt_macos", .{})) |sdl3_prebuilt| {
+                exe.addFrameworkPath(sdl3_prebuilt.path("Frameworks"));
+            }
+            exe.linkFramework("SDL3");
+            exe.linkFramework("OpenGL");
+        },
         else => {},
     }
 
@@ -51,6 +62,15 @@ pub fn build(b: *std.Build) void {
     }
 
     b.installArtifact(exe);
+    if (target.result.os.tag == .macos) {
+        if (zsdl.builder.lazyDependency("sdl3_prebuilt_macos", .{})) |sdl3_prebuilt| {
+            b.getInstallStep().dependOn(&b.addInstallDirectory(.{
+                .source_dir = sdl3_prebuilt.path("Frameworks/SDL3.framework"),
+                .install_dir = .bin,
+                .install_subdir = "SDL3.framework",
+            }).step);
+        }
+    }
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
