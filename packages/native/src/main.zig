@@ -1627,9 +1627,10 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         zgui.popStyleColor(.{ .count = 3 });
 
         zgui.sameLine(.{ .spacing = 8.0 });
+        const project_action_width: f32 = 28.0;
         if (zgui.selectable(project.label, .{
             .selected = is_selected,
-            .w = width - 76.0,
+            .w = width - 92.0 - project_action_width,
             .h = 32.0,
         })) {
             state.selected_project_index = index;
@@ -1641,7 +1642,7 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.08) });
         zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.14) });
-        if (zgui.smallButton("+")) {
+        if (zgui.button("+", .{ .w = project_action_width, .h = 28.0 })) {
             state.createThreadForProject(index);
         }
         if (zgui.isItemHovered(.{ .delay_normal = true })) {
@@ -2753,7 +2754,13 @@ fn formatThreadPreview(buffer: *[72:0]u8, thread: *const ChatThread) [:0]const u
     const body = thread.messages.items[0].body;
     const max_len = @min(buffer.len - 1, @as(usize, 34));
     const source = std.mem.trim(u8, body, &std.ascii.whitespace);
-    if (std.mem.eql(u8, source, thread.title)) return "";
+    const title = std.mem.trim(u8, thread.title, &std.ascii.whitespace);
+    if (std.mem.eql(u8, source, title)) return "";
+    if (std.mem.startsWith(u8, source, title) or std.mem.startsWith(u8, title, source)) return "";
+    const shared_prefix_len = @min(@min(source.len, title.len), @as(usize, 24));
+    if (shared_prefix_len >= 16 and std.ascii.eqlIgnoreCase(source[0..shared_prefix_len], title[0..shared_prefix_len])) {
+        return "";
+    }
     if (source.len <= max_len) {
         @memcpy(buffer[0..source.len], source);
         buffer[source.len] = 0;
