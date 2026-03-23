@@ -593,6 +593,7 @@ const AppState = struct {
     show_project_creator: bool,
     picker_state: PickerState,
     send_state: SendState,
+    scroll_transcript_to_bottom: bool,
     dirty: bool,
 
     fn init(allocator: std.mem.Allocator, storage: *const Storage) !AppState {
@@ -608,6 +609,7 @@ const AppState = struct {
             .show_project_creator = false,
             .picker_state = .{},
             .send_state = .{},
+            .scroll_transcript_to_bottom = true,
             .dirty = false,
         };
 
@@ -956,6 +958,7 @@ const AppState = struct {
         self.selected_project_index = @min(persisted.selected_project_index, self.projects.items.len - 1);
         self.next_project_number = self.projects.items.len + 1;
         self.syncRenameBuffer();
+        self.requestTranscriptScrollToBottom();
         self.dirty = false;
     }
 
@@ -963,6 +966,7 @@ const AppState = struct {
         self.selected_project_index = 0;
         self.next_project_number = 1;
         self.syncRenameBuffer();
+        self.requestTranscriptScrollToBottom();
         self.dirty = false;
     }
 
@@ -1002,6 +1006,10 @@ const AppState = struct {
 
     fn markDirty(self: *AppState) void {
         self.dirty = true;
+    }
+
+    fn requestTranscriptScrollToBottom(self: *AppState) void {
+        self.scroll_transcript_to_bottom = true;
     }
 
     fn importPath(self: *const AppState) []const u8 {
@@ -1073,6 +1081,7 @@ const AppState = struct {
         }
 
         self.setSidebarNotice("App refreshed from disk.");
+        self.requestTranscriptScrollToBottom();
     }
 
     fn dupeZ(self: *AppState, value: []const u8) ![:0]const u8 {
@@ -1642,6 +1651,7 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         })) {
             state.selected_project_index = index;
             state.syncRenameBuffer();
+            state.requestTranscriptScrollToBottom();
             state.markDirty();
         }
 
@@ -1780,7 +1790,10 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
         zgui.dummy(.{ .w = 0.0, .h = 6.0 });
     }
 
-    if (should_follow_stream) {
+    if (state.scroll_transcript_to_bottom) {
+        zgui.setScrollHereY(.{ .center_y_ratio = 1.0 });
+        state.scroll_transcript_to_bottom = false;
+    } else if (should_follow_stream) {
         zgui.setScrollHereY(.{ .center_y_ratio = 1.0 });
     }
 }
@@ -2866,6 +2879,7 @@ fn renderSidebarThreadRow(
         state.selected_project_index = project_index;
         state.projects.items[project_index].selected_thread_index = thread_index;
         state.syncRenameBuffer();
+        state.requestTranscriptScrollToBottom();
         state.markDirty();
     }
     zgui.popStyleVar(.{ .count = 1 });
