@@ -2430,20 +2430,36 @@ fn transcriptShouldAutoFollow(state: *AppState) bool {
 
 fn renderComposer(state: *AppState, width: f32, height: f32) void {
     const composer_bg = rgba(30, 31, 36, 255);
-    const composer_border = rgba(58, 62, 78, 255);
-    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 18.0 });
+    const composer_rounding: f32 = 18.0;
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = composer_rounding });
     zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 18.0, 14.0 } });
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = composer_bg });
-    zgui.pushStyleColor4f(.{ .idx = .border, .c = composer_border });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = .{ 0, 0, 0, 0 } }); // hide default border
+    const composer_screen_pos = zgui.getCursorScreenPos();
     _ = zgui.beginChild("Composer", .{
         .w = width,
         .h = height,
         .child_flags = .{ .border = true },
     });
     defer {
+        // Draw custom border: green when focused, default when not
+        const focused = zgui.isWindowFocused(.{ .child_windows = true });
         zgui.endChild();
         zgui.popStyleColor(.{ .count = 2 });
         zgui.popStyleVar(.{ .count = 2 });
+
+        const border_color = if (focused)
+            rgba(16, 185, 97, 140)
+        else
+            rgba(58, 62, 78, 255);
+        const draw_list = zgui.getWindowDrawList();
+        draw_list.addRect(.{
+            .pmin = composer_screen_pos,
+            .pmax = .{ composer_screen_pos[0] + width, composer_screen_pos[1] + height },
+            .col = zgui.colorConvertFloat4ToU32(border_color),
+            .rounding = composer_rounding,
+            .thickness = 1.5,
+        });
     }
 
     // --- Text input (frameless, blends with container) ---
@@ -2469,11 +2485,11 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
     zgui.popStyleColor(.{ .count = 4 });
     zgui.popStyleVar(.{ .count = 2 });
 
-    // Draw placeholder hint when buffer is empty
+    // Draw placeholder hint when buffer is empty (foreground so it renders above the input child window)
     if (buf[0] == 0) {
         const hint_pos = .{ cursor_before[0] + 4.0, cursor_before[1] + 6.0 };
-        const draw_list = zgui.getWindowDrawList();
-        draw_list.addText(hint_pos, zgui.colorConvertFloat4ToU32(rgba(100, 102, 115, 255)), "Ask anything, or use / to show available commands", .{});
+        const fg_draw_list = zgui.getForegroundDrawList();
+        fg_draw_list.addText(hint_pos, zgui.colorConvertFloat4ToU32(rgba(100, 102, 115, 255)), "Ask anything, or use / to show available commands", .{});
     }
 
     // --- Bottom toolbar row ---
@@ -2488,26 +2504,65 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
         zgui.sameLine(.{ .spacing = avail[0] - send_btn_size - 4.0 });
     }
 
-    if (isSendPending(state)) {
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(80, 72, 24, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(90, 82, 30, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(70, 62, 18, 255) });
-        zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 16.0 });
-        _ = zgui.button("...", .{ .w = send_btn_size, .h = send_btn_size });
-        zgui.popStyleVar(.{ .count = 1 });
-        zgui.popStyleColor(.{ .count = 3 });
-    } else {
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(75, 80, 120, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(90, 96, 140, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(65, 70, 105, 255) });
-        zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 16.0 });
-        if (submitted or zgui.button("^", .{ .w = send_btn_size, .h = send_btn_size })) {
+    {
+        const pending = isSendPending(state);
+        const btn_pos = zgui.getCursorScreenPos();
+        const clicked = zgui.invisibleButton("##send-btn", .{ .w = send_btn_size, .h = send_btn_size });
+        const hovered = zgui.isItemHovered(.{});
+        const draw_list = zgui.getWindowDrawList();
+        const cx = btn_pos[0] + send_btn_size * 0.5;
+        const cy = btn_pos[1] + send_btn_size * 0.5;
+        const r = send_btn_size * 0.5;
+
+        // Circle background
+        const circle_color = if (pending)
+            rgba(80, 72, 24, 255)
+        else if (hovered)
+            lighten(COLOR_GREEN, 0.12)
+        else
+            COLOR_GREEN;
+        draw_list.addCircleFilled(.{
+            .p = .{ cx, cy },
+            .r = r,
+            .col = zgui.colorConvertFloat4ToU32(circle_color),
+        });
+
+        if (pending) {
+            // Three dots for pending state
+            const dot_r: f32 = 2.0;
+            const white = zgui.colorConvertFloat4ToU32(COLOR_WHITE);
+            draw_list.addCircleFilled(.{ .p = .{ cx - 6.0, cy }, .r = dot_r, .col = white });
+            draw_list.addCircleFilled(.{ .p = .{ cx, cy }, .r = dot_r, .col = white });
+            draw_list.addCircleFilled(.{ .p = .{ cx + 6.0, cy }, .r = dot_r, .col = white });
+        } else {
+            // Arrow icon: triangle head + line shaft
+            const white = zgui.colorConvertFloat4ToU32(COLOR_WHITE);
+            const arrow_half_w: f32 = 5.5;
+            const arrow_top: f32 = cy - 7.0;
+            const arrow_mid: f32 = cy - 1.0;
+            const arrow_bottom: f32 = cy + 7.0;
+
+            // Arrowhead (triangle pointing up)
+            draw_list.addTriangleFilled(.{
+                .p1 = .{ cx, arrow_top },
+                .p2 = .{ cx - arrow_half_w, arrow_mid },
+                .p3 = .{ cx + arrow_half_w, arrow_mid },
+                .col = white,
+            });
+            // Shaft (thick line)
+            draw_list.addLine(.{
+                .p1 = .{ cx, arrow_mid },
+                .p2 = .{ cx, arrow_bottom },
+                .col = white,
+                .thickness = 2.4,
+            });
+        }
+
+        if ((clicked or submitted) and !pending) {
             state.sendDraft() catch |err| {
                 log.err("failed to send draft: {s}", .{@errorName(err)});
             };
         }
-        zgui.popStyleVar(.{ .count = 1 });
-        zgui.popStyleColor(.{ .count = 3 });
     }
 }
 
