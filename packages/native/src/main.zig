@@ -1751,7 +1751,7 @@ fn renderChatWorkspace(state: *AppState, width: f32, height: f32) void {
     zgui.separator();
 
     const content = zgui.getContentRegionAvail();
-    const composer_reserved: f32 = 224.0;
+    const composer_reserved: f32 = 200.0;
     const transcript_height = @max(content[1] - composer_reserved, 120.0);
     renderTranscript(state, width - 24.0, transcript_height);
     renderComposer(state, width - 24.0, content[1] - transcript_height - 8.0);
@@ -2429,10 +2429,12 @@ fn transcriptShouldAutoFollow(state: *AppState) bool {
 }
 
 fn renderComposer(state: *AppState, width: f32, height: f32) void {
-    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 16.0 });
-    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 16.0, 14.0 } });
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = rgba(28, 29, 34, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .border, .c = rgba(52, 54, 62, 255) });
+    const composer_bg = rgba(30, 31, 36, 255);
+    const composer_border = rgba(58, 62, 78, 255);
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 18.0 });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 18.0, 14.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = composer_bg });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = composer_border });
     _ = zgui.beginChild("Composer", .{
         .w = width,
         .h = height,
@@ -2444,73 +2446,109 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
         zgui.popStyleVar(.{ .count = 2 });
     }
 
-    zgui.textColored(COLOR_TEXT_SUBTLE, "Prompt", .{});
-    zgui.dummy(.{ .w = 0.0, .h = 2.0 });
-    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 12.0 });
-    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 14.0, 12.0 } });
-    zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = rgba(36, 37, 42, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .frame_bg_hovered, .c = rgba(42, 43, 48, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .frame_bg_active, .c = rgba(48, 49, 55, 255) });
+    // --- Text input (frameless, blends with container) ---
+    const input_h: f32 = @max(height - 86.0, 48.0);
+    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 0.0 });
+    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 4.0, 6.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = composer_bg });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg_hovered, .c = composer_bg });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg_active, .c = composer_bg });
+    zgui.pushStyleColor4f(.{ .idx = .border, .c = .{ 0, 0, 0, 0 } });
+
+    const cursor_before = zgui.getCursorScreenPos();
+    const buf = state.draftBuffer();
     const submitted = zgui.inputTextMultiline("##chat-draft", .{
-        .buf = state.draftBuffer(),
-        .w = width - 20.0,
-        .h = 96.0,
+        .buf = buf,
+        .w = width - 24.0,
+        .h = input_h,
         .flags = .{
             .ctrl_enter_for_new_line = true,
             .enter_returns_true = true,
         },
     });
-    zgui.popStyleColor(.{ .count = 3 });
+    zgui.popStyleColor(.{ .count = 4 });
     zgui.popStyleVar(.{ .count = 2 });
 
-    zgui.dummy(.{ .w = 0.0, .h = 6.0 });
-
-    if (submitted or zgui.button("Send", .{ .w = 100.0, .h = 34.0 })) {
-        state.sendDraft() catch |err| {
-            log.err("failed to send draft: {s}", .{@errorName(err)});
-        };
+    // Draw placeholder hint when buffer is empty
+    if (buf[0] == 0) {
+        const hint_pos = .{ cursor_before[0] + 4.0, cursor_before[1] + 6.0 };
+        const draw_list = zgui.getWindowDrawList();
+        draw_list.addText(hint_pos, zgui.colorConvertFloat4ToU32(rgba(100, 102, 115, 255)), "Ask anything, or use / to show available commands", .{});
     }
 
-    zgui.sameLine(.{ .spacing = 10.0 });
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(52, 54, 60, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(64, 66, 74, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(44, 46, 52, 255) });
-    if (zgui.button("Clear", .{ .w = 100.0, .h = 34.0 })) {
-        state.clearDraft();
-    }
-    zgui.popStyleColor(.{ .count = 3 });
-
-    zgui.sameLine(.{ .spacing = 22.0 });
+    // --- Bottom toolbar row ---
+    zgui.dummy(.{ .w = 0.0, .h = 2.0 });
     renderComposerPickers(state);
-    zgui.sameLine(.{ .spacing = 18.0 });
+
+    // Send button on the right side of the same row
+    const send_btn_size: f32 = 32.0;
+    zgui.sameLine(.{ .spacing = 0.0 });
+    const avail = zgui.getContentRegionAvail();
+    if (avail[0] > send_btn_size + 4.0) {
+        zgui.sameLine(.{ .spacing = avail[0] - send_btn_size - 4.0 });
+    }
+
     if (isSendPending(state)) {
-        zgui.textColored(COLOR_YELLOW, "Working...", .{});
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(80, 72, 24, 255) });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(90, 82, 30, 255) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(70, 62, 18, 255) });
+        zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 16.0 });
+        _ = zgui.button("...", .{ .w = send_btn_size, .h = send_btn_size });
+        zgui.popStyleVar(.{ .count = 1 });
+        zgui.popStyleColor(.{ .count = 3 });
     } else {
-        zgui.textColored(COLOR_TEXT_SUBTLE, "Enter sends. Ctrl+Enter keeps a newline.", .{});
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(75, 80, 120, 255) });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(90, 96, 140, 255) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(65, 70, 105, 255) });
+        zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 16.0 });
+        if (submitted or zgui.button("^", .{ .w = send_btn_size, .h = send_btn_size })) {
+            state.sendDraft() catch |err| {
+                log.err("failed to send draft: {s}", .{@errorName(err)});
+            };
+        }
+        zgui.popStyleVar(.{ .count = 1 });
+        zgui.popStyleColor(.{ .count = 3 });
     }
 }
 
 fn renderComposerPickers(state: *AppState) void {
     const thread = state.currentThreadMutable();
-    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 10.0 });
-    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 12.0, 8.0 } });
-    zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = rgba(36, 37, 42, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .frame_bg_hovered, .c = rgba(46, 47, 54, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .frame_bg_active, .c = rgba(52, 53, 60, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .popup_bg, .c = rgba(24, 25, 30, 250) });
-    zgui.pushStyleColor4f(.{ .idx = .header, .c = rgba(40, 41, 46, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = rgba(50, 52, 58, 255) });
-    zgui.pushStyleColor4f(.{ .idx = .header_active, .c = rgba(56, 58, 66, 255) });
+
+    // Subtle combo styling — transparent background, no visual frame
+    const transparent = rgba(0, 0, 0, 0);
+    const picker_text_color = rgba(160, 164, 180, 255);
+    const picker_hover_bg = rgba(50, 52, 60, 255);
+    const separator_color = rgba(60, 62, 72, 255);
+
+    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 8.0 });
+    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 8.0, 6.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = transparent });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg_hovered, .c = picker_hover_bg });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg_active, .c = picker_hover_bg });
+    zgui.pushStyleColor4f(.{ .idx = .popup_bg, .c = rgba(26, 27, 32, 250) });
+    zgui.pushStyleColor4f(.{ .idx = .header, .c = rgba(42, 44, 52, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = rgba(52, 54, 64, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .header_active, .c = rgba(58, 60, 70, 255) });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = picker_text_color });
     defer {
-        zgui.popStyleColor(.{ .count = 7 });
+        zgui.popStyleColor(.{ .count = 8 });
         zgui.popStyleVar(.{ .count = 2 });
     }
 
-    var provider_preview_buf = std.mem.zeroes([48:0]u8);
-    const provider_preview = comboPreviewLabel(&provider_preview_buf, providerLabel(thread.provider));
-    zgui.setNextItemWidth(148.0);
-    if (zgui.beginCombo("##provider-picker", .{ .preview_value = provider_preview })) {
+    // --- Model picker (combines provider context) ---
+    const model_preview = selectedModelLabel(thread);
+    var model_preview_buf = std.mem.zeroes([80:0]u8);
+    const model_label = std.fmt.bufPrintZ(&model_preview_buf, "{s} v", .{model_preview}) catch "Model v";
+    zgui.setNextItemWidth(composerPickerTextWidth(model_preview) + 36.0);
+    if (zgui.beginCombo("##model-picker", .{
+        .preview_value = model_label,
+        .flags = .{ .no_arrow_button = true },
+    })) {
         defer zgui.endCombo();
+        // Provider sub-section
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = COLOR_TEXT_SUBTLE });
+        zgui.textUnformatted("Provider");
+        zgui.popStyleColor(.{ .count = 1 });
         inline for (@typeInfo(Provider).@"enum".fields) |field| {
             const candidate: Provider = @enumFromInt(field.value);
             var row_buf = std.mem.zeroes([48:0]u8);
@@ -2532,15 +2570,11 @@ fn renderComposerPickers(state: *AppState) void {
                 }
             }
         }
-    }
-
-    zgui.sameLine(.{ .spacing = 12.0 });
-    const model_preview = selectedModelLabel(thread);
-    var model_preview_buf = std.mem.zeroes([80:0]u8);
-    const model_preview_label = comboPreviewLabel(&model_preview_buf, model_preview);
-    zgui.setNextItemWidth(186.0);
-    if (zgui.beginCombo("##model-picker", .{ .preview_value = model_preview_label })) {
-        defer zgui.endCombo();
+        zgui.separator();
+        // Model sub-section
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = COLOR_TEXT_SUBTLE });
+        zgui.textUnformatted("Model");
+        zgui.popStyleColor(.{ .count = 1 });
         for (modelOptions(thread.provider)) |option| {
             const is_selected = if (option.value) |value|
                 thread.model_ref != null and std.mem.eql(u8, thread.model_ref.?, value)
@@ -2555,12 +2589,20 @@ fn renderComposerPickers(state: *AppState) void {
     }
 
     if (thread.provider == .codex) {
-        zgui.sameLine(.{ .spacing = 12.0 });
+        // --- Separator ---
+        zgui.sameLine(.{ .spacing = 6.0 });
+        zgui.textColored(separator_color, "|", .{});
+
+        // --- Reasoning effort picker ---
+        zgui.sameLine(.{ .spacing = 6.0 });
         const reasoning_preview = selectedReasoningLabel(thread);
-        var reasoning_preview_buf = std.mem.zeroes([80:0]u8);
-        const reasoning_preview_label = comboPreviewLabel(&reasoning_preview_buf, reasoning_preview);
-        zgui.setNextItemWidth(148.0);
-        if (zgui.beginCombo("##reasoning-picker", .{ .preview_value = reasoning_preview_label })) {
+        var reasoning_buf = std.mem.zeroes([80:0]u8);
+        const reasoning_label = std.fmt.bufPrintZ(&reasoning_buf, "{s} v", .{reasoning_preview}) catch "Reasoning v";
+        zgui.setNextItemWidth(composerPickerTextWidth(reasoning_preview) + 36.0);
+        if (zgui.beginCombo("##reasoning-picker", .{
+            .preview_value = reasoning_label,
+            .flags = .{ .no_arrow_button = true },
+        })) {
             defer zgui.endCombo();
             for (CODEX_REASONING_OPTIONS) |option| {
                 const is_selected = if (option.value) |value|
@@ -2576,48 +2618,50 @@ fn renderComposerPickers(state: *AppState) void {
             }
         }
 
-        zgui.sameLine(.{ .spacing = 12.0 });
-        const fast_mode_preview = fastModeLabel(thread.fast_mode);
-        var fast_mode_preview_buf = std.mem.zeroes([64:0]u8);
-        const fast_mode_preview_label = comboPreviewLabel(&fast_mode_preview_buf, fast_mode_preview);
-        zgui.setNextItemWidth(108.0);
-        if (zgui.beginCombo("##fast-mode-picker", .{ .preview_value = fast_mode_preview_label })) {
-            defer zgui.endCombo();
-            for (CODEX_FAST_MODE_OPTIONS) |option| {
-                const is_selected = thread.fast_mode == option.value;
-                var row_buf = std.mem.zeroes([64:0]u8);
-                const row_label = comboRowLabel(&row_buf, option.label, is_selected);
-                if (zgui.selectable(row_label, .{ .selected = is_selected, .h = 28.0 })) {
-                    thread.fast_mode = option.value;
-                    state.markDirty();
-                }
-            }
-        }
+        // --- Separator ---
+        zgui.sameLine(.{ .spacing = 6.0 });
+        zgui.textColored(separator_color, "|", .{});
 
-        zgui.sameLine(.{ .spacing = 12.0 });
-        const access_mode_preview = accessModeLabel(thread.access_mode);
-        var access_mode_preview_buf = std.mem.zeroes([96:0]u8);
-        const access_mode_preview_label = comboPreviewLabel(&access_mode_preview_buf, access_mode_preview);
-        zgui.setNextItemWidth(156.0);
-        if (zgui.beginCombo("##access-mode-picker", .{ .preview_value = access_mode_preview_label })) {
-            defer zgui.endCombo();
-            for (CODEX_ACCESS_MODE_OPTIONS) |option| {
-                const is_selected = thread.access_mode == option.value;
-                var row_buf = std.mem.zeroes([96:0]u8);
-                const row_label = comboRowLabel(&row_buf, option.label, is_selected);
-                if (zgui.selectable(row_label, .{ .selected = is_selected, .h = 28.0 })) {
-                    if (thread.access_mode != option.value) {
-                        thread.access_mode = option.value;
-                        if (thread.provider_thread_id) |thread_id| {
-                            state.allocator.free(thread_id);
-                        }
-                        thread.provider_thread_id = null;
-                        state.markDirty();
-                    }
+        // --- Fast mode toggle (click to switch) ---
+        zgui.sameLine(.{ .spacing = 6.0 });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = transparent });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = picker_hover_bg });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = picker_hover_bg });
+        const fast_label: [:0]const u8 = if (thread.fast_mode == .on) "Fast" else "Chat";
+        if (zgui.button(fast_label, .{ .w = 0.0, .h = 0.0 })) {
+            thread.fast_mode = if (thread.fast_mode == .on) .off else .on;
+            state.markDirty();
+        }
+        zgui.popStyleColor(.{ .count = 3 });
+
+        // --- Separator ---
+        zgui.sameLine(.{ .spacing = 6.0 });
+        zgui.textColored(separator_color, "|", .{});
+
+        // --- Access mode toggle (click to switch) ---
+        zgui.sameLine(.{ .spacing = 6.0 });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = transparent });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = picker_hover_bg });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = picker_hover_bg });
+        const access_label: [:0]const u8 = accessModeLabel(thread.access_mode);
+        if (zgui.button(access_label, .{ .w = 0.0, .h = 0.0 })) {
+            const new_mode: AccessMode = if (thread.access_mode == .full_access) .supervised else .full_access;
+            if (thread.access_mode != new_mode) {
+                thread.access_mode = new_mode;
+                if (thread.provider_thread_id) |thread_id| {
+                    state.allocator.free(thread_id);
                 }
+                thread.provider_thread_id = null;
+                state.markDirty();
             }
         }
+        zgui.popStyleColor(.{ .count = 3 });
     }
+}
+
+fn composerPickerTextWidth(label: []const u8) f32 {
+    const char_width: f32 = 8.4;
+    return @as(f32, @floatFromInt(label.len)) * char_width;
 }
 
 fn isSendPending(state: *AppState) bool {
