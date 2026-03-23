@@ -38,6 +38,7 @@ const TRANSCRIPT_BUBBLE_PADDING_Y: f32 = 14.0;
 const TRANSCRIPT_BUBBLE_ROUNDING: f32 = 14.0;
 const PERSISTED_DIFF_MARKER = "EDITORTS_DIFF_V1\n";
 const IMAGE_MODAL_ID: [:0]const u8 = "AttachmentPreviewModal";
+const PROJECT_RENAME_MODAL_ID: [:0]const u8 = "ProjectRenameModal";
 const RESPONSIVE_BASE_FONT_SIZE: f32 = 18.0;
 
 const GL_TEXTURE_2D = 0x0DE1;
@@ -729,6 +730,7 @@ const AppState = struct {
     composer_focused: bool,
     image_texture_cache: std.StringHashMap(CachedImageTexture),
     modal_image_path: ?[:0]const u8,
+    rename_project_index: ?usize,
     show_project_creator: bool,
     picker_state: PickerState,
     send_state: SendState,
@@ -748,6 +750,7 @@ const AppState = struct {
             .composer_focused = false,
             .image_texture_cache = std.StringHashMap(CachedImageTexture).init(allocator),
             .modal_image_path = null,
+            .rename_project_index = null,
             .show_project_creator = false,
             .picker_state = .{},
             .send_state = .{},
@@ -867,6 +870,36 @@ const AppState = struct {
         };
         self.setSidebarNotice("Project renamed.");
         self.markDirty();
+    }
+
+    fn beginProjectRename(self: *AppState, index: usize) void {
+        if (index >= self.projects.items.len) return;
+        self.selected_project_index = index;
+        self.rename_project_index = index;
+        self.syncRenameBuffer();
+        self.setSidebarNotice("");
+    }
+
+    fn finishProjectRename(self: *AppState) void {
+        if (self.rename_project_index) |index| {
+            if (index < self.projects.items.len) {
+                self.selected_project_index = index;
+                self.renameSelectedProject();
+            }
+        }
+        self.rename_project_index = null;
+    }
+
+    fn cancelProjectRename(self: *AppState) void {
+        self.rename_project_index = null;
+        self.syncRenameBuffer();
+    }
+
+    fn removeProjectAtIndex(self: *AppState, index: usize) void {
+        if (index >= self.projects.items.len) return;
+        self.selected_project_index = index;
+        self.removeSelectedProject();
+        self.rename_project_index = null;
     }
 
     fn removeSelectedProject(self: *AppState) void {
@@ -1989,6 +2022,7 @@ fn renderRoot(state: *AppState, width: f32, height: f32) void {
     zgui.sameLine(.{ .spacing = gap });
     renderChatWorkspace(state, workspace_width, content[1]);
     renderImageModal(state, width, height);
+    renderProjectRenameModal(state, width, height);
 }
 
 fn renderImageModal(state: *AppState, width: f32, height: f32) void {
@@ -2110,6 +2144,86 @@ fn renderImageModal(state: *AppState, width: f32, height: f32) void {
     }
 }
 
+fn renderProjectRenameModal(state: *AppState, width: f32, height: f32) void {
+    const rename_index = state.rename_project_index orelse return;
+    if (rename_index >= state.projects.items.len) {
+        state.rename_project_index = null;
+        return;
+    }
+
+    if (!zgui.isPopupOpen(PROJECT_RENAME_MODAL_ID, .{})) {
+        zgui.openPopup(PROJECT_RENAME_MODAL_ID, .{});
+    }
+
+    zgui.setNextWindowPos(.{
+        .x = width * 0.5,
+        .y = height * 0.5,
+        .cond = .appearing,
+        .pivot_x = 0.5,
+        .pivot_y = 0.5,
+    });
+    zgui.setNextWindowSize(.{
+        .w = clampf(width * 0.28, scaledUi(320.0), scaledUi(420.0)),
+        .h = 0.0,
+        .cond = .appearing,
+    });
+    zgui.pushStyleVar1f(.{ .idx = .window_rounding, .v = scaledUi(16.0) });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ scaledUi(18.0), scaledUi(18.0) } });
+    zgui.pushStyleVar2f(.{ .idx = .item_spacing, .v = .{ scaledUi(10.0), scaledUi(10.0) } });
+    var modal_open = true;
+    if (!zgui.beginPopupModal(PROJECT_RENAME_MODAL_ID, .{
+        .popen = &modal_open,
+        .flags = .{ .no_saved_settings = true },
+    })) {
+        if (!modal_open) {
+            state.cancelProjectRename();
+        }
+        zgui.popStyleVar(.{ .count = 3 });
+        return;
+    }
+    defer {
+        zgui.endPopup();
+        zgui.popStyleVar(.{ .count = 3 });
+    }
+
+    if (zgui.isWindowAppearing()) {
+        zgui.setKeyboardFocusHere(0);
+    }
+
+    zgui.textColored(COLOR_WHITE, "Rename project", .{});
+    zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{state.projects.items[rename_index].path});
+
+    const modal_width = zgui.getContentRegionAvail()[0];
+    _ = zgui.inputTextWithHint("##project-rename-modal", .{
+        .hint = "Project label",
+        .buf = state.renameBuffer(),
+    });
+
+    const button_width = @max((modal_width - scaledUi(10.0)) * 0.5, scaledUi(96.0));
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.08) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.14) });
+    if (zgui.button("Cancel", .{ .w = button_width, .h = scaledUi(34.0) })) {
+        state.cancelProjectRename();
+        zgui.closeCurrentPopup();
+        zgui.popStyleColor(.{ .count = 3 });
+        return;
+    }
+    zgui.popStyleColor(.{ .count = 3 });
+
+    zgui.sameLine(.{ .spacing = scaledUi(10.0) });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_GREEN });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_GREEN, 0.10) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_GREEN, 0.10) });
+    if (zgui.button("Rename", .{ .w = button_width, .h = scaledUi(34.0) })) {
+        state.finishProjectRename();
+        zgui.closeCurrentPopup();
+        zgui.popStyleColor(.{ .count = 3 });
+        return;
+    }
+    zgui.popStyleColor(.{ .count = 3 });
+}
+
 fn renderSidebar(state: *AppState, width: f32, height: f32) void {
     _ = zgui.beginChild("ProjectsRail", .{
         .w = width,
@@ -2184,69 +2298,118 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         zgui.dummy(.{ .w = 0.0, .h = scaledUi(4.0) });
     }
 
-    if (state.projects.items.len > 0) {
-        const action_width = @max((rail_inner_width - scaledUi(10.0)) * 0.5, scaledUi(88.0));
-        zgui.dummy(.{ .w = 0.0, .h = scaledUi(4.0) });
-        zgui.separatorText("Selected");
-        zgui.dummy(.{ .w = 0.0, .h = scaledUi(2.0) });
-        _ = zgui.inputTextWithHint("##project-rename", .{
-            .hint = "Project label",
-            .buf = state.renameBuffer(),
-        });
-        zgui.dummy(.{ .w = 0.0, .h = scaledUi(2.0) });
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(52, 54, 60, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(64, 66, 74, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(44, 46, 52, 255) });
-        if (zgui.button("Rename", .{ .w = action_width, .h = scaledUi(30.0) })) {
-            state.renameSelectedProject();
-        }
-        zgui.sameLine(.{ .spacing = scaledUi(10.0) });
-        if (zgui.button("Remove", .{ .w = action_width, .h = scaledUi(30.0) })) {
-            state.removeSelectedProject();
-        }
-        zgui.popStyleColor(.{ .count = 3 });
-        zgui.dummy(.{ .w = 0.0, .h = scaledUi(4.0) });
-    }
-
     for (state.projects.items, 0..) |project, index| {
         zgui.pushIntId(@intCast(index));
         defer zgui.popId();
 
         const is_selected = state.selected_project_index == index;
         const is_collapsed = state.projects.items[index].collapsed;
-        if (is_selected) {
-            zgui.pushStyleColor4f(.{ .idx = .header, .c = darken(COLOR_GREEN, 0.10) });
-            zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = COLOR_GREEN });
-            zgui.pushStyleColor4f(.{ .idx = .header_active, .c = lighten(COLOR_GREEN, 0.12) });
-        }
-
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = COLOR_PANEL_ALT });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.08) });
-        if (zgui.smallButton(if (is_collapsed) ">" else "v")) {
-            state.projects.items[index].collapsed = !state.projects.items[index].collapsed;
-            state.markDirty();
-        }
-        zgui.popStyleColor(.{ .count = 3 });
 
         const project_action_width = clampf(width * 0.11, scaledUi(28.0), scaledUi(38.0));
-        zgui.sameLine(.{ .spacing = scaledUi(8.0) });
-        if (zgui.selectable(project.label, .{
-            .selected = is_selected,
-            .w = @max(width - project_action_width - scaledUi(44.0), scaledUi(92.0)),
-            .h = scaledUi(32.0),
-        })) {
-            state.selected_project_index = index;
-            state.syncRenameBuffer();
-            state.requestTranscriptScrollToBottom();
-            state.markDirty();
+        const row_width = @max(width - project_action_width - scaledUi(22.0), scaledUi(100.0));
+        const row_height = scaledUi(28.0);
+
+        // Full-width clickable row: chevron + folder icon + label
+        {
+            const row_pos = zgui.getCursorScreenPos();
+            _ = zgui.invisibleButton("##project-row", .{ .w = row_width, .h = row_height });
+            const left_clicked = zgui.isItemClicked(.left);
+            const hovered = zgui.isItemHovered(.{});
+            const dl = zgui.getWindowDrawList();
+
+            // Hover/selected background
+            if (is_selected or hovered) {
+                const bg_col = if (is_selected and hovered)
+                    rgba(44, 46, 54, 255)
+                else if (is_selected)
+                    rgba(38, 40, 48, 255)
+                else
+                    rgba(36, 38, 44, 255);
+                dl.addRectFilled(.{
+                    .pmin = row_pos,
+                    .pmax = .{ row_pos[0] + row_width, row_pos[1] + row_height },
+                    .col = zgui.colorConvertFloat4ToU32(bg_col),
+                    .rounding = scaledUi(6.0),
+                });
+            }
+
+            const cy = row_pos[1] + row_height * 0.5;
+            var x = row_pos[0] + scaledUi(8.0);
+
+            // Chevron icon
+            const chevron_col = zgui.colorConvertFloat4ToU32(if (hovered) COLOR_TEXT_MUTED else COLOR_TEXT_SUBTLE);
+            const cs: f32 = scaledUi(3.5);
+            if (is_collapsed) {
+                dl.addTriangleFilled(.{
+                    .p1 = .{ x - cs * 0.3, cy - cs },
+                    .p2 = .{ x + cs * 0.8, cy },
+                    .p3 = .{ x - cs * 0.3, cy + cs },
+                    .col = chevron_col,
+                });
+            } else {
+                dl.addTriangleFilled(.{
+                    .p1 = .{ x - cs, cy - cs * 0.3 },
+                    .p2 = .{ x + cs, cy - cs * 0.3 },
+                    .p3 = .{ x, cy + cs * 0.8 },
+                    .col = chevron_col,
+                });
+            }
+            x += scaledUi(12.0);
+
+            // Folder icon
+            const folder_col = zgui.colorConvertFloat4ToU32(COLOR_TEXT_SUBTLE);
+            const fw = scaledUi(13.0);
+            const fh = scaledUi(9.0);
+            dl.addRectFilled(.{
+                .pmin = .{ x, cy - fh * 0.5 - scaledUi(2.0) },
+                .pmax = .{ x + fw * 0.4, cy - fh * 0.5 + scaledUi(1.0) },
+                .col = folder_col,
+                .rounding = scaledUi(1.0),
+            });
+            dl.addRectFilled(.{
+                .pmin = .{ x, cy - fh * 0.5 },
+                .pmax = .{ x + fw, cy + fh * 0.5 },
+                .col = folder_col,
+                .rounding = scaledUi(1.5),
+            });
+            x += fw + scaledUi(6.0);
+
+            // Project label text
+            const text_col = zgui.colorConvertFloat4ToU32(if (is_selected) COLOR_WHITE else COLOR_TEXT_MUTED);
+            dl.addText(.{ x, cy - zgui.getFontSize() * 0.5 }, text_col, "{s}", .{project.label});
+
+            if (left_clicked) {
+                state.selected_project_index = index;
+                state.projects.items[index].collapsed = !state.projects.items[index].collapsed;
+                state.syncRenameBuffer();
+                state.requestTranscriptScrollToBottom();
+                state.markDirty();
+            }
+
+            if (zgui.beginPopupContextItem()) {
+                defer zgui.endPopup();
+
+                state.selected_project_index = index;
+                state.syncRenameBuffer();
+
+                if (zgui.menuItem("Rename project", .{})) {
+                    state.beginProjectRename(index);
+                    zgui.openPopup(PROJECT_RENAME_MODAL_ID, .{});
+                    zgui.closeCurrentPopup();
+                }
+                if (zgui.menuItem("Remove project", .{})) {
+                    state.removeProjectAtIndex(index);
+                    zgui.closeCurrentPopup();
+                }
+            }
         }
 
-        zgui.sameLine(.{ .spacing = scaledUi(8.0) });
+        // "+" new chat button
+        zgui.sameLine(.{ .spacing = scaledUi(6.0) });
         zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.08) });
         zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.14) });
-        if (zgui.button("+", .{ .w = project_action_width, .h = scaledUi(28.0) })) {
+        if (zgui.button("+", .{ .w = project_action_width, .h = row_height })) {
             state.createThreadForProject(index);
         }
         if (zgui.isItemHovered(.{ .delay_normal = true })) {
@@ -2255,10 +2418,6 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
             zgui.endTooltip();
         }
         zgui.popStyleColor(.{ .count = 3 });
-
-        if (is_selected) {
-            zgui.popStyleColor(.{ .count = 3 });
-        }
 
         const active_thread = state.projects.items[index].currentThread();
         if (!is_collapsed) {

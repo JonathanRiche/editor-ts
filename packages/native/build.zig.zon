@@ -1,5 +1,5 @@
 .{
-    .name = .native,
+    .name = .verde,
     .version = "0.0.0",
     .dependencies = .{
         .zgui = .{
@@ -11,7 +11,7 @@
             .hash = "zsdl-0.4.0-dev-rFpjEzgIXwBdDmlda0YnQPRVApMc1YEgbyzLWuT9GupM",
         },
     },
-    .fingerprint = 0xc0881db7caebd0f9,
+    .fingerprint = 0xd77462097ec03b8f,
     .paths = .{
         "build.zig",
         "build.zig.zon",

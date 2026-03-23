@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
     const zsdl = b.dependency("zsdl", .{});
 
     const exe = b.addExecutable(.{
-        .name = "native",
+        .name = "verde",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
