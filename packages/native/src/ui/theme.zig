@@ -27,20 +27,24 @@ pub const TRANSCRIPT_BUBBLE_ROUNDING: f32 = 14.0;
 pub var heading_font: ?zgui.Font = null;
 pub var heading_font_size: f32 = DEFAULT_FONT_SIZE * 1.28;
 
+/// Clamps a float into a safe UI range.
 pub fn clampf(value: f32, min_value: f32, max_value: f32) f32 {
     return @max(min_value, @min(value, max_value));
 }
 
+/// Derives the active UI scale from the current font size.
 pub fn uiScaleFactor() f32 {
     const font_size = zgui.getFontSize();
     if (!std.math.isFinite(font_size) or font_size <= 0.0) return 1.0;
     return clampf(font_size / RESPONSIVE_BASE_FONT_SIZE, 0.9, 2.4);
 }
 
+/// Scales a design token into the current UI size.
 pub fn scaledUi(value: f32) f32 {
     return value * uiScaleFactor();
 }
 
+/// Installs the default and heading fonts for the native UI.
 pub fn installFonts(font_bytes: []const u8, font_size: f32) void {
     const font = zgui.io.addFontFromMemory(font_bytes, font_size);
     zgui.io.setDefaultFont(font);
@@ -48,6 +52,7 @@ pub fn installFonts(font_bytes: []const u8, font_size: f32) void {
     heading_font = zgui.io.addFontFromMemory(font_bytes, heading_font_size);
 }
 
+/// Applies the shared ImGui theme colors and spacing.
 pub fn applyTheme(ui_scale: f32) void {
     const scale = if (std.math.isFinite(ui_scale) and ui_scale > 0.0) ui_scale else 1.0;
     const style = zgui.getStyle();
@@ -86,10 +91,12 @@ pub fn applyTheme(ui_scale: f32) void {
     style.setColor(.scrollbar_grab_active, COLOR_GREEN);
 }
 
+/// Builds an opaque RGB color.
 pub fn rgb(r: u8, g: u8, b: u8) [4]f32 {
     return rgba(r, g, b, 255);
 }
 
+/// Builds an RGBA color in ImGui float space.
 pub fn rgba(r: u8, g: u8, b: u8, a: u8) [4]f32 {
     return .{
         @as(f32, @floatFromInt(r)) / 255.0,
@@ -99,6 +106,7 @@ pub fn rgba(r: u8, g: u8, b: u8, a: u8) [4]f32 {
     };
 }
 
+/// Nudges a color toward a lighter variant.
 pub fn lighten(color: [4]f32, amount: f32) [4]f32 {
     return .{
         clampf(color[0] + amount, 0.0, 1.0),
@@ -108,6 +116,7 @@ pub fn lighten(color: [4]f32, amount: f32) [4]f32 {
     };
 }
 
+/// Nudges a color toward a darker variant.
 pub fn darken(color: [4]f32, amount: f32) [4]f32 {
     return .{
         clampf(color[0] - amount, 0.0, 1.0),

@@ -4,6 +4,7 @@ const std = @import("std");
 const zgui = @import("zgui");
 const theme = @import("theme.zig");
 
+/// Renders the full project rail and thread list.
 pub fn render(comptime Impl: type, state: *Impl.AppState, width: f32, height: f32) void {
     _ = height;
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 0.0 });
@@ -263,6 +264,7 @@ pub fn render(comptime Impl: type, state: *Impl.AppState, width: f32, height: f3
     }
 }
 
+/// Draws the sidebar brand row with logo and title.
 fn renderBrand(comptime Impl: type, state: anytype) void {
     const start = zgui.getCursorPos();
     const spacing = theme.scaledUi(10.0);
@@ -306,6 +308,7 @@ fn renderBrand(comptime Impl: type, state: anytype) void {
     zgui.setCursorPos(.{ start[0], start[1] + row_height });
 }
 
+/// Draws one saved thread row under the active project.
 fn renderThreadRow(state: anytype, project_index: usize, width: f32, thread: anytype, thread_index: usize) void {
     const project = &state.projects.items[project_index];
     const thread_selected = project.selected_thread_index == thread_index;
@@ -355,6 +358,7 @@ fn renderThreadRow(state: anytype, project_index: usize, width: f32, thread: any
     zgui.dummy(.{ .w = 0.0, .h = theme.scaledUi(2.0) });
 }
 
+/// Returns the latest message preview for a project.
 fn lastMessagePreview(project: anytype) []const u8 {
     const thread = project.currentThread();
     const message = thread.messages.items[thread.messages.items.len - 1];
@@ -363,6 +367,7 @@ fn lastMessagePreview(project: anytype) []const u8 {
     return body[0..44];
 }
 
+/// Builds a compact first-message preview for a thread row.
 fn formatThreadPreview(buffer: *[72:0]u8, thread: anytype) [:0]const u8 {
     if (thread.messages.items.len == 0) return "Awaiting first prompt";
     const body = thread.messages.items[0].body;
@@ -392,6 +397,7 @@ fn formatThreadPreview(buffer: *[72:0]u8, thread: anytype) [:0]const u8 {
     return buffer[0..max_len :0];
 }
 
+/// Normalizes text so title and preview comparisons stay stable.
 fn compactComparisonText(buffer: []u8, value: []const u8) []const u8 {
     const trimmed = std.mem.trim(u8, value, &std.ascii.whitespace);
     if (trimmed.len == 0 or buffer.len == 0) return "";
@@ -417,6 +423,7 @@ fn compactComparisonText(buffer: []u8, value: []const u8) []const u8 {
     return buffer[0..count];
 }
 
+/// Truncates a thread title for narrow sidebar rows.
 fn truncatedThreadTitle(buffer: *[64:0]u8, value: []const u8, max_len: usize) [:0]const u8 {
     const bounded_max = @min(buffer.len - 1, max_len);
     if (value.len <= bounded_max) return std.fmt.bufPrintZ(buffer, "{s}", .{value}) catch value[0..bounded_max :0];
@@ -428,6 +435,7 @@ fn truncatedThreadTitle(buffer: *[64:0]u8, value: []const u8, max_len: usize) [:
     return buffer[0..bounded_max :0];
 }
 
+/// Formats a relative timestamp for sidebar metadata.
 fn formatRelativeTime(buffer: []u8, timestamp: i64) []const u8 {
     if (timestamp <= 0) return "now";
     const elapsed = @max(std.time.timestamp() - timestamp, 0);
@@ -444,6 +452,7 @@ fn formatRelativeTime(buffer: []u8, timestamp: i64) []const u8 {
     return std.fmt.bufPrint(buffer, "{d}d ago", .{days}) catch "recent";
 }
 
+/// Collects committed threads and sorts them by recent activity.
 fn collectCommittedThreadIndicesSorted(allocator: std.mem.Allocator, project: anytype) !std.ArrayList(usize) {
     var indices: std.ArrayList(usize) = .empty;
     errdefer indices.deinit(allocator);

@@ -6,6 +6,7 @@ const theme = @import("theme.zig");
 const sidebar = @import("sidebar.zig");
 const chat_panel = @import("chat_panel.zig");
 
+/// Lays out the root window and routes to the main UI regions.
 pub fn renderRoot(comptime Impl: type, state: *Impl.AppState, width: f32, height: f32) void {
     zgui.setNextWindowPos(.{ .x = 0.0, .y = 0.0 });
     zgui.setNextWindowSize(.{ .w = width, .h = height });
@@ -36,6 +37,7 @@ pub fn renderRoot(comptime Impl: type, state: *Impl.AppState, width: f32, height
     renderProjectRenameModal(Impl, state, width, height);
 }
 
+/// Shows the attachment preview modal for the selected image.
 fn renderImageModal(comptime Impl: type, state: *Impl.AppState, width: f32, height: f32) void {
     const modal_path = state.modal_image_path orelse return;
     if (!zgui.isPopupOpen(Impl.IMAGE_MODAL_ID, .{})) {
@@ -153,6 +155,7 @@ fn renderImageModal(comptime Impl: type, state: *Impl.AppState, width: f32, heig
     }
 }
 
+/// Shows the modal used to rename the active project.
 fn renderProjectRenameModal(comptime Impl: type, state: *Impl.AppState, width: f32, height: f32) void {
     const rename_index = state.rename_project_index orelse return;
     if (rename_index >= state.projects.items.len) {

@@ -4,6 +4,7 @@ const std = @import("std");
 const zgui = @import("zgui");
 const theme = @import("theme.zig");
 
+/// Renders the chat workspace shell beside the sidebar.
 pub fn renderWorkspace(comptime Impl: type, state: *Impl.AppState, width: f32, height: f32) void {
     _ = width;
     _ = height;
@@ -38,6 +39,7 @@ pub fn renderWorkspace(comptime Impl: type, state: *Impl.AppState, width: f32, h
     renderComposer(Impl, state, content[0], @max(content[1] - transcript_height - theme.scaledUi(8.0), theme.scaledUi(120.0)));
 }
 
+/// Renders the current thread title block.
 fn renderHeader(state: anytype) void {
     const thread = state.currentThread();
     zgui.dummy(.{ .w = 0.0, .h = theme.scaledUi(10.0) });
@@ -47,6 +49,7 @@ fn renderHeader(state: anytype) void {
     zgui.dummy(.{ .w = 0.0, .h = theme.scaledUi(10.0) });
 }
 
+/// Renders transcript history plus any in-flight stream state.
 fn renderTranscript(comptime Impl: type, state: *Impl.AppState, width: f32, height: f32) void {
     _ = zgui.beginChild("Transcript", .{
         .w = width,
@@ -84,6 +87,7 @@ fn renderTranscript(comptime Impl: type, state: *Impl.AppState, width: f32, heig
     }
 }
 
+/// Renders the pending approval prompt from the provider.
 fn renderPendingApproval(state: anytype) void {
     var snapshot = state.pendingApprovalSnapshot() catch null;
     defer freePendingApproval(state.allocator, &snapshot);
@@ -107,6 +111,7 @@ fn renderPendingApproval(state: anytype) void {
     }
 }
 
+/// Renders streamed timeline events while a send is pending.
 fn renderPendingTimelineEvents(comptime Impl: type, state: *Impl.AppState) void {
     state.send_state.mutex.lock();
     defer state.send_state.mutex.unlock();
@@ -121,6 +126,7 @@ fn renderPendingTimelineEvents(comptime Impl: type, state: *Impl.AppState) void 
     }
 }
 
+/// Renders the live diff summary card for streamed file changes.
 fn renderPendingDiffCard(comptime Impl: type, state: *Impl.AppState) void {
     state.send_state.mutex.lock();
     defer state.send_state.mutex.unlock();
@@ -134,6 +140,7 @@ fn renderPendingDiffCard(comptime Impl: type, state: *Impl.AppState) void {
     zgui.dummy(.{ .w = 0.0, .h = 6.0 });
 }
 
+/// Draws the pending diff card contents while the send lock is held.
 fn renderPendingDiffCardLocked(files: anytype) void {
     const totals = summarizePendingDiffFiles(files.items);
     const card_height = pendingDiffCardHeight(files.items);
@@ -170,6 +177,7 @@ fn renderPendingDiffCardLocked(files: anytype) void {
     }
 }
 
+/// Renders the streamed assistant bubble placeholder or partial text.
 fn renderPendingTranscriptBubble(comptime Impl: type, state: *Impl.AppState) void {
     state.send_state.mutex.lock();
     defer state.send_state.mutex.unlock();
@@ -190,6 +198,7 @@ fn renderPendingTranscriptBubble(comptime Impl: type, state: *Impl.AppState) voi
     );
 }
 
+/// Dispatches a transcript item to the right visual treatment.
 fn renderTranscriptMessage(comptime Impl: type, state: *Impl.AppState, id: u32, role: Impl.ChatRole, author: []const u8, body: []const u8, image: ?Impl.ChatImageAttachment) void {
     if (role == .system and std.mem.eql(u8, author, "Changed files")) {
         renderChangedFilesCardId(Impl, id, body);
@@ -235,6 +244,7 @@ fn renderTranscriptMessage(comptime Impl: type, state: *Impl.AppState, id: u32, 
     zgui.popTextWrapPos();
 }
 
+/// Draws a generic transcript bubble with optional muted body text.
 fn renderTranscriptBubble(state: anytype, id: [:0]const u8, role: anytype, author: []const u8, body: []const u8, image: anytype, muted_body: bool) void {
     const bubble_height = transcriptBubbleHeightGeneric(author, body, image);
     const bubble_theme = transcriptBubbleTheme(role);
@@ -275,6 +285,7 @@ fn renderTranscriptBubble(state: anytype, id: [:0]const u8, role: anytype, autho
     zgui.popTextWrapPos();
 }
 
+/// Draws a compact system row for command execution events.
 fn renderCommandEventRowId(id: u32, author: []const u8, body: []const u8) void {
     const row_height: f32 = 38.0;
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 10.0 });
@@ -308,6 +319,7 @@ fn renderCommandEventRowId(id: u32, author: []const u8, body: []const u8) void {
     zgui.popTextWrapPos();
 }
 
+/// Renders a persisted changed-files message as a rich card.
 fn renderChangedFilesCardId(comptime Impl: type, id: u32, body: []const u8) void {
     var entries = parseChangedFileEntries(Impl, body);
     const totals = summarizeChangedFiles(entries);
@@ -368,6 +380,7 @@ fn renderChangedFilesCardId(comptime Impl: type, id: u32, body: []const u8) void
     }
 }
 
+/// Draws the header for changed-file summaries.
 fn renderChangedFilesHeader(file_count: usize, additions: i64, deletions: i64) void {
     zgui.textColored(theme.COLOR_TEXT_SUBTLE, "CHANGED FILES ({d})", .{file_count});
     zgui.sameLine(.{ .spacing = 8.0 });
@@ -380,6 +393,7 @@ fn renderChangedFilesHeader(file_count: usize, additions: i64, deletions: i64) v
     zgui.textColored(theme.COLOR_DIFF_REMOVE, "-{d}", .{deletions});
 }
 
+/// Draws a small action button used inside diff cards.
 fn renderChangedFilesAction(label: [:0]const u8) bool {
     zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 8.0 });
     zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 10.0, 4.0 } });
@@ -393,11 +407,13 @@ fn renderChangedFilesAction(label: [:0]const u8) bool {
     return zgui.button(label, .{ .h = 26.0 });
 }
 
+/// Draws a folder label row inside a changed-files card.
 fn renderChangedFilesFolder(path: []const u8) void {
     zgui.textColored(theme.COLOR_TEXT_MUTED, "v  {s}", .{path});
     zgui.dummy(.{ .w = 0.0, .h = 2.0 });
 }
 
+/// Draws a single changed file row without patch details.
 fn renderChangedFilesEntry(entry: anytype) void {
     const file_name = std.fs.path.basename(entry.path);
     zgui.textColored(theme.COLOR_TEXT_MUTED, "    {s}", .{file_name});
@@ -410,6 +426,7 @@ fn renderChangedFilesEntry(entry: anytype) void {
     zgui.dummy(.{ .w = 0.0, .h = 2.0 });
 }
 
+/// Draws one expandable changed-file row with its patch.
 fn renderChangedFilesDetailedEntry(entry: anytype, message_id: u32, index: usize, open_all: bool, close_all: bool) void {
     var header_storage: [512]u8 = undefined;
     const header_label = std.fmt.bufPrintZ(&header_storage, "{s}  +{d} / -{d}##changed-files-{d}-{d}", .{
@@ -436,6 +453,7 @@ fn renderChangedFilesDetailedEntry(entry: anytype, message_id: u32, index: usize
     }
 }
 
+/// Draws one pending diff file row in the live stream card.
 fn renderPendingDiffFile(file: anytype, index: usize) void {
     const toggle_label = if (file.expanded) "v" else ">";
     const file_name = std.fs.path.basename(file.path);
@@ -472,6 +490,7 @@ fn renderPendingDiffFile(file: anytype, index: usize) void {
     zgui.dummy(.{ .w = 0.0, .h = 8.0 });
 }
 
+/// Draws a syntax-colored patch block.
 fn renderPendingDiffPatch(patch: []const u8, index: usize) void {
     const patch_height = pendingDiffPatchHeight(patch);
 
@@ -509,6 +528,7 @@ fn renderPendingDiffPatch(patch: []const u8, index: usize) void {
     }
 }
 
+/// Renders the composer card, input, pickers, and send button.
 fn renderComposer(comptime Impl: type, state: *Impl.AppState, width: f32, height: f32) void {
     const composer_bg = theme.rgba(30, 31, 36, 255);
     const composer_rounding = theme.scaledUi(18.0);
@@ -646,6 +666,7 @@ fn renderComposer(comptime Impl: type, state: *Impl.AppState, width: f32, height
     }
 }
 
+/// Draws the compact attachment preview above the composer.
 fn renderComposerAttachmentPreview(comptime Impl: type, state: *Impl.AppState, image: Impl.ChatImageAttachment) void {
     zgui.beginGroup();
     defer zgui.endGroup();
@@ -661,6 +682,7 @@ fn renderComposerAttachmentPreview(comptime Impl: type, state: *Impl.AppState, i
     zgui.popStyleColor(.{ .count = 3 });
 }
 
+/// Draws an image attachment card in transcript or composer mode.
 fn renderImageAttachmentCard(comptime Impl: type, state: *Impl.AppState, image: Impl.ChatImageAttachment, compact: bool) void {
     const avail_width = @max(zgui.getContentRegionAvail()[0], theme.scaledUi(120.0));
     const card_width: f32 = if (compact)
@@ -756,6 +778,7 @@ const TranscriptBubbleTheme = struct {
     author: [4]f32,
 };
 
+/// Returns the bubble colors for a transcript role.
 fn transcriptBubbleTheme(role: anytype) TranscriptBubbleTheme {
     if (role == .user) return .{
         .background = theme.rgba(18, 62, 42, 255),
@@ -774,6 +797,7 @@ fn transcriptBubbleTheme(role: anytype) TranscriptBubbleTheme {
     };
 }
 
+/// Decides whether streamed output should keep auto-scrolling.
 fn transcriptShouldAutoFollow(state: anytype) bool {
     if (!state.hasPendingStream()) return false;
     const scroll_max_y = zgui.getScrollMaxY();
@@ -782,10 +806,12 @@ fn transcriptShouldAutoFollow(state: anytype) bool {
     return (scroll_max_y - scroll_y) <= theme.scaledUi(72.0);
 }
 
+/// Adapts typed transcript height calculation to the generic helper.
 fn transcriptBubbleHeight(comptime Impl: type, author: []const u8, body: []const u8, image: ?Impl.ChatImageAttachment) f32 {
     return transcriptBubbleHeightGeneric(author, body, image);
 }
 
+/// Measures the height needed for a transcript bubble.
 fn transcriptBubbleHeightGeneric(author: []const u8, body: []const u8, image: anytype) f32 {
     const style = zgui.getStyle();
     const avail = zgui.getContentRegionAvail();
@@ -800,14 +826,17 @@ fn transcriptBubbleHeightGeneric(author: []const u8, body: []const u8, image: an
     return @max(author_size[1] + body_size[1] + image_height + image_gap + vertical_padding + text_gap + border_allowance, theme.scaledUi(56.0));
 }
 
+/// Returns the compact height for a simple changed-files card.
 fn changedFilesCardHeight(file_count: usize) f32 {
     return 52.0 + (@as(f32, @floatFromInt(file_count)) * 26.0);
 }
 
+/// Returns the collapsed height for detailed changed-file entries.
 fn detailedChangedFilesCardHeight(entries: anytype) f32 {
     return 52.0 + (@as(f32, @floatFromInt(entries.len)) * 28.0);
 }
 
+/// Estimates the current live diff card height.
 fn pendingDiffCardHeight(files: anytype) f32 {
     var height: f32 = 52.0;
     for (files) |file| {
@@ -820,11 +849,13 @@ fn pendingDiffCardHeight(files: anytype) f32 {
     return @min(height, 620.0);
 }
 
+/// Estimates the viewport height for a patch block.
 fn pendingDiffPatchHeight(patch: []const u8) f32 {
     const line_count = countTextLines(patch);
     return @min(28.0 + (@as(f32, @floatFromInt(line_count)) * 18.0), 240.0);
 }
 
+/// Parses changed-file text from legacy or streamed bodies.
 fn parseChangedFileEntries(comptime Impl: type, body: []const u8) std.ArrayListUnmanaged(Impl.ChangedFileEntry) {
     if (std.mem.startsWith(u8, body, Impl.PERSISTED_DIFF_MARKER)) {
         return parsePersistedDiffEntries(Impl, body);
@@ -855,6 +886,7 @@ fn parseChangedFileEntries(comptime Impl: type, body: []const u8) std.ArrayListU
     return entries;
 }
 
+/// Parses the persisted diff wire format into file entries.
 fn parsePersistedDiffEntries(comptime Impl: type, body: []const u8) std.ArrayListUnmanaged(Impl.ChangedFileEntry) {
     var entries: std.ArrayListUnmanaged(Impl.ChangedFileEntry) = .empty;
     var cursor: usize = Impl.PERSISTED_DIFF_MARKER.len;
@@ -892,6 +924,7 @@ fn parsePersistedDiffEntries(comptime Impl: type, body: []const u8) std.ArrayLis
     return entries;
 }
 
+/// Totals additions and deletions for parsed changed files.
 fn summarizeChangedFiles(entries: anytype) struct { additions: i64, deletions: i64 } {
     var additions: i64 = 0;
     var deletions: i64 = 0;
@@ -902,6 +935,7 @@ fn summarizeChangedFiles(entries: anytype) struct { additions: i64, deletions: i
     return .{ .additions = additions, .deletions = deletions };
 }
 
+/// Reports whether any changed-file entry includes a patch body.
 fn changedFilesEntriesHavePatch(entries: anytype) bool {
     for (entries) |entry| {
         if (entry.patch != null) return true;
@@ -909,6 +943,7 @@ fn changedFilesEntriesHavePatch(entries: anytype) bool {
     return false;
 }
 
+/// Totals additions and deletions for pending diff files.
 fn summarizePendingDiffFiles(files: anytype) struct { additions: i64, deletions: i64 } {
     var additions: i64 = 0;
     var deletions: i64 = 0;
@@ -919,6 +954,7 @@ fn summarizePendingDiffFiles(files: anytype) struct { additions: i64, deletions:
     return .{ .additions = additions, .deletions = deletions };
 }
 
+/// Counts newline-delimited lines for patch sizing.
 fn countTextLines(text: []const u8) usize {
     if (text.len == 0) return 1;
     var count: usize = 1;
@@ -928,6 +964,7 @@ fn countTextLines(text: []const u8) usize {
     return count;
 }
 
+/// Frees a copied approval snapshot after rendering.
 fn freePendingApproval(allocator: std.mem.Allocator, approval: anytype) void {
     if (approval.*) |snapshot| {
         allocator.free(snapshot.call_id);
