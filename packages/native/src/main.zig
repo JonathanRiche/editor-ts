@@ -3787,16 +3787,45 @@ fn makeThreadTitle(allocator: std.mem.Allocator, prompt: []const u8) ![:0]const 
     return try allocator.dupeZ(u8, compact[0..count]);
 }
 
+fn compactComparisonText(buffer: []u8, value: []const u8) []const u8 {
+    const trimmed = std.mem.trim(u8, value, &std.ascii.whitespace);
+    if (trimmed.len == 0 or buffer.len == 0) return "";
+
+    var count: usize = 0;
+    var saw_space = false;
+    for (trimmed) |char| {
+        const normalized = if (std.ascii.isWhitespace(char)) ' ' else std.ascii.toLower(char);
+        if (normalized == ' ') {
+            if (count == 0 or saw_space) continue;
+            saw_space = true;
+        } else {
+            saw_space = false;
+        }
+        if (count == buffer.len) break;
+        buffer[count] = normalized;
+        count += 1;
+    }
+
+    while (count > 0 and buffer[count - 1] == ' ') {
+        count -= 1;
+    }
+    return buffer[0..count];
+}
+
 fn formatThreadPreview(buffer: *[72:0]u8, thread: *const ChatThread) [:0]const u8 {
     if (thread.messages.items.len == 0) return "Awaiting first prompt";
     const body = thread.messages.items[0].body;
     const max_len = @min(buffer.len - 1, @as(usize, 34));
     const source = std.mem.trim(u8, body, &std.ascii.whitespace);
     const title = std.mem.trim(u8, thread.title, &std.ascii.whitespace);
-    if (std.mem.eql(u8, source, title)) return "";
-    if (std.mem.startsWith(u8, source, title) or std.mem.startsWith(u8, title, source)) return "";
-    const shared_prefix_len = @min(@min(source.len, title.len), @as(usize, 24));
-    if (shared_prefix_len >= 16 and std.ascii.eqlIgnoreCase(source[0..shared_prefix_len], title[0..shared_prefix_len])) {
+    var normalized_source_buf = std.mem.zeroes([96]u8);
+    var normalized_title_buf = std.mem.zeroes([96]u8);
+    const normalized_source = compactComparisonText(&normalized_source_buf, source);
+    const normalized_title = compactComparisonText(&normalized_title_buf, title);
+    if (std.mem.eql(u8, normalized_source, normalized_title)) return "";
+    if (std.mem.startsWith(u8, normalized_source, normalized_title) or std.mem.startsWith(u8, normalized_title, normalized_source)) return "";
+    const shared_prefix_len = @min(@min(normalized_source.len, normalized_title.len), @as(usize, 24));
+    if (shared_prefix_len >= 16 and std.mem.eql(u8, normalized_source[0..shared_prefix_len], normalized_title[0..shared_prefix_len])) {
         return "";
     }
     if (source.len <= max_len) {
