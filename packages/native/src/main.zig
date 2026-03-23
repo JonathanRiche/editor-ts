@@ -9,10 +9,10 @@ const ai_harness = @import("harness.zig");
 const stb_image = @import("stb_image.zig");
 
 const log = std.log.scoped(.native_shell);
-const ORG_NAME: [:0]const u8 = "Verde";
+const ORG_NAME: [:0]const u8 = "verde";
 const APP_NAME: [:0]const u8 = "Native";
 const STATE_FILE_NAME = "state.json";
-const GEIST_SANS_BYTES = @embedFile("assets/fonts/Geist-Regular.ttf");
+const CAL_SANS_BYTES = @embedFile("assets/fonts/CalSans-Regular.ttf");
 const VERDE_LOGO_BYTES = @embedFile("assets/verde_logo.png");
 const DEFAULT_FONT_SIZE: f32 = 18.0;
 const DEFAULT_WINDOW_WIDTH: c_int = 1360;
@@ -1861,7 +1861,7 @@ pub fn main() !void {
     defer _ = gpa_state.deinit();
     const allocator = gpa_state.allocator();
 
-    try sdl.setAppMetadata("Verde Native", "0.0.0", "com.verde.native");
+    try sdl.setAppMetadata("verde Native", "0.0.0", "com.verde.native");
     try sdl.init(.{ .video = true, .events = true });
     defer sdl.quit();
 
@@ -1878,7 +1878,7 @@ pub fn main() !void {
 
     const initial_window_frame = initialWindowFrame();
     const window = try sdl.Window.create(
-        "Verde",
+        "verde",
         initial_window_frame.w,
         initial_window_frame.h,
         .{
@@ -2562,7 +2562,7 @@ fn renderSidebarBrand(state: *AppState) void {
     const start = zgui.getCursorPos();
     const spacing = scaledUi(10.0);
     const fallback_logo_size = scaledUi(28.0);
-    const title_text = "Verde";
+    const title_text = "verde";
 
     var text_size = zgui.calcTextSize(title_text, .{});
     if (heading_font) |font| {
@@ -3801,10 +3801,10 @@ fn comboRowLabel(buffer: []u8, label: []const u8, selected: bool) [:0]const u8 {
 }
 
 fn installFonts(font_size: f32) void {
-    const font = zgui.io.addFontFromMemory(GEIST_SANS_BYTES[0..GEIST_SANS_BYTES.len], font_size);
+    const font = zgui.io.addFontFromMemory(CAL_SANS_BYTES[0..CAL_SANS_BYTES.len], font_size);
     zgui.io.setDefaultFont(font);
     heading_font_size = font_size * 1.28;
-    heading_font = zgui.io.addFontFromMemory(GEIST_SANS_BYTES[0..GEIST_SANS_BYTES.len], heading_font_size);
+    heading_font = zgui.io.addFontFromMemory(CAL_SANS_BYTES[0..CAL_SANS_BYTES.len], heading_font_size);
 }
 
 fn applyTheme(ui_scale: f32) void {
