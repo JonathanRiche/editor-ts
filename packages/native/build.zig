@@ -9,6 +9,13 @@ pub fn build(b: *std.Build) void {
         .shared = false,
     });
     const zsdl = b.dependency("zsdl", .{});
+    const imgui = zgui.artifact("imgui");
+
+    // zgui's sdl3_opengl3 backend currently adds the nested SDL3 include dir,
+    // but imgui_impl_sdl3.cpp includes <SDL3/SDL.h> and needs the parent root.
+    if (target.result.os.tag == .macos) {
+        imgui.root_module.addIncludePath(zsdl.path("libs/sdl3/include"));
+    }
 
     const exe = b.addExecutable(.{
         .name = "verde",
@@ -22,7 +29,7 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
-    exe.linkLibrary(zgui.artifact("imgui"));
+    exe.linkLibrary(imgui);
     exe.linkSystemLibrary("SDL3");
     exe.linkLibC();
     exe.root_module.addIncludePath(b.path("src/vendor"));
