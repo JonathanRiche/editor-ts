@@ -16,10 +16,10 @@ const GEIST_SANS_BYTES = @embedFile("assets/fonts/Geist-Regular.ttf");
 const DEFAULT_FONT_SIZE: f32 = 18.0;
 const DEFAULT_WINDOW_WIDTH: c_int = 1360;
 const DEFAULT_WINDOW_HEIGHT: c_int = 860;
-const MIN_WINDOW_WIDTH: c_int = 1100;
-const MIN_WINDOW_HEIGHT: c_int = 760;
-const MAX_WINDOW_WIDTH: c_int = 1680;
-const MAX_WINDOW_HEIGHT: c_int = 1180;
+const MIN_WINDOW_WIDTH: c_int = 960;
+const MIN_WINDOW_HEIGHT: c_int = 680;
+const MAX_WINDOW_WIDTH: c_int = 1520;
+const MAX_WINDOW_HEIGHT: c_int = 980;
 
 const COLOR_GREEN = rgb(0x10, 0xb9, 0x61);
 const COLOR_YELLOW = rgb(0xfb, 0xbf, 0x24);
@@ -61,6 +61,7 @@ extern fn SDL_GetPrimaryDisplay() sdl.DisplayId;
 extern fn SDL_GetDisplayUsableBounds(display_id: sdl.DisplayId, rect: *SdlRect) bool;
 extern fn SDL_GetWindowSizeInPixels(window: *sdl.Window, w: ?*c_int, h: ?*c_int) bool;
 extern fn SDL_GetWindowDisplayScale(window: *sdl.Window) f32;
+extern fn SDL_SetWindowPosition(window: *sdl.Window, x: c_int, y: c_int) bool;
 
 const SdlRect = extern struct {
     x: c_int,
@@ -1776,11 +1777,11 @@ pub fn main() !void {
         else => {},
     }
 
-    const initial_window_size = initialWindowSize();
+    const initial_window_frame = initialWindowFrame();
     const window = try sdl.Window.create(
         "Verde",
-        initial_window_size[0],
-        initial_window_size[1],
+        initial_window_frame.w,
+        initial_window_frame.h,
         .{
             .resizable = true,
             .high_pixel_density = true,
@@ -1788,6 +1789,7 @@ pub fn main() !void {
         },
     );
     defer window.destroy();
+    _ = SDL_SetWindowPosition(window, initial_window_frame.x, initial_window_frame.y);
 
     const gl_context = try sdl.gl.createContext(window);
     defer sdl.gl.destroyContext(gl_context);
@@ -1819,10 +1821,6 @@ pub fn main() !void {
         state.pollPicker();
         state.pollSend();
 
-        var window_width: c_int = 0;
-        var window_height: c_int = 0;
-        try window.getSize(&window_width, &window_height);
-
         var fb_width: c_int = 0;
         var fb_height: c_int = 0;
         getWindowSizeInPixels(window, &fb_width, &fb_height);
@@ -1834,13 +1832,7 @@ pub fn main() !void {
         }
 
         zgui.backend.newFrame(@intCast(fb_width), @intCast(fb_height));
-        zgui.io.setDisplaySize(@floatFromInt(window_width), @floatFromInt(window_height));
-        zgui.io.setDisplayFramebufferScale(
-            safeFramebufferScale(window_width, fb_width),
-            safeFramebufferScale(window_height, fb_height),
-        );
-
-        renderRoot(&state, @floatFromInt(window_width), @floatFromInt(window_height));
+        renderRoot(&state, @floatFromInt(fb_width), @floatFromInt(fb_height));
         state.flushIfDirty();
 
         glClearColor(COLOR_BLACK[0], COLOR_BLACK[1], COLOR_BLACK[2], 1.0);
@@ -1850,26 +1842,39 @@ pub fn main() !void {
     }
 }
 
-fn initialWindowSize() [2]c_int {
+const WindowFrame = struct {
+    x: c_int,
+    y: c_int,
+    w: c_int,
+    h: c_int,
+};
+
+fn initialWindowFrame() WindowFrame {
     const display_id = SDL_GetPrimaryDisplay();
     if (display_id == .invalid) {
-        return .{ DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT };
+        return .{
+            .x = sdl.Window.pos_centered,
+            .y = sdl.Window.pos_centered,
+            .w = DEFAULT_WINDOW_WIDTH,
+            .h = DEFAULT_WINDOW_HEIGHT,
+        };
     }
 
     var usable_bounds: SdlRect = undefined;
     if (!SDL_GetDisplayUsableBounds(display_id, &usable_bounds)) {
-        return .{ DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT };
+        return .{
+            .x = sdl.Window.pos_centered,
+            .y = sdl.Window.pos_centered,
+            .w = DEFAULT_WINDOW_WIDTH,
+            .h = DEFAULT_WINDOW_HEIGHT,
+        };
     }
 
-    const width = clampInt(@intFromFloat(@as(f32, @floatFromInt(usable_bounds.w)) * 0.82), MIN_WINDOW_WIDTH, MAX_WINDOW_WIDTH);
-    const height = clampInt(@intFromFloat(@as(f32, @floatFromInt(usable_bounds.h)) * 0.82), MIN_WINDOW_HEIGHT, MAX_WINDOW_HEIGHT);
-    return .{ width, height };
-}
-
-fn currentWindowDisplayScale(window: *sdl.Window) f32 {
-    const scale = SDL_GetWindowDisplayScale(window);
-    if (!std.math.isFinite(scale) or scale <= 0.0) return 1.0;
-    return @max(scale, 1.0);
+    const width = clampInt(@intFromFloat(@as(f32, @floatFromInt(usable_bounds.w)) * 0.72), MIN_WINDOW_WIDTH, @min(MAX_WINDOW_WIDTH, usable_bounds.w - 40));
+    const height = clampInt(@intFromFloat(@as(f32, @floatFromInt(usable_bounds.h)) * 0.74), MIN_WINDOW_HEIGHT, @min(MAX_WINDOW_HEIGHT, usable_bounds.h - 40));
+    const x = usable_bounds.x + @divTrunc(usable_bounds.w - width, 2);
+    const y = usable_bounds.y + @divTrunc(usable_bounds.h - height, 2);
+    return .{ .x = x, .y = y, .w = width, .h = height };
 }
 
 fn getWindowSizeInPixels(window: *sdl.Window, w: ?*c_int, h: ?*c_int) void {
@@ -1881,9 +1886,10 @@ fn getWindowSizeInPixels(window: *sdl.Window, w: ?*c_int, h: ?*c_int) void {
     }
 }
 
-fn safeFramebufferScale(window_size: c_int, framebuffer_size: c_int) f32 {
-    if (window_size <= 0 or framebuffer_size <= 0) return 1.0;
-    return @as(f32, @floatFromInt(framebuffer_size)) / @as(f32, @floatFromInt(window_size));
+fn currentWindowDisplayScale(window: *sdl.Window) f32 {
+    const scale = SDL_GetWindowDisplayScale(window);
+    if (!std.math.isFinite(scale) or scale <= 0.0) return 1.0;
+    return clampf(scale, 1.0, 2.5);
 }
 
 fn clampInt(value: c_int, min_value: c_int, max_value: c_int) c_int {
