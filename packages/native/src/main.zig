@@ -2105,7 +2105,11 @@ fn renderRoot(state: *AppState, width: f32, height: f32) void {
     const gap = clampf(content[0] * 0.012, scaledUi(10.0), scaledUi(18.0));
     const sidebar_width = clampf(content[0] * 0.235, scaledUi(230.0), @min(scaledUi(360.0), content[0] * 0.38));
     const workspace_width = @max(content[0] - sidebar_width - gap, scaledUi(320.0));
-    renderSidebar(state, sidebar_width, content[1]);
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 0.0, 0.0 } });
+    zgui.pushStyleVar2f(.{ .idx = .item_spacing, .v = .{ 0.0, 0.0 } });
+    defer zgui.popStyleVar(.{ .count = 2 });
+    zgui.setCursorPos(.{ 0.0, 0.0 });
+    renderSidebar(state, sidebar_width, 0.0);
     zgui.sameLine(.{ .spacing = gap });
     renderChatWorkspace(state, workspace_width, content[1]);
     renderImageModal(state, width, height);
@@ -2207,7 +2211,7 @@ fn renderImageModal(state: *AppState, width: f32, height: f32) void {
     });
     defer {
         zgui.endChild();
-        zgui.popStyleVar(.{ .count = 1 });
+        zgui.popStyleVar(.{ .count = 2 });
     }
 
     const avail = zgui.getContentRegionAvail();
@@ -2312,13 +2316,31 @@ fn renderProjectRenameModal(state: *AppState, width: f32, height: f32) void {
 }
 
 fn renderSidebar(state: *AppState, width: f32, height: f32) void {
+    _ = height;
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 0.0 });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ scaledUi(12.0), scaledUi(12.0) } });
+    defer zgui.popStyleVar(.{ .count = 2 });
+    const overscan = scaledUi(12.0);
+    zgui.setCursorPos(.{ 0.0, 0.0 });
     _ = zgui.beginChild("ProjectsRail", .{
-        .w = width,
-        .h = height,
-        .child_flags = .{ .border = true },
+        .w = width + overscan,
+        .h = zgui.getContentRegionAvail()[1] + overscan,
+        .child_flags = .{ .border = false },
         .window_flags = .{ .no_scrollbar = true },
     });
     defer zgui.endChild();
+
+    {
+        const draw_list = zgui.getWindowDrawList();
+        const pos = zgui.getWindowPos();
+        const size = zgui.getWindowSize();
+        draw_list.addLine(.{
+            .p1 = .{ pos[0] + size[0] - 1.0, pos[1] },
+            .p2 = .{ pos[0] + size[0] - 1.0, pos[1] + size[1] },
+            .col = zgui.colorConvertFloat4ToU32(rgba(48, 50, 56, 255)),
+            .thickness = 1.0,
+        });
+    }
 
     const project_header_button_width = clampf(width * 0.11, scaledUi(28.0), scaledUi(38.0));
     const rail_inner_width = @max(width - scaledUi(22.0), scaledUi(140.0));
@@ -2604,10 +2626,20 @@ fn renderSidebarBrand(state: *AppState) void {
 }
 
 fn renderChatWorkspace(state: *AppState, width: f32, height: f32) void {
+    _ = width;
+    _ = height;
+    const overscan = scaledUi(12.0);
+    zgui.setCursorPos(.{
+        @max(0.0, zgui.getCursorPosX() - overscan),
+        0.0,
+    });
+    zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 0.0 });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ scaledUi(12.0), scaledUi(12.0) } });
+    defer zgui.popStyleVar(.{ .count = 2 });
     _ = zgui.beginChild("ChatWorkspace", .{
-        .w = width,
-        .h = height,
-        .child_flags = .{ .border = true },
+        .w = zgui.getContentRegionAvail()[0] + overscan,
+        .h = zgui.getContentRegionAvail()[1] + overscan,
+        .child_flags = .{ .border = false },
     });
     defer zgui.endChild();
 
@@ -2638,7 +2670,7 @@ fn renderTranscript(state: *AppState, width: f32, height: f32) void {
     _ = zgui.beginChild("Transcript", .{
         .w = width,
         .h = height,
-        .child_flags = .{ .border = true },
+        .child_flags = .{ .border = false },
     });
     defer zgui.endChild();
 
@@ -3438,7 +3470,7 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
     const composer_rounding = scaledUi(18.0);
     state.composer_focused = false;
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = composer_rounding });
-    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ scaledUi(18.0), scaledUi(14.0) } });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ scaledUi(18.0), scaledUi(12.0) } });
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = composer_bg });
     zgui.pushStyleColor4f(.{ .idx = .border, .c = .{ 0, 0, 0, 0 } }); // hide default border
     const composer_screen_pos = zgui.getCursorScreenPos();
@@ -3617,6 +3649,7 @@ fn renderComposerPickers(state: *AppState) void {
         // Provider sub-section
         zgui.pushStyleColor4f(.{ .idx = .text, .c = COLOR_TEXT_SUBTLE });
         zgui.textUnformatted("Provider");
+        zgui.popStyleVar(.{ .count = 1 });
         zgui.popStyleColor(.{ .count = 1 });
         inline for (@typeInfo(Provider).@"enum".fields) |field| {
             const candidate: Provider = @enumFromInt(field.value);
@@ -3812,6 +3845,7 @@ fn installFonts(font_size: f32) void {
 fn applyTheme(ui_scale: f32) void {
     const scale = if (std.math.isFinite(ui_scale) and ui_scale > 0.0) ui_scale else 1.0;
     const style = zgui.getStyle();
+    style.window_padding = .{ 0.0, 0.0 };
     zgui.styleColorsDark(style);
 
     style.font_scale_main = scale;
