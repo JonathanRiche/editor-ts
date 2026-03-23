@@ -2663,7 +2663,9 @@ fn renderWorkspaceHeader(state: *AppState) void {
     const thread = state.currentThread();
     zgui.dummy(.{ .w = 0.0, .h = scaledUi(2.0) });
     zgui.textColored(COLOR_WHITE, "{s}", .{if (thread.committed) thread.title else "New chat"});
-    zgui.dummy(.{ .w = 0.0, .h = scaledUi(4.0) });
+    zgui.dummy(.{ .w = 0.0, .h = scaledUi(6.0) });
+    zgui.separator();
+    zgui.dummy(.{ .w = 0.0, .h = scaledUi(6.0) });
 }
 
 fn renderTranscript(state: *AppState, width: f32, height: f32) void {
