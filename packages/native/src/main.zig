@@ -2318,7 +2318,7 @@ fn renderProjectRenameModal(state: *AppState, width: f32, height: f32) void {
 fn renderSidebar(state: *AppState, width: f32, height: f32) void {
     _ = height;
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 0.0 });
-    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ scaledUi(12.0), scaledUi(12.0) } });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ scaledUi(44.0), scaledUi(18.0) } });
     defer zgui.popStyleVar(.{ .count = 2 });
     const overscan = scaledUi(12.0);
     zgui.setCursorPos(.{ 0.0, 0.0 });
@@ -2343,7 +2343,7 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
     }
 
     const project_header_button_width = clampf(width * 0.11, scaledUi(28.0), scaledUi(38.0));
-    const rail_inner_width = @max(width - scaledUi(22.0), scaledUi(140.0));
+    const rail_inner_width = @max(width - scaledUi(36.0), scaledUi(140.0));
     renderSidebarBrand(state);
     zgui.dummy(.{ .w = 0.0, .h = scaledUi(2.0) });
     zgui.textColored(COLOR_TEXT_MUTED, "PROJECTS", .{});
@@ -2634,7 +2634,7 @@ fn renderChatWorkspace(state: *AppState, width: f32, height: f32) void {
         0.0,
     });
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 0.0 });
-    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ scaledUi(12.0), scaledUi(12.0) } });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ scaledUi(30.0), scaledUi(18.0) } });
     defer zgui.popStyleVar(.{ .count = 2 });
     _ = zgui.beginChild("ChatWorkspace", .{
         .w = zgui.getContentRegionAvail()[0] + overscan,
@@ -2661,11 +2661,11 @@ fn renderChatWorkspace(state: *AppState, width: f32, height: f32) void {
 
 fn renderWorkspaceHeader(state: *AppState) void {
     const thread = state.currentThread();
-    zgui.dummy(.{ .w = 0.0, .h = scaledUi(2.0) });
+    zgui.dummy(.{ .w = 0.0, .h = scaledUi(10.0) });
     zgui.textColored(COLOR_WHITE, "{s}", .{if (thread.committed) thread.title else "New chat"});
-    zgui.dummy(.{ .w = 0.0, .h = scaledUi(6.0) });
+    zgui.dummy(.{ .w = 0.0, .h = scaledUi(10.0) });
     zgui.separator();
-    zgui.dummy(.{ .w = 0.0, .h = scaledUi(6.0) });
+    zgui.dummy(.{ .w = 0.0, .h = scaledUi(10.0) });
 }
 
 fn renderTranscript(state: *AppState, width: f32, height: f32) void {
