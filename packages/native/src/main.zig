@@ -1898,6 +1898,8 @@ fn renderImageModal(state: *AppState, width: f32, height: f32) void {
         zgui.openPopup(IMAGE_MODAL_ID, .{});
     }
 
+    const modal_padding_x: f32 = 22.0;
+    const modal_padding_y: f32 = 20.0;
     const modal_width = @min(width * 0.78, 980.0);
     const modal_height = @min(height * 0.82, 760.0);
     zgui.setNextWindowPos(.{
@@ -1912,12 +1914,22 @@ fn renderImageModal(state: *AppState, width: f32, height: f32) void {
         .h = modal_height,
         .cond = .appearing,
     });
+    zgui.pushStyleVar1f(.{ .idx = .window_rounding, .v = 16.0 });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ modal_padding_x, modal_padding_y } });
+    zgui.pushStyleVar2f(.{ .idx = .item_spacing, .v = .{ 10.0, 8.0 } });
     if (!zgui.beginPopupModal(IMAGE_MODAL_ID, .{
         .flags = .{
+            .no_title_bar = true,
             .no_saved_settings = true,
         },
-    })) return;
-    defer zgui.endPopup();
+    })) {
+        zgui.popStyleVar(.{ .count = 3 });
+        return;
+    }
+    defer {
+        zgui.endPopup();
+        zgui.popStyleVar(.{ .count = 3 });
+    }
 
     const window_pos = zgui.getWindowPos();
     const window_size = zgui.getWindowSize();
@@ -1935,11 +1947,13 @@ fn renderImageModal(state: *AppState, width: f32, height: f32) void {
     }
 
     const texture = state.ensureImageTexture(modal_path);
-    const close_size: f32 = 26.0;
-    zgui.setCursorScreenPos(.{
-        window_pos[0] + window_size[0] - close_size - 12.0,
-        window_pos[1] + 12.0,
-    });
+    const close_size: f32 = 28.0;
+    const header_start = zgui.getCursorScreenPos();
+    const header_avail = zgui.getContentRegionAvail();
+    const header_gap: f32 = 12.0;
+    const header_text_width = @max(header_avail[0] - close_size - header_gap, 160.0);
+    const close_x = header_start[0] + header_avail[0] - close_size;
+    zgui.setCursorScreenPos(.{ close_x, header_start[1] });
     zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(46, 48, 56, 220) });
     zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(68, 70, 79, 240) });
     zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(90, 92, 102, 255) });
@@ -1951,10 +1965,30 @@ fn renderImageModal(state: *AppState, width: f32, height: f32) void {
     }
     zgui.popStyleColor(.{ .count = 3 });
 
-    zgui.setCursorScreenPos(.{ window_pos[0] + 12.0, window_pos[1] + 14.0 });
+    zgui.setCursorScreenPos(header_start);
+    zgui.pushTextWrapPos(header_start[0] + header_text_width);
     zgui.textColored(COLOR_WHITE, "{s}", .{std.fs.path.basename(modal_path)});
     zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{modal_path});
-    zgui.dummy(.{ .w = 0.0, .h = 10.0 });
+    zgui.popTextWrapPos();
+
+    const title_size = zgui.calcTextSize(std.fs.path.basename(modal_path), .{ .wrap_width = header_text_width });
+    const path_size = zgui.calcTextSize(modal_path, .{ .wrap_width = header_text_width });
+    const header_height = @max(title_size[1] + path_size[1] + 8.0, close_size);
+    zgui.setCursorScreenPos(.{ header_start[0], header_start[1] + header_height + 14.0 });
+    zgui.separator();
+    zgui.dummy(.{ .w = 0.0, .h = 6.0 });
+
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 16.0, 16.0 } });
+    _ = zgui.beginChild("AttachmentPreviewCanvas", .{
+        .w = 0.0,
+        .h = 0.0,
+        .child_flags = .{ .border = true },
+        .window_flags = .{},
+    });
+    defer {
+        zgui.endChild();
+        zgui.popStyleVar(.{ .count = 1 });
+    }
 
     const avail = zgui.getContentRegionAvail();
     const image_max_w = @max(avail[0], 80.0);
@@ -1963,9 +1997,11 @@ fn renderImageModal(state: *AppState, width: f32, height: f32) void {
     if (texture) |cached| {
         const dims = scaledImageSize(cached.width, cached.height, image_max_w, image_max_h);
         const x_offset = (image_max_w - dims[0]) * 0.5;
-        if (x_offset > 0.0) {
-            zgui.setCursorPosX(zgui.getCursorPosX() + x_offset);
+        const y_offset = (image_max_h - dims[1]) * 0.5;
+        if (y_offset > 0.0) {
+            zgui.dummy(.{ .w = 0.0, .h = y_offset });
         }
+        if (x_offset > 0.0) zgui.setCursorPosX(zgui.getCursorPosX() + x_offset);
         zgui.image(textureRefFromGlId(cached.texture_id), .{
             .w = dims[0],
             .h = dims[1],
