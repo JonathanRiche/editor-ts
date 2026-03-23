@@ -13,6 +13,7 @@ const ORG_NAME: [:0]const u8 = "Verde";
 const APP_NAME: [:0]const u8 = "Native";
 const STATE_FILE_NAME = "state.json";
 const GEIST_SANS_BYTES = @embedFile("assets/fonts/Geist-Regular.ttf");
+const VERDE_LOGO_BYTES = @embedFile("assets/verde_logo.png");
 const DEFAULT_FONT_SIZE: f32 = 18.0;
 const DEFAULT_WINDOW_WIDTH: c_int = 1360;
 const DEFAULT_WINDOW_HEIGHT: c_int = 860;
@@ -64,6 +65,7 @@ extern fn glDeleteTextures(n: c_int, textures: [*]const c_uint) void;
 extern fn glPixelStorei(pname: c_uint, param: c_int) void;
 extern fn SDL_GetPrimaryDisplay() sdl.DisplayId;
 extern fn SDL_GetDisplayUsableBounds(display_id: sdl.DisplayId, rect: *SdlRect) bool;
+extern fn SDL_WaitEventTimeout(event: *sdl.Event, timeoutMS: c_int) bool;
 extern fn SDL_GetWindowSizeInPixels(window: *sdl.Window, w: ?*c_int, h: ?*c_int) bool;
 extern fn SDL_GetWindowDisplayScale(window: *sdl.Window) f32;
 extern fn SDL_SetWindowPosition(window: *sdl.Window, x: c_int, y: c_int) bool;
@@ -162,6 +164,9 @@ const CODEX_ACCESS_MODE_OPTIONS = [_]AccessModeOption{
 const DEFAULT_CODEX_MODEL: [:0]const u8 = "gpt-5.4";
 const SIDEBAR_VISIBLE_THREAD_LIMIT: usize = 6;
 const CLIPBOARD_IMAGE_MAX_BYTES: usize = 10 * 1024 * 1024;
+const MAX_THREAD_MESSAGES: usize = 24;
+const ACTIVE_WAIT_TIMEOUT_MS: c_int = 16;
+const IDLE_WAIT_TIMEOUT_MS: c_int = 50;
 
 const ChatImageAttachment = struct {
     path: [:0]const u8,
@@ -733,6 +738,7 @@ const AppState = struct {
     sidebar_notice_storage: [256:0]u8,
     composer_focused: bool,
     image_texture_cache: std.StringHashMap(CachedImageTexture),
+    logo_texture: ?CachedImageTexture,
     modal_image_path: ?[:0]const u8,
     rename_project_index: ?usize,
     show_project_creator: bool,
@@ -753,6 +759,7 @@ const AppState = struct {
             .sidebar_notice_storage = std.mem.zeroes([256:0]u8),
             .composer_focused = false,
             .image_texture_cache = std.StringHashMap(CachedImageTexture).init(allocator),
+            .logo_texture = null,
             .modal_image_path = null,
             .rename_project_index = null,
             .show_project_creator = false,
@@ -768,6 +775,7 @@ const AppState = struct {
         } else {
             try state.seedDefaultState();
         }
+        state.logo_texture = loadEmbeddedTexture(VERDE_LOGO_BYTES);
         return state;
     }
 
@@ -780,12 +788,7 @@ const AppState = struct {
 
     fn appendMessage(self: *AppState, role: ChatRole, author: []const u8, body: []const u8, image: ?*const ChatImageAttachment) !void {
         const thread = self.currentThreadMutable();
-        if (thread.messages.items.len == 24) {
-            const removed = thread.messages.orderedRemove(0);
-            self.allocator.free(removed.author);
-            self.allocator.free(removed.body);
-            if (removed.image) |*removed_image| removed_image.deinit(self.allocator);
-        }
+        self.trimThreadMessages(thread, 1);
 
         try thread.messages.append(self.allocator, .{
             .role = role,
@@ -1234,6 +1237,33 @@ const AppState = struct {
         self.markDirty();
     }
 
+    fn trimThreadMessages(self: *AppState, thread: *ChatThread, incoming_count: usize) void {
+        if (incoming_count >= MAX_THREAD_MESSAGES) {
+            self.clearThreadMessages(thread);
+            return;
+        }
+
+        while (thread.messages.items.len + incoming_count > MAX_THREAD_MESSAGES) {
+            self.releaseMessage(thread.messages.orderedRemove(0));
+        }
+    }
+
+    fn clearThreadMessages(self: *AppState, thread: *ChatThread) void {
+        while (thread.messages.items.len > 0) {
+            self.releaseMessage(thread.messages.pop().?);
+        }
+    }
+
+    fn releaseMessage(self: *AppState, message: ChatMessage) void {
+        self.allocator.free(message.author);
+        self.allocator.free(message.body);
+        if (message.image) |image| {
+            self.evictCachedImageTexture(image.path);
+            var owned_image = image;
+            owned_image.deinit(self.allocator);
+        }
+    }
+
     fn ensureImageTexture(self: *AppState, path: [:0]const u8) ?CachedImageTexture {
         if (self.image_texture_cache.getPtr(path)) |cached| {
             return if (cached.valid) cached.* else null;
@@ -1254,10 +1284,7 @@ const AppState = struct {
         };
         defer loaded.deinit();
 
-        var textures = [_]c_uint{0};
-        glGenTextures(1, &textures);
-        const texture_id = textures[0];
-        if (texture_id == 0) {
+        const cached = uploadTexture(loaded) orelse {
             self.image_texture_cache.put(owned_key, .{
                 .texture_id = 0,
                 .width = 0,
@@ -1265,32 +1292,6 @@ const AppState = struct {
                 .valid = false,
             }) catch self.allocator.free(owned_key);
             return null;
-        }
-
-        glBindTexture(GL_TEXTURE_2D, texture_id);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(
-            GL_TEXTURE_2D,
-            0,
-            GL_RGBA,
-            @intCast(loaded.width),
-            @intCast(loaded.height),
-            0,
-            GL_RGBA,
-            GL_UNSIGNED_BYTE,
-            loaded.pixels,
-        );
-        glBindTexture(GL_TEXTURE_2D, 0);
-
-        const cached: CachedImageTexture = .{
-            .texture_id = texture_id,
-            .width = loaded.width,
-            .height = loaded.height,
-            .valid = true,
         };
 
         self.image_texture_cache.put(owned_key, cached) catch {
@@ -1308,12 +1309,21 @@ const AppState = struct {
     }
 
     fn releaseAllImageTextures(self: *AppState) void {
+        self.clearImageTextureCache();
+        if (self.logo_texture) |cached| {
+            cached.deinit();
+            self.logo_texture = null;
+        }
+        self.image_texture_cache.deinit();
+    }
+
+    fn clearImageTextureCache(self: *AppState) void {
         var it = self.image_texture_cache.iterator();
         while (it.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
             entry.value_ptr.deinit();
         }
-        self.image_texture_cache.deinit();
+        self.image_texture_cache.clearRetainingCapacity();
     }
 
     fn openImageModal(self: *AppState, path: [:0]const u8) void {
@@ -1490,9 +1500,8 @@ const AppState = struct {
         freePendingTimelineEvents(std.heap.page_allocator, &self.send_state.pending_events);
         freePendingDiffFiles(std.heap.page_allocator, &self.send_state.pending_diff_files);
         freePendingApproval(std.heap.page_allocator, &self.send_state.pending_approval);
-        self.releaseAllImageTextures();
-        if (self.modal_image_path) |path| self.allocator.free(path);
         self.clearProjects();
+        self.releaseAllImageTextures();
         self.projects.deinit(self.allocator);
     }
 
@@ -1652,6 +1661,12 @@ const AppState = struct {
         return true;
     }
 
+    fn isPickerPending(self: *AppState) bool {
+        self.picker_state.mutex.lock();
+        defer self.picker_state.mutex.unlock();
+        return self.picker_state.status == .pending;
+    }
+
     fn pendingApprovalSnapshot(self: *AppState) !?PendingApproval {
         self.send_state.mutex.lock();
         defer self.send_state.mutex.unlock();
@@ -1694,6 +1709,7 @@ const AppState = struct {
         if (std.mem.trim(u8, result.reply_text, &std.ascii.whitespace).len > 0 and thread.messages.items.len > 0) {
             const last_message = thread.messages.items[thread.messages.items.len - 1];
             if (last_message.role != .assistant or !std.mem.eql(u8, last_message.body, result.reply_text)) {
+                self.trimThreadMessages(thread, 1);
                 try thread.messages.append(self.allocator, .{
                     .role = .assistant,
                     .author = try self.dupeZ(providerLabel(thread.provider)),
@@ -1702,6 +1718,7 @@ const AppState = struct {
                 });
             }
         } else if (std.mem.trim(u8, result.reply_text, &std.ascii.whitespace).len > 0) {
+            self.trimThreadMessages(thread, 1);
             try thread.messages.append(self.allocator, .{
                 .role = .assistant,
                 .author = try self.dupeZ(providerLabel(thread.provider)),
@@ -1721,6 +1738,7 @@ const AppState = struct {
         if (result.thread_index >= project.threads.items.len) return;
         const thread = &project.threads.items[result.thread_index];
 
+        self.trimThreadMessages(thread, events.items.len);
         for (events.items) |event| {
             try thread.messages.append(self.allocator, .{
                 .role = event.role,
@@ -1766,6 +1784,8 @@ const AppState = struct {
     }
 
     fn clearProjects(self: *AppState) void {
+        self.clearImageTextureCache();
+        self.closeImageModal();
         for (self.projects.items) |*project| {
             project.deinit(self.allocator);
         }
@@ -1793,6 +1813,48 @@ const AppState = struct {
         return self.allocator.dupe(u8, home);
     }
 };
+
+fn uploadTexture(loaded: stb_image.LoadedImage) ?CachedImageTexture {
+    var textures = [_]c_uint{0};
+    glGenTextures(1, &textures);
+    const texture_id = textures[0];
+    if (texture_id == 0) return null;
+
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA,
+        @intCast(loaded.width),
+        @intCast(loaded.height),
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        loaded.pixels,
+    );
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    return .{
+        .texture_id = texture_id,
+        .width = loaded.width,
+        .height = loaded.height,
+        .valid = true,
+    };
+}
+
+fn loadEmbeddedTexture(bytes: []const u8) ?CachedImageTexture {
+    const loaded = stb_image.loadFromMemory(bytes) catch |err| {
+        log.err("failed to decode embedded logo texture: {s}", .{@errorName(err)});
+        return null;
+    };
+    defer loaded.deinit();
+    return uploadTexture(loaded);
+}
 
 pub fn main() !void {
     var gpa_state: std.heap.DebugAllocator(.{}) = .init;
@@ -1949,22 +2011,41 @@ fn scaledUi(value: f32) f32 {
 
 fn processEvents(state: *AppState, keyboard: *keybinds.NativeKeyboardConfig) bool {
     var event: sdl.Event = undefined;
-    while (sdl.pollEvent(&event)) {
-        _ = zgui.backend.processEvent(&event);
-        switch (event.type) {
-            .quit => return false,
-            .key_down => {
-                if (shouldPasteClipboardImage(state, &event.key)) {
-                    state.attachClipboardImageToCurrentDraft();
-                    continue;
-                }
-                const action = keyboard.actionForEvent(&event.key) orelse continue;
-                handleKeyboardAction(state, keyboard, action);
-            },
-            else => {},
+
+    if (!sdl.pollEvent(&event)) {
+        if (!SDL_WaitEventTimeout(&event, eventWaitTimeoutMs(state))) {
+            return true;
         }
+        if (!handleEvent(state, keyboard, &event)) return false;
+    } else {
+        if (!handleEvent(state, keyboard, &event)) return false;
     }
 
+    while (sdl.pollEvent(&event)) {
+        if (!handleEvent(state, keyboard, &event)) return false;
+    }
+
+    return true;
+}
+
+fn eventWaitTimeoutMs(state: *AppState) c_int {
+    return if (state.hasPendingStream() or state.isPickerPending()) ACTIVE_WAIT_TIMEOUT_MS else IDLE_WAIT_TIMEOUT_MS;
+}
+
+fn handleEvent(state: *AppState, keyboard: *keybinds.NativeKeyboardConfig, event: *sdl.Event) bool {
+    _ = zgui.backend.processEvent(event);
+    switch (event.type) {
+        .quit => return false,
+        .key_down => {
+            if (shouldPasteClipboardImage(state, &event.key)) {
+                state.attachClipboardImageToCurrentDraft();
+                return true;
+            }
+            const action = keyboard.actionForEvent(&event.key) orelse return true;
+            handleKeyboardAction(state, keyboard, action);
+        },
+        else => {},
+    }
     return true;
 }
 
@@ -2239,13 +2320,7 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
 
     const project_header_button_width = clampf(width * 0.11, scaledUi(28.0), scaledUi(38.0));
     const rail_inner_width = @max(width - scaledUi(22.0), scaledUi(140.0));
-    if (heading_font) |font| {
-        zgui.pushFont(font, heading_font_size);
-        zgui.textColored(COLOR_WHITE, "Verde", .{});
-        zgui.popFont();
-    } else {
-        zgui.textColored(COLOR_WHITE, "Verde", .{});
-    }
+    renderSidebarBrand(state);
     zgui.dummy(.{ .w = 0.0, .h = scaledUi(2.0) });
     zgui.textColored(COLOR_TEXT_MUTED, "PROJECTS", .{});
     zgui.sameLine(.{ .spacing = 0.0 });
@@ -2481,6 +2556,49 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         }
         zgui.spacing();
     }
+}
+
+fn renderSidebarBrand(state: *AppState) void {
+    const start = zgui.getCursorPos();
+    const spacing = scaledUi(10.0);
+    const fallback_logo_size = scaledUi(28.0);
+    const title_text = "Verde";
+
+    var text_size = zgui.calcTextSize(title_text, .{});
+    if (heading_font) |font| {
+        zgui.pushFont(font, heading_font_size);
+        text_size = zgui.calcTextSize(title_text, .{});
+        zgui.popFont();
+    }
+
+    var logo_width: f32 = 0.0;
+    var logo_height: f32 = 0.0;
+    if (state.logo_texture) |cached| {
+        const target_height = @max(text_size[1] * 1.15, fallback_logo_size);
+        const aspect_ratio = @as(f32, @floatFromInt(cached.width)) / @as(f32, @floatFromInt(cached.height));
+        logo_height = target_height;
+        logo_width = logo_height * aspect_ratio;
+
+        zgui.setCursorPos(start);
+        zgui.image(textureRefFromGlId(cached.texture_id), .{
+            .w = logo_width,
+            .h = logo_height,
+        });
+        zgui.sameLine(.{ .spacing = spacing });
+    }
+
+    const row_height = @max(logo_height, text_size[1]);
+    const text_x = start[0] + if (logo_width > 0.0) logo_width + spacing else 0.0;
+    const text_y = start[1] + (row_height - text_size[1]) * 0.5;
+    zgui.setCursorPos(.{ text_x, text_y });
+    if (heading_font) |font| {
+        zgui.pushFont(font, heading_font_size);
+        zgui.textColored(COLOR_WHITE, title_text, .{});
+        zgui.popFont();
+    } else {
+        zgui.textColored(COLOR_WHITE, title_text, .{});
+    }
+    zgui.setCursorPos(.{ start[0], start[1] + row_height });
 }
 
 fn renderChatWorkspace(state: *AppState, width: f32, height: f32) void {

@@ -27,3 +27,16 @@ pub fn load(path: [:0]const u8) !LoadedImage {
         .channels = 4,
     };
 }
+
+pub fn loadFromMemory(bytes: []const u8) !LoadedImage {
+    var width: c_int = 0;
+    var height: c_int = 0;
+    var channels: c_int = 0;
+    const pixels = c.stbi_load_from_memory(bytes.ptr, @intCast(bytes.len), &width, &height, &channels, 4) orelse return error.DecodeFailed;
+    return .{
+        .pixels = @ptrCast(pixels),
+        .width = width,
+        .height = height,
+        .channels = 4,
+    };
+}
