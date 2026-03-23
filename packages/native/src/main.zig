@@ -1898,9 +1898,19 @@ fn renderImageModal(state: *AppState, width: f32, height: f32) void {
         zgui.openPopup(IMAGE_MODAL_ID, .{});
     }
 
+    const modal_width = @min(width * 0.78, 980.0);
+    const modal_height = @min(height * 0.82, 760.0);
+    zgui.setNextWindowPos(.{
+        .x = width * 0.5,
+        .y = height * 0.5,
+        .cond = .appearing,
+        .pivot_x = 0.5,
+        .pivot_y = 0.5,
+    });
     zgui.setNextWindowSize(.{
-        .w = @min(width * 0.78, 980.0),
-        .h = @min(height * 0.82, 760.0),
+        .w = modal_width,
+        .h = modal_height,
+        .cond = .appearing,
     });
     if (!zgui.beginPopupModal(IMAGE_MODAL_ID, .{
         .flags = .{
@@ -1909,15 +1919,46 @@ fn renderImageModal(state: *AppState, width: f32, height: f32) void {
     })) return;
     defer zgui.endPopup();
 
+    const window_pos = zgui.getWindowPos();
+    const window_size = zgui.getWindowSize();
+    const mouse_pos = zgui.getMousePos();
+    const clicked_outside =
+        zgui.isMouseClicked(.left) and
+        (mouse_pos[0] < window_pos[0] or
+            mouse_pos[1] < window_pos[1] or
+            mouse_pos[0] > (window_pos[0] + window_size[0]) or
+            mouse_pos[1] > (window_pos[1] + window_size[1]));
+    if (clicked_outside) {
+        state.closeImageModal();
+        zgui.closeCurrentPopup();
+        return;
+    }
+
     const texture = state.ensureImageTexture(modal_path);
+    const close_size: f32 = 26.0;
+    zgui.setCursorScreenPos(.{
+        window_pos[0] + window_size[0] - close_size - 12.0,
+        window_pos[1] + 12.0,
+    });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = rgba(46, 48, 56, 220) });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = rgba(68, 70, 79, 240) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = rgba(90, 92, 102, 255) });
+    if (zgui.button("x", .{ .w = close_size, .h = close_size })) {
+        state.closeImageModal();
+        zgui.closeCurrentPopup();
+        zgui.popStyleColor(.{ .count = 3 });
+        return;
+    }
+    zgui.popStyleColor(.{ .count = 3 });
+
+    zgui.setCursorScreenPos(.{ window_pos[0] + 12.0, window_pos[1] + 14.0 });
     zgui.textColored(COLOR_WHITE, "{s}", .{std.fs.path.basename(modal_path)});
     zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{modal_path});
     zgui.dummy(.{ .w = 0.0, .h = 10.0 });
 
     const avail = zgui.getContentRegionAvail();
-    const footer_height: f32 = 42.0;
     const image_max_w = @max(avail[0], 80.0);
-    const image_max_h = @max(avail[1] - footer_height, 80.0);
+    const image_max_h = @max(avail[1], 80.0);
 
     if (texture) |cached| {
         const dims = scaledImageSize(cached.width, cached.height, image_max_w, image_max_h);
@@ -1931,17 +1972,6 @@ fn renderImageModal(state: *AppState, width: f32, height: f32) void {
         });
     } else {
         _ = zgui.button("Preview unavailable", .{ .w = image_max_w, .h = @min(image_max_h, 240.0) });
-    }
-
-    zgui.dummy(.{ .w = 0.0, .h = 10.0 });
-    const close_w: f32 = 96.0;
-    const trailing = zgui.getContentRegionAvail()[0] - close_w;
-    if (trailing > 0.0) {
-        zgui.sameLine(.{ .spacing = trailing });
-    }
-    if (zgui.button("Close", .{ .w = close_w, .h = 30.0 })) {
-        state.closeImageModal();
-        zgui.closeCurrentPopup();
     }
 }
 
