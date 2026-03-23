@@ -1126,27 +1126,50 @@ const AppState = struct {
     }
 
     fn clearCurrentDraftImage(self: *AppState) void {
-        self.currentThreadMutable().clearDraftImage(self.allocator);
+        const thread = self.currentThreadMutable();
+        if (thread.draft_image) |image| {
+            std.fs.deleteFileAbsolute(image.path) catch {};
+        }
+        thread.clearDraftImage(self.allocator);
         self.markDirty();
     }
 
     fn writeClipboardImageToStorage(self: *AppState, mime: []const u8, bytes: []const u8) ![]u8 {
         const images_dir = try std.fs.path.join(self.allocator, &.{ self.storage.pref_path, "clipboard-images" });
         defer self.allocator.free(images_dir);
-        try std.fs.makeDirAbsolute(images_dir);
+        std.fs.makeDirAbsolute(images_dir) catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return err,
+        };
 
         const ext = extensionForImageMime(mime);
         const timestamp_ms = @as(u64, @intCast(@max(@as(i64, 0), std.time.milliTimestamp())));
-        const file_name = try std.fmt.allocPrint(self.allocator, "clipboard-{d}.{s}", .{ timestamp_ms, ext });
-        defer self.allocator.free(file_name);
+        var attempt: usize = 0;
+        while (attempt < 256) : (attempt += 1) {
+            const file_name = if (attempt == 0)
+                try std.fmt.allocPrint(self.allocator, "clipboard-{d}.{s}", .{ timestamp_ms, ext })
+            else
+                try std.fmt.allocPrint(self.allocator, "clipboard-{d}-{d}.{s}", .{ timestamp_ms, attempt, ext });
+            defer self.allocator.free(file_name);
 
-        const image_path = try std.fs.path.join(self.allocator, &.{ images_dir, file_name });
-        errdefer self.allocator.free(image_path);
+            const image_path = try std.fs.path.join(self.allocator, &.{ images_dir, file_name });
+            errdefer self.allocator.free(image_path);
 
-        var file = try std.fs.createFileAbsolute(image_path, .{ .truncate = true });
-        defer file.close();
-        try file.writeAll(bytes);
-        return image_path;
+            const file = std.fs.createFileAbsolute(image_path, .{ .exclusive = true });
+            if (file) |created| {
+                defer created.close();
+                try created.writeAll(bytes);
+                return image_path;
+            } else |err| switch (err) {
+                error.PathAlreadyExists => {
+                    self.allocator.free(image_path);
+                    continue;
+                },
+                else => return err,
+            }
+        }
+
+        return error.PathAlreadyExists;
     }
 
     fn currentDraft(self: *const AppState) []const u8 {
@@ -2610,6 +2633,8 @@ fn renderImageAttachmentCard(image: ChatImageAttachment, compact: bool) void {
     const card_width: f32 = if (compact) 220.0 else @min(zgui.getContentRegionAvail()[0], 260.0);
     const preview_width: f32 = 56.0;
     const start = zgui.getCursorScreenPos();
+    var byte_size_buf = std.mem.zeroes([32:0]u8);
+    const byte_size_text = formatByteSize(&byte_size_buf, image.byte_size);
 
     zgui.dummy(.{ .w = card_width, .h = card_height });
     const draw_list = zgui.getWindowDrawList();
@@ -2632,27 +2657,27 @@ fn renderImageAttachmentCard(image: ChatImageAttachment, compact: bool) void {
         .col = zgui.colorConvertFloat4ToU32(rgba(24, 25, 31, 255)),
         .rounding = 10.0,
     });
-    draw_list.addText(.{ start[0] + 22.0, start[1] + 24.0 }, zgui.colorConvertFloat4ToU32(COLOR_YELLOW), "[]", .{});
+    draw_list.addText(.{ start[0] + 18.0, start[1] + 24.0 }, zgui.colorConvertFloat4ToU32(COLOR_YELLOW), "IMG", .{});
 
     zgui.setCursorScreenPos(.{ start[0] + preview_width + 18.0, start[1] + 11.0 });
     zgui.textColored(COLOR_WHITE, "{s}", .{image.file_name});
-    zgui.textColored(COLOR_TEXT_MUTED, "{s}  {s}", .{ image.mime, formatByteSize(image.byte_size) });
+    zgui.textColored(COLOR_TEXT_MUTED, "{s}  {s}", .{ image.mime, byte_size_text });
     if (compact) {
         zgui.textColored(COLOR_TEXT_SUBTLE, "Clipboard image", .{});
     }
     zgui.setCursorScreenPos(.{ start[0], start[1] + card_height });
 }
 
-fn formatByteSize(size: usize) [32:0]u8 {
-    var buffer = std.mem.zeroes([32:0]u8);
+fn formatByteSize(buffer: *[32:0]u8, size: usize) [:0]const u8 {
+    @memset(buffer, 0);
     if (size >= 1024 * 1024) {
-        _ = std.fmt.bufPrintZ(&buffer, "{d:.1} MB", .{@as(f64, @floatFromInt(size)) / (1024.0 * 1024.0)}) catch {};
+        _ = std.fmt.bufPrintZ(buffer, "{d:.1} MB", .{@as(f64, @floatFromInt(size)) / (1024.0 * 1024.0)}) catch {};
     } else if (size >= 1024) {
-        _ = std.fmt.bufPrintZ(&buffer, "{d:.1} KB", .{@as(f64, @floatFromInt(size)) / 1024.0}) catch {};
+        _ = std.fmt.bufPrintZ(buffer, "{d:.1} KB", .{@as(f64, @floatFromInt(size)) / 1024.0}) catch {};
     } else {
-        _ = std.fmt.bufPrintZ(&buffer, "{d} B", .{size}) catch {};
+        _ = std.fmt.bufPrintZ(buffer, "{d} B", .{size}) catch {};
     }
-    return buffer;
+    return std.mem.sliceTo(buffer, 0);
 }
 
 const TranscriptBubbleTheme = struct {
