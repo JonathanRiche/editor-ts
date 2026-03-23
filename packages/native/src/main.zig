@@ -2626,19 +2626,10 @@ fn renderChatWorkspace(state: *AppState, width: f32, height: f32) void {
 }
 
 fn renderWorkspaceHeader(state: *AppState) void {
-    const project = state.currentProject();
     const thread = state.currentThread();
-    zgui.dummy(.{ .w = 0.0, .h = 2.0 });
-    zgui.textColored(COLOR_WHITE, "{s}", .{project.label});
-    zgui.dummy(.{ .w = 0.0, .h = 1.0 });
-    zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{project.path});
-    zgui.textColored(COLOR_TEXT_SUBTLE, "{s}  |  {d} saved threads", .{
-        if (thread.committed) thread.title else "New chat",
-        project.committedThreadCount(),
-    });
-    zgui.dummy(.{ .w = 0.0, .h = 1.0 });
-    zgui.textColored(rgba(124, 221, 94, 180), "Focused mode: chat only", .{});
-    zgui.dummy(.{ .w = 0.0, .h = 4.0 });
+    zgui.dummy(.{ .w = 0.0, .h = scaledUi(2.0) });
+    zgui.textColored(COLOR_WHITE, "{s}", .{if (thread.committed) thread.title else "New chat"});
+    zgui.dummy(.{ .w = 0.0, .h = scaledUi(4.0) });
 }
 
 fn renderTranscript(state: *AppState, width: f32, height: f32) void {
