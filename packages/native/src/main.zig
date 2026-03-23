@@ -1535,21 +1535,28 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
     });
     defer zgui.endChild();
 
+    const project_header_button_width: f32 = 28.0;
     zgui.textColored(COLOR_TEXT_MUTED, "PROJECTS", .{});
-    zgui.sameLine(.{ .spacing = width - 82.0 });
+    zgui.sameLine(.{ .spacing = width - 114.0 });
     if (state.show_project_creator) {
         zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_PANEL_ALT });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_PANEL_ALT, 0.06) });
         zgui.pushStyleColor4f(.{ .idx = .button_active, .c = lighten(COLOR_PANEL_ALT, 0.12) });
-        if (zgui.button("x", .{ .w = 24.0, .h = 24.0 })) {
+        if (zgui.button("x", .{ .w = project_header_button_width, .h = 24.0 })) {
             state.show_project_creator = false;
             state.clearImportPath();
             state.setSidebarNotice("");
         }
         zgui.popStyleColor(.{ .count = 3 });
-    } else if (zgui.button("+", .{ .w = 24.0, .h = 24.0 })) {
-        state.show_project_creator = true;
-        state.setSidebarNotice("");
+    } else {
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_GREEN });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_GREEN, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_GREEN, 0.10) });
+        if (zgui.button("+", .{ .w = project_header_button_width, .h = 24.0 })) {
+            state.show_project_creator = true;
+            state.setSidebarNotice("");
+        }
+        zgui.popStyleColor(.{ .count = 3 });
     }
 
     if (state.show_project_creator) {
