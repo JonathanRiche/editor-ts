@@ -21,7 +21,8 @@ const MIN_WINDOW_HEIGHT: c_int = 680;
 const MAX_WINDOW_WIDTH: c_int = 1520;
 const MAX_WINDOW_HEIGHT: c_int = 980;
 
-const COLOR_GREEN = rgb(0x10, 0xb9, 0x61);
+//for hex in fornt of each 2 chars add 0x
+const COLOR_GREEN = rgb(0x50, 0xc8, 0x78);
 const COLOR_YELLOW = rgb(0xfb, 0xbf, 0x24);
 const COLOR_BLACK = rgba(22, 22, 26, 255);
 const COLOR_WHITE = rgba(240, 240, 245, 255);
@@ -32,7 +33,7 @@ const COLOR_TEXT_MUTED = rgba(185, 187, 195, 255);
 const COLOR_TEXT_SUBTLE = rgba(120, 122, 135, 255);
 const COLOR_DIFF_ADD = rgba(52, 224, 148, 255);
 const COLOR_DIFF_REMOVE = rgba(255, 100, 100, 255);
-const COLOR_ACCENT_DIM = rgba(16, 185, 97, 48);
+const COLOR_ACCENT_DIM = rgba(124, 221, 94, 48);
 const TRANSCRIPT_BUBBLE_PADDING_X: f32 = 18.0;
 const TRANSCRIPT_BUBBLE_PADDING_Y: f32 = 14.0;
 const TRANSCRIPT_BUBBLE_ROUNDING: f32 = 14.0;
@@ -2518,7 +2519,7 @@ fn renderWorkspaceHeader(state: *AppState) void {
         project.committedThreadCount(),
     });
     zgui.dummy(.{ .w = 0.0, .h = 1.0 });
-    zgui.textColored(rgba(16, 185, 97, 180), "Focused mode: chat only", .{});
+    zgui.textColored(rgba(124, 221, 94, 180), "Focused mode: chat only", .{});
     zgui.dummy(.{ .w = 0.0, .h = 4.0 });
 }
 
@@ -3343,7 +3344,7 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
         zgui.popStyleVar(.{ .count = 2 });
 
         const border_color = if (focused)
-            rgba(16, 185, 97, 140)
+            rgba(124, 221, 94, 140)
         else
             rgba(58, 62, 78, 255);
         const draw_list = zgui.getWindowDrawList();
@@ -3722,7 +3723,7 @@ fn applyTheme(ui_scale: f32) void {
     style.setColor(.separator, rgba(48, 50, 56, 255));
     style.setColor(.check_mark, COLOR_WHITE);
     style.setColor(.text, COLOR_WHITE);
-    style.setColor(.text_selected_bg, rgba(16, 185, 97, 80));
+    style.setColor(.text_selected_bg, rgba(124, 221, 94, 80));
     style.setColor(.title_bg, COLOR_PANEL);
     style.setColor(.title_bg_active, COLOR_PANEL_ALT);
     style.setColor(.header, COLOR_PANEL_ALT);
