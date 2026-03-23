@@ -24,10 +24,12 @@ const MAX_WINDOW_HEIGHT: c_int = 980;
 
 //for hex in fornt of each 2 chars add 0x
 const COLOR_GREEN = rgb(0x50, 0xc8, 0x78);
+const COLOR_SECONDARY_GREEN = rgb(0x37, 0x58, 0x46);
 const COLOR_YELLOW = rgb(0xfb, 0xbf, 0x24);
-const COLOR_BLACK = rgba(22, 22, 26, 255);
+const COLOR_NAV_CHAT_BG = rgba(0x20, 0x27, 0x2A, 255);
+const COLOR_BLACK = COLOR_NAV_CHAT_BG;
 const COLOR_WHITE = rgba(240, 240, 245, 255);
-const COLOR_PANEL = rgba(30, 31, 35, 255);
+const COLOR_PANEL = COLOR_NAV_CHAT_BG;
 const COLOR_PANEL_ALT = rgba(40, 41, 46, 255);
 const COLOR_PANEL_MUTED = rgba(56, 57, 62, 255);
 const COLOR_TEXT_MUTED = rgba(185, 187, 195, 255);
@@ -2297,9 +2299,9 @@ fn renderProjectRenameModal(state: *AppState, width: f32, height: f32) void {
     zgui.popStyleColor(.{ .count = 3 });
 
     zgui.sameLine(.{ .spacing = scaledUi(10.0) });
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_GREEN });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_GREEN, 0.10) });
-    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_GREEN, 0.10) });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_SECONDARY_GREEN });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_SECONDARY_GREEN, 0.10) });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_SECONDARY_GREEN, 0.10) });
     if (zgui.button("Rename", .{ .w = button_width, .h = scaledUi(34.0) })) {
         state.finishProjectRename();
         zgui.closeCurrentPopup();
@@ -2336,9 +2338,9 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         }
         zgui.popStyleColor(.{ .count = 3 });
     } else {
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_GREEN });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_GREEN, 0.10) });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_GREEN, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_SECONDARY_GREEN });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_SECONDARY_GREEN, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_SECONDARY_GREEN, 0.10) });
         if (zgui.button("+", .{ .w = project_header_button_width, .h = scaledUi(24.0) })) {
             state.show_project_creator = true;
             state.setSidebarNotice("");
@@ -2368,9 +2370,9 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         });
         zgui.popItemWidth();
         zgui.sameLine(.{ .spacing = field_spacing });
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_GREEN });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_GREEN, 0.10) });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_GREEN, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = COLOR_SECONDARY_GREEN });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = lighten(COLOR_SECONDARY_GREEN, 0.10) });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = darken(COLOR_SECONDARY_GREEN, 0.10) });
         if (zgui.button("Add", .{ .w = add_button_width, .h = scaledUi(40.0) })) {
             state.importProjectFromInput() catch |err| {
                 state.setSidebarNotice(@errorName(err));
@@ -3530,9 +3532,9 @@ fn renderComposer(state: *AppState, width: f32, height: f32) void {
         const circle_color = if (pending)
             rgba(80, 72, 24, 255)
         else if (hovered)
-            lighten(COLOR_GREEN, 0.12)
+            lighten(COLOR_SECONDARY_GREEN, 0.12)
         else
-            COLOR_GREEN;
+            COLOR_SECONDARY_GREEN;
         draw_list.addCircleFilled(.{
             .p = .{ cx, cy },
             .r = r,
@@ -3825,9 +3827,9 @@ fn applyTheme(ui_scale: f32) void {
     style.setColor(.frame_bg, COLOR_PANEL_ALT);
     style.setColor(.frame_bg_hovered, lighten(COLOR_PANEL_ALT, 0.10));
     style.setColor(.frame_bg_active, lighten(COLOR_PANEL_ALT, 0.16));
-    style.setColor(.button, COLOR_GREEN);
-    style.setColor(.button_hovered, lighten(COLOR_GREEN, 0.12));
-    style.setColor(.button_active, darken(COLOR_GREEN, 0.08));
+    style.setColor(.button, COLOR_SECONDARY_GREEN);
+    style.setColor(.button_hovered, lighten(COLOR_SECONDARY_GREEN, 0.12));
+    style.setColor(.button_active, darken(COLOR_SECONDARY_GREEN, 0.08));
     style.setColor(.border, rgba(48, 50, 56, 255));
     style.setColor(.separator, rgba(48, 50, 56, 255));
     style.setColor(.check_mark, COLOR_WHITE);
