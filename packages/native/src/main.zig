@@ -8,6 +8,7 @@ const zgui = @import("zgui");
 const ai_harness = @import("harness.zig");
 const ReasoningEffort = ai_harness.ReasoningEffort;
 const app_config = @import("config.zig");
+const chat_threads = @import("chat/threads.zig");
 const keybinds = @import("keybinds.zig");
 const stb_image = @import("stb_image.zig");
 const ui_layout = @import("ui/layout.zig");
@@ -283,7 +284,7 @@ const ChatThread = struct {
     fn commitFromPrompt(self: *ChatThread, allocator: std.mem.Allocator, prompt: []const u8) !void {
         self.committed = true;
         self.last_activity_at = std.time.timestamp();
-        const next_title = try makeThreadTitle(allocator, prompt);
+        const next_title = try chat_threads.makeThreadTitle(allocator, prompt);
         allocator.free(self.title);
         self.title = next_title;
     }
@@ -368,10 +369,10 @@ const Project = struct {
             self.selected_thread_index = self.threads.items.len - 1;
         }
         for (self.threads.items) |*thread| {
-            sanitizeProvider(&thread.provider);
-            sanitizeHarness(&thread.harness);
+            chat_threads.sanitizeEnum(Provider, &thread.provider, .opencode);
+            chat_threads.sanitizeEnum(Harness, &thread.harness, .local_cli);
             for (thread.messages.items) |*message| {
-                sanitizeChatRole(&message.role);
+                chat_threads.sanitizeEnum(ChatRole, &message.role, .user);
             }
         }
     }
@@ -627,7 +628,7 @@ const Storage = struct {
         try stringify.objectField("projects");
         try stringify.beginArray();
         for (state.projects.items) |project| {
-            const selected_save_index = selectedCommittedThreadIndex(&project);
+            const selected_save_index = chat_threads.selectedCommittedThreadIndex(&project);
             try stringify.beginObject();
             try stringify.objectField("id");
             try stringify.write(project.id);
@@ -1717,7 +1718,7 @@ pub const AppState = struct {
                 self.trimThreadMessages(thread, 1);
                 try thread.messages.append(self.allocator, .{
                     .role = .assistant,
-                    .author = try self.dupeZ(providerLabel(thread.provider)),
+                    .author = try self.dupeZ(chat_threads.providerLabel(thread.provider)),
                     .body = try self.dupeZ(result.reply_text),
                     .image = null,
                 });
@@ -1726,7 +1727,7 @@ pub const AppState = struct {
             self.trimThreadMessages(thread, 1);
             try thread.messages.append(self.allocator, .{
                 .role = .assistant,
-                .author = try self.dupeZ(providerLabel(thread.provider)),
+                .author = try self.dupeZ(chat_threads.providerLabel(thread.provider)),
                 .body = try self.dupeZ(result.reply_text),
                 .image = null,
             });
@@ -2541,20 +2542,16 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
         }
         if (is_selected and !is_collapsed) {
             zgui.indent(.{ .indent_w = scaledUi(12.0) });
-            var sorted_indices = collectCommittedThreadIndicesSorted(state.allocator, &project) catch blk: {
-                break :blk std.ArrayList(usize).empty;
-            };
-            defer sorted_indices.deinit(state.allocator);
-
-            const show_all_threads = project.thread_list_expanded or sorted_indices.items.len <= SIDEBAR_VISIBLE_THREAD_LIMIT;
-            const visible_count = if (show_all_threads) sorted_indices.items.len else @min(sorted_indices.items.len, SIDEBAR_VISIBLE_THREAD_LIMIT);
-
-            for (sorted_indices.items[0..visible_count]) |thread_index| {
-                const thread = &project.threads.items[thread_index];
-                renderSidebarThreadRow(state, index, width, thread, thread_index);
+            var shown_threads: usize = 0;
+            for (project.threads.items, 0..) |thread, thread_index| {
+                if (!thread.committed) continue;
+                if (!project.thread_list_expanded and shown_threads >= SIDEBAR_VISIBLE_THREAD_LIMIT) break;
+                const is_thread_selected = project.selected_thread_index == thread_index;
+                zgui.textColored(if (is_thread_selected) COLOR_TEXT_MUTED else COLOR_TEXT_SUBTLE, "{s}", .{thread.title});
+                shown_threads += 1;
             }
 
-            if (sorted_indices.items.len > SIDEBAR_VISIBLE_THREAD_LIMIT) {
+            if (project.committedThreadCount() > SIDEBAR_VISIBLE_THREAD_LIMIT) {
                 zgui.dummy(.{ .w = 0.0, .h = scaledUi(4.0) });
                 if (zgui.button(if (project.thread_list_expanded) "Show less" else "Show more", .{
                     .w = @max(width - scaledUi(36.0), scaledUi(110.0)),
@@ -2570,10 +2567,8 @@ fn renderSidebar(state: *AppState, width: f32, height: f32) void {
             }
             zgui.unindent(.{ .indent_w = scaledUi(12.0) });
         } else if (!is_collapsed and active_thread.messages.items.len > 0) {
-            var time_buf: [24]u8 = undefined;
-            const relative_time = formatRelativeTime(&time_buf, active_thread.last_activity_at);
             zgui.textColored(COLOR_TEXT_MUTED, "{s}", .{lastMessagePreview(&project)});
-            zgui.textDisabled("{s}", .{relative_time});
+            zgui.textDisabled("recent", .{});
         } else if (!is_collapsed and active_thread.committed) {
             zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{active_thread.title});
         } else if (!is_collapsed) {
@@ -3645,7 +3640,7 @@ pub fn renderComposerPickers(state: *AppState) void {
     }
 
     // --- Model picker (combines provider context) ---
-    const model_preview = selectedModelLabel(thread);
+    const model_preview = chat_threads.selectedModelLabel(ModelOption, thread, OPENCODE_MODEL_OPTIONS[0..], CODEX_MODEL_OPTIONS[0..]);
     var model_preview_buf = std.mem.zeroes([80:0]u8);
     const model_label = std.fmt.bufPrintZ(&model_preview_buf, "{s} v", .{model_preview}) catch "Model v";
     zgui.setNextItemWidth(composerPickerTextWidth(model_preview) + 36.0);
@@ -3662,7 +3657,7 @@ pub fn renderComposerPickers(state: *AppState) void {
         inline for (@typeInfo(Provider).@"enum".fields) |field| {
             const candidate: Provider = @enumFromInt(field.value);
             var row_buf = std.mem.zeroes([48:0]u8);
-            const row_label = comboRowLabel(&row_buf, providerLabel(candidate), candidate == thread.provider);
+            const row_label = comboRowLabel(&row_buf, chat_threads.providerLabel(candidate), candidate == thread.provider);
             if (zgui.selectable(row_label, .{ .selected = candidate == thread.provider, .h = 28.0 })) {
                 if (thread.provider != candidate) {
                     thread.provider = candidate;
@@ -3685,7 +3680,7 @@ pub fn renderComposerPickers(state: *AppState) void {
         zgui.pushStyleColor4f(.{ .idx = .text, .c = COLOR_TEXT_SUBTLE });
         zgui.textUnformatted("Model");
         zgui.popStyleColor(.{ .count = 1 });
-        for (modelOptions(thread.provider)) |option| {
+        for (chat_threads.modelOptions(ModelOption, thread.provider, OPENCODE_MODEL_OPTIONS[0..], CODEX_MODEL_OPTIONS[0..])) |option| {
             const is_selected = if (option.value) |value|
                 thread.model_ref != null and std.mem.eql(u8, thread.model_ref.?, value)
             else
@@ -3705,7 +3700,7 @@ pub fn renderComposerPickers(state: *AppState) void {
 
         // --- Reasoning effort picker ---
         zgui.sameLine(.{ .spacing = 6.0 });
-        const reasoning_preview = selectedReasoningLabel(thread);
+        const reasoning_preview = chat_threads.selectedReasoningLabel(ReasoningOption, thread, CODEX_REASONING_OPTIONS[0..]);
         var reasoning_buf = std.mem.zeroes([80:0]u8);
         const reasoning_label = std.fmt.bufPrintZ(&reasoning_buf, "{s} v", .{reasoning_preview}) catch "Reasoning v";
         zgui.setNextItemWidth(composerPickerTextWidth(reasoning_preview) + 36.0);
@@ -3753,7 +3748,7 @@ pub fn renderComposerPickers(state: *AppState) void {
         zgui.pushStyleColor4f(.{ .idx = .button, .c = transparent });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = picker_hover_bg });
         zgui.pushStyleColor4f(.{ .idx = .button_active, .c = picker_hover_bg });
-        const access_label: [:0]const u8 = accessModeLabel(thread.access_mode);
+        const access_label: [:0]const u8 = chat_threads.accessModeLabel(thread.access_mode);
         if (zgui.button(access_label, .{ .w = 0.0, .h = 0.0 })) {
             const new_mode: AccessMode = if (thread.access_mode == .full_access) .supervised else .full_access;
             if (thread.access_mode != new_mode) {
@@ -3792,69 +3787,12 @@ fn setThreadModelRef(state: *AppState, thread: *ChatThread, value: ?[:0]const u8
     state.markDirty();
 }
 
-fn modelOptions(provider: Provider) []const ModelOption {
-    return switch (provider) {
-        .opencode => OPENCODE_MODEL_OPTIONS[0..],
-        .codex => CODEX_MODEL_OPTIONS[0..],
-    };
-}
-
-fn selectedModelLabel(thread: *const ChatThread) [:0]const u8 {
-    if (thread.model_ref) |model_ref| {
-        for (modelOptions(thread.provider)) |option| {
-            if (option.value) |value| {
-                if (std.mem.eql(u8, model_ref, value)) return option.label;
-            }
-        }
-    }
-    return "Default";
-}
-
-fn selectedReasoningLabel(thread: *const ChatThread) [:0]const u8 {
-    if (thread.reasoning_effort) |effort| {
-        for (CODEX_REASONING_OPTIONS) |option| {
-            if (option.value) |value| {
-                if (value == effort) return option.label;
-            }
-        }
-    }
-    return "Reasoning";
-}
-
-fn fastModeLabel(mode: FastMode) [:0]const u8 {
-    return switch (mode) {
-        .off => "Fast Off",
-        .on => "Fast On",
-    };
-}
-
-fn accessModeLabel(mode: AccessMode) [:0]const u8 {
-    return switch (mode) {
-        .full_access => "Full access",
-        .supervised => "Supervised",
-    };
-}
-
-fn comboPreviewLabel(buffer: []u8, label: []const u8) [:0]const u8 {
-    return std.fmt.bufPrintZ(buffer, "{s}  v", .{label}) catch "Select  v";
-}
-
 fn comboRowLabel(buffer: []u8, label: []const u8, selected: bool) [:0]const u8 {
     return std.fmt.bufPrintZ(buffer, "{s} {s}", .{ if (selected) ">" else " ", label }) catch " row";
 }
 
 pub fn providerLabel(provider: Provider) [:0]const u8 {
-    return switch (provider) {
-        .opencode => "OpenCode",
-        .codex => "Codex",
-    };
-}
-
-fn harnessLabel(harness: Harness) [:0]const u8 {
-    return switch (harness) {
-        .local_cli => "Local CLI",
-        .remote_session => "Remote Session",
-    };
+    return chat_threads.providerLabel(provider);
 }
 
 fn lastMessagePreview(project: *const Project) []const u8 {
@@ -3868,221 +3806,6 @@ fn lastMessagePreview(project: *const Project) []const u8 {
 fn projectLabelFromPath(path: []const u8) []const u8 {
     const basename = std.fs.path.basename(path);
     return if (basename.len == 0) path else basename;
-}
-
-fn selectedCommittedThreadIndex(project: *const Project) usize {
-    var committed_index: usize = 0;
-    var fallback_index: usize = 0;
-    for (project.threads.items, 0..) |thread, index| {
-        if (!thread.committed) continue;
-        if (index == project.selected_thread_index) return committed_index;
-        committed_index += 1;
-        fallback_index = committed_index - 1;
-    }
-    return if (committed_index == 0) 0 else fallback_index;
-}
-
-fn makeThreadTitle(allocator: std.mem.Allocator, prompt: []const u8) ![:0]const u8 {
-    const trimmed = std.mem.trim(u8, prompt, &std.ascii.whitespace);
-    if (trimmed.len == 0) return try allocator.dupeZ(u8, "New chat");
-
-    var compact: [96]u8 = undefined;
-    var count: usize = 0;
-    var saw_space = false;
-    for (trimmed) |char| {
-        const normalized = if (std.ascii.isWhitespace(char)) ' ' else char;
-        if (normalized == ' ') {
-            if (count == 0 or saw_space) continue;
-            saw_space = true;
-        } else {
-            saw_space = false;
-        }
-        if (count == compact.len) break;
-        compact[count] = normalized;
-        count += 1;
-    }
-
-    while (count > 0 and compact[count - 1] == ' ') {
-        count -= 1;
-    }
-    if (count == 0) return try allocator.dupeZ(u8, "New chat");
-    return try allocator.dupeZ(u8, compact[0..count]);
-}
-
-fn compactComparisonText(buffer: []u8, value: []const u8) []const u8 {
-    const trimmed = std.mem.trim(u8, value, &std.ascii.whitespace);
-    if (trimmed.len == 0 or buffer.len == 0) return "";
-
-    var count: usize = 0;
-    var saw_space = false;
-    for (trimmed) |char| {
-        const normalized = if (std.ascii.isWhitespace(char)) ' ' else std.ascii.toLower(char);
-        if (normalized == ' ') {
-            if (count == 0 or saw_space) continue;
-            saw_space = true;
-        } else {
-            saw_space = false;
-        }
-        if (count == buffer.len) break;
-        buffer[count] = normalized;
-        count += 1;
-    }
-
-    while (count > 0 and buffer[count - 1] == ' ') {
-        count -= 1;
-    }
-    return buffer[0..count];
-}
-
-fn formatThreadPreview(buffer: *[72:0]u8, thread: *const ChatThread) [:0]const u8 {
-    if (thread.messages.items.len == 0) return "Awaiting first prompt";
-    const body = thread.messages.items[0].body;
-    const max_len = @min(buffer.len - 1, @as(usize, 34));
-    const source = std.mem.trim(u8, body, &std.ascii.whitespace);
-    const title = std.mem.trim(u8, thread.title, &std.ascii.whitespace);
-    var normalized_source_buf = std.mem.zeroes([96]u8);
-    var normalized_title_buf = std.mem.zeroes([96]u8);
-    const normalized_source = compactComparisonText(&normalized_source_buf, source);
-    const normalized_title = compactComparisonText(&normalized_title_buf, title);
-    if (std.mem.eql(u8, normalized_source, normalized_title)) return "";
-    if (std.mem.startsWith(u8, normalized_source, normalized_title) or std.mem.startsWith(u8, normalized_title, normalized_source)) return "";
-    const shared_prefix_len = @min(@min(normalized_source.len, normalized_title.len), @as(usize, 24));
-    if (shared_prefix_len >= 16 and std.mem.eql(u8, normalized_source[0..shared_prefix_len], normalized_title[0..shared_prefix_len])) {
-        return "";
-    }
-    if (source.len <= max_len) {
-        @memcpy(buffer[0..source.len], source);
-        buffer[source.len] = 0;
-        return buffer[0..source.len :0];
-    }
-    if (max_len <= 3) return "...";
-    const prefix_len = max_len - 3;
-    @memcpy(buffer[0..prefix_len], source[0..prefix_len]);
-    @memcpy(buffer[prefix_len..max_len], "...");
-    buffer[max_len] = 0;
-    return buffer[0..max_len :0];
-}
-
-fn truncatedThreadTitle(buffer: *[64:0]u8, value: []const u8, max_len: usize) [:0]const u8 {
-    const bounded_max = @min(buffer.len - 1, max_len);
-    if (value.len <= bounded_max) return std.fmt.bufPrintZ(buffer, "{s}", .{value}) catch value[0..bounded_max :0];
-    if (bounded_max <= 3) return "...";
-    const prefix_len = bounded_max - 3;
-    @memcpy(buffer[0..prefix_len], value[0..prefix_len]);
-    @memcpy(buffer[prefix_len..bounded_max], "...");
-    buffer[bounded_max] = 0;
-    return buffer[0..bounded_max :0];
-}
-
-fn formatRelativeTime(buffer: []u8, timestamp: i64) []const u8 {
-    if (timestamp <= 0) return "now";
-    const elapsed = @max(std.time.timestamp() - timestamp, 0);
-    if (elapsed < 60) return "now";
-    if (elapsed < 3600) {
-        const minutes = @divFloor(elapsed, 60);
-        return std.fmt.bufPrint(buffer, "{d}m ago", .{minutes}) catch "recent";
-    }
-    if (elapsed < 86_400) {
-        const hours = @divFloor(elapsed, 3600);
-        return std.fmt.bufPrint(buffer, "{d}h ago", .{hours}) catch "recent";
-    }
-    const days = @divFloor(elapsed, 86_400);
-    return std.fmt.bufPrint(buffer, "{d}d ago", .{days}) catch "recent";
-}
-
-fn collectCommittedThreadIndicesSorted(
-    allocator: std.mem.Allocator,
-    project: *const Project,
-) !std.ArrayList(usize) {
-    var indices: std.ArrayList(usize) = .empty;
-    errdefer indices.deinit(allocator);
-
-    for (project.threads.items, 0..) |thread, index| {
-        if (!thread.committed) continue;
-        try indices.append(allocator, index);
-    }
-
-    std.mem.sort(usize, indices.items, project, lessThanCommittedThreadIndex);
-    return indices;
-}
-
-fn lessThanCommittedThreadIndex(project: *const Project, lhs: usize, rhs: usize) bool {
-    const left = project.threads.items[lhs];
-    const right = project.threads.items[rhs];
-    if (left.last_activity_at != right.last_activity_at) {
-        return left.last_activity_at > right.last_activity_at;
-    }
-    return lhs > rhs;
-}
-
-fn renderSidebarThreadRow(
-    state: *AppState,
-    project_index: usize,
-    width: f32,
-    thread: *const ChatThread,
-    thread_index: usize,
-) void {
-    const project = &state.projects.items[project_index];
-    const thread_selected = project.selected_thread_index == thread_index;
-    const row_width = @max(width - scaledUi(42.0), scaledUi(120.0));
-    var time_buf: [24]u8 = undefined;
-    const relative_time = formatRelativeTime(&time_buf, thread.last_activity_at);
-    const timestamp_width = zgui.calcTextSize(relative_time, .{})[0] + scaledUi(6.0);
-    const title_width_chars: usize = @intFromFloat(@max((row_width - timestamp_width - scaledUi(12.0)) / @max(zgui.getFontSize() * 0.42, 6.0), 10.0));
-
-    zgui.pushIntId(@intCast(thread_index + 1000));
-    defer zgui.popId();
-
-    if (thread_selected) {
-        zgui.pushStyleColor4f(.{ .idx = .header, .c = ui_theme.rgba(36, 38, 44, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .header_hovered, .c = ui_theme.rgba(42, 44, 50, 255) });
-        zgui.pushStyleColor4f(.{ .idx = .header_active, .c = ui_theme.rgba(48, 50, 56, 255) });
-    }
-
-    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ scaledUi(8.0), scaledUi(6.0) } });
-    var title_buf = std.mem.zeroes([64:0]u8);
-    const row_label = truncatedThreadTitle(&title_buf, thread.title, title_width_chars);
-    if (zgui.selectable(row_label, .{
-        .selected = thread_selected,
-        .w = row_width - timestamp_width,
-        .h = scaledUi(26.0),
-    })) {
-        state.selected_project_index = project_index;
-        state.projects.items[project_index].selected_thread_index = thread_index;
-        state.syncRenameBuffer();
-        state.requestTranscriptScrollToBottom();
-        state.markDirty();
-    }
-    zgui.popStyleVar(.{ .count = 1 });
-
-    zgui.sameLine(.{ .spacing = scaledUi(8.0) });
-    zgui.textColored(COLOR_TEXT_SUBTLE, "{s}", .{relative_time});
-
-    var preview_buf = std.mem.zeroes([72:0]u8);
-    const preview = formatThreadPreview(&preview_buf, thread);
-    if (preview.len > 0) {
-        zgui.textColored(if (thread_selected) COLOR_TEXT_MUTED else COLOR_TEXT_SUBTLE, "{s}", .{preview});
-    }
-
-    if (thread_selected) {
-        zgui.popStyleColor(.{ .count = 3 });
-    }
-    zgui.dummy(.{ .w = 0.0, .h = scaledUi(2.0) });
-}
-
-fn sanitizeChatRole(role: *ChatRole) void {
-    const raw = @as(*u8, @ptrCast(role)).*;
-    role.* = std.meta.intToEnum(ChatRole, raw) catch .user;
-}
-
-fn sanitizeProvider(provider: *Provider) void {
-    const raw = @as(*u8, @ptrCast(provider)).*;
-    provider.* = std.meta.intToEnum(Provider, raw) catch .opencode;
-}
-
-fn sanitizeHarness(harness: *Harness) void {
-    const raw = @as(*u8, @ptrCast(harness)).*;
-    harness.* = std.meta.intToEnum(Harness, raw) catch .local_cli;
 }
 
 const PickDirectoryError = std.process.Child.RunError || std.mem.Allocator.Error || error{
