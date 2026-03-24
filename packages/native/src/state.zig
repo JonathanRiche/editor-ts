@@ -1,8 +1,10 @@
 const std = @import("std");
 const sdl = @import("zsdl3");
+const zgui = @import("zgui");
 const ai_harness = @import("harness.zig");
-const ReasoningEffort = ai_harness.ReasoningEffort;
+pub const ReasoningEffort = ai_harness.ReasoningEffort;
 const chat_threads = @import("chat/threads.zig");
+const stb_image = @import("stb_image.zig");
 const utils = @import("utils.zig");
 
 pub const log = std.log.scoped(.native_shell);
@@ -11,8 +13,29 @@ pub const ORG_NAME: [:0]const u8 = "verde";
 pub const APP_NAME: [:0]const u8 = "Native";
 pub const STATE_FILE_NAME = "state.json";
 pub const DEFAULT_CODEX_MODEL: [:0]const u8 = "gpt-5.4";
+pub const IMAGE_MODAL_ID: [:0]const u8 = "AttachmentPreviewModal";
+pub const MAX_THREAD_MESSAGES: usize = 24;
 
 pub const VERDE_LOGO_BYTES = @embedFile("assets/verde_logo.png");
+
+// `utils.zig` owns the cross-cutting runtime helpers that are shared with the UI shell.
+const SendWorkerRequest = utils.SendWorkerRequest;
+const appendPendingDiffSummaryEvent = utils.appendPendingDiffSummaryEvent;
+const approvalPolicyForMode = utils.approvalPolicyForMode;
+const captureClipboardImage = utils.captureClipboardImage;
+const extensionForImageMime = utils.extensionForImageMime;
+const flushPendingAssistantTextLocked = utils.flushPendingAssistantTextLocked;
+const freePendingApproval = utils.freePendingApproval;
+const freePendingApprovalLocked = utils.freePendingApprovalLocked;
+const freePendingDiffFiles = utils.freePendingDiffFiles;
+const freePendingDiffFilesLocked = utils.freePendingDiffFilesLocked;
+const freePendingTimelineEvents = utils.freePendingTimelineEvents;
+const freePendingTimelineEventsLocked = utils.freePendingTimelineEventsLocked;
+const pendingTimelineEventsContainAssistant = utils.pendingTimelineEventsContainAssistant;
+const pickerWorker = utils.pickerWorker;
+const sandboxModeForMode = utils.sandboxModeForMode;
+const sendWorker = utils.sendWorker;
+const uploadTexture = utils.uploadTexture;
 
 pub const FastMode = enum(u8) {
     off,
@@ -40,12 +63,12 @@ pub const Harness = enum(u8) {
     remote_session,
 };
 
-const ModelOption = struct {
+pub const ModelOption = struct {
     label: [:0]const u8,
     value: ?[:0]const u8 = null,
 };
 
-const ReasoningOption = struct {
+pub const ReasoningOption = struct {
     label: [:0]const u8,
     value: ?ReasoningEffort = null,
 };
@@ -388,7 +411,7 @@ pub const Storage = struct {
     allocator: std.mem.Allocator,
     pref_path: []const u8,
 
-    fn init(allocator: std.mem.Allocator) !Storage {
+    pub fn init(allocator: std.mem.Allocator) !Storage {
         const pref_path = sdl.getPrefPath(ORG_NAME, APP_NAME) orelse return error.SdlError;
         try std.fs.cwd().makePath(pref_path);
         return .{
@@ -397,7 +420,7 @@ pub const Storage = struct {
         };
     }
 
-    fn deinit(self: *Storage) void {
+    pub fn deinit(self: *Storage) void {
         self.allocator.free(self.pref_path);
     }
 
@@ -599,7 +622,7 @@ pub const AppState = struct {
     scroll_transcript_to_bottom: bool,
     dirty: bool,
 
-    fn init(allocator: std.mem.Allocator, storage: *const Storage) !AppState {
+    pub fn init(allocator: std.mem.Allocator, storage: *const Storage) !AppState {
         var state: AppState = .{
             .allocator = allocator,
             .storage = storage,
@@ -1042,7 +1065,7 @@ pub const AppState = struct {
         return &self.projects.items[self.selected_project_index];
     }
 
-    fn attachClipboardImageToCurrentDraft(self: *AppState) void {
+    pub fn attachClipboardImageToCurrentDraft(self: *AppState) void {
         const capture = captureClipboardImage(self.allocator) catch |err| {
             log.err("failed to capture clipboard image: {s}", .{@errorName(err)});
             self.setSidebarNotice("Clipboard image paste failed.");
@@ -1243,7 +1266,7 @@ pub const AppState = struct {
         return self.currentProject().currentThread();
     }
 
-    fn currentThreadMutable(self: *AppState) *ChatThread {
+    pub fn currentThreadMutable(self: *AppState) *ChatThread {
         return self.currentProjectMutable().currentThreadMutable();
     }
 
@@ -1316,7 +1339,7 @@ pub const AppState = struct {
         @memcpy(self.sidebar_notice_storage[0..len], value[0..len]);
     }
 
-    fn flushIfDirty(self: *AppState) void {
+    pub fn flushIfDirty(self: *AppState) void {
         if (!self.dirty) return;
 
         self.storage.save(self) catch |err| {
@@ -1326,7 +1349,7 @@ pub const AppState = struct {
         self.dirty = false;
     }
 
-    fn reloadFromStorage(self: *AppState) !void {
+    pub fn reloadFromStorage(self: *AppState) !void {
         self.flushIfDirty();
         self.clearProjects();
 
@@ -1345,7 +1368,7 @@ pub const AppState = struct {
         return try self.allocator.dupeZ(u8, value);
     }
 
-    fn deinit(self: *AppState) void {
+    pub fn deinit(self: *AppState) void {
         self.finishPickerThread();
         self.finishSendThread();
         self.send_state.partial_text.deinit(std.heap.page_allocator);
@@ -1357,7 +1380,7 @@ pub const AppState = struct {
         self.projects.deinit(self.allocator);
     }
 
-    fn pollPicker(self: *AppState) void {
+    pub fn pollPicker(self: *AppState) void {
         var picked_path: ?[]u8 = null;
         var next_status: PickerStatus = .idle;
 
@@ -1404,7 +1427,7 @@ pub const AppState = struct {
         }
     }
 
-    fn pollSend(self: *AppState) void {
+    pub fn pollSend(self: *AppState) void {
         var completed_result: ?SendResultPayload = null;
         var failed_message: ?[]u8 = null;
         var next_status: SendStatus = .idle;
@@ -1513,7 +1536,7 @@ pub const AppState = struct {
         return true;
     }
 
-    fn isPickerPending(self: *AppState) bool {
+    pub fn isPickerPending(self: *AppState) bool {
         self.picker_state.mutex.lock();
         defer self.picker_state.mutex.unlock();
         return self.picker_state.status == .pending;

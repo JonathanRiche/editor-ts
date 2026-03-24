@@ -14,6 +14,12 @@ const GL_TEXTURE_WRAP_S = 0x2802;
 const GL_TEXTURE_WRAP_T = 0x2803;
 const GL_CLAMP_TO_EDGE = 0x812F;
 const GL_UNPACK_ALIGNMENT = 0x0CF5;
+
+// Shared runtime constants live here so state and the UI shell can import them
+// without creating a cycle back through `main.zig`.
+pub const CLIPBOARD_IMAGE_MAX_BYTES: usize = 10 * 1024 * 1024;
+pub const PERSISTED_DIFF_MARKER = "EDITORTS_DIFF_V1\n";
+
 pub const PickDirectoryError = std.process.Child.RunError || std.mem.Allocator.Error || error{
     UnsupportedOperatingSystem,
     FolderPickerUnavailable,
@@ -345,14 +351,14 @@ fn commandExists(name: []const u8) bool {
     }
     return false;
 }
-fn approvalPolicyForMode(provider: app_state.Provider, mode: app_state.AccessMode) ?ai_harness.ApprovalPolicy {
+pub fn approvalPolicyForMode(provider: app_state.Provider, mode: app_state.AccessMode) ?ai_harness.ApprovalPolicy {
     if (provider != .codex) return null;
     return switch (mode) {
         .full_access => .never,
         .supervised => .on_request,
     };
 }
-fn sandboxModeForMode(provider: app_state.Provider, mode: app_state.AccessMode) ?ai_harness.SandboxMode {
+pub fn sandboxModeForMode(provider: app_state.Provider, mode: app_state.AccessMode) ?ai_harness.SandboxMode {
     if (provider != .codex) return null;
     return switch (mode) {
         .full_access => .danger_full_access,
@@ -406,7 +412,7 @@ fn handleSendStreamEvent(context: ?*anyopaque, event: ai_harness.StreamEvent) vo
         },
     }
 }
-fn flushPendingAssistantTextLocked(send_state: *app_state.SendState, allocator: std.mem.Allocator) void {
+pub fn flushPendingAssistantTextLocked(send_state: *app_state.SendState, allocator: std.mem.Allocator) void {
     if (send_state.partial_text.items.len == 0) return;
     const provider = send_state.provider orelse return;
     const trimmed = std.mem.trim(u8, send_state.partial_text.items, &std.ascii.whitespace);
@@ -510,7 +516,7 @@ fn handleSendApprovalRequest(context: ?*anyopaque, request: ai_harness.ApprovalR
     freePendingApprovalLocked(page_alloc, &send_state.pending_approval);
     return decision;
 }
-fn freePendingApproval(allocator: std.mem.Allocator, approval: *?app_state.PendingApproval) void {
+pub fn freePendingApproval(allocator: std.mem.Allocator, approval: *?app_state.PendingApproval) void {
     if (approval.*) |pending| {
         allocator.free(pending.call_id);
         allocator.free(pending.title);
@@ -518,6 +524,431 @@ fn freePendingApproval(allocator: std.mem.Allocator, approval: *?app_state.Pendi
         approval.* = null;
     }
 }
-fn freePendingApprovalLocked(allocator: std.mem.Allocator, approval: *?app_state.PendingApproval) void {
+pub fn freePendingApprovalLocked(allocator: std.mem.Allocator, approval: *?app_state.PendingApproval) void {
     freePendingApproval(allocator, approval);
+}
+
+/// Releases owned streamed timeline events copied out of the send worker.
+pub fn freePendingTimelineEvents(
+    allocator: std.mem.Allocator,
+    events: *std.ArrayListUnmanaged(app_state.PendingTimelineEvent),
+) void {
+    for (events.items) |event| {
+        allocator.free(event.author);
+        allocator.free(event.body);
+    }
+    events.deinit(allocator);
+    events.* = .empty;
+}
+
+pub fn freePendingTimelineEventsLocked(
+    allocator: std.mem.Allocator,
+    events: *std.ArrayListUnmanaged(app_state.PendingTimelineEvent),
+) void {
+    freePendingTimelineEvents(allocator, events);
+}
+
+/// Releases owned streamed diff entries copied out of the send worker.
+pub fn freePendingDiffFiles(
+    allocator: std.mem.Allocator,
+    files: *std.ArrayListUnmanaged(app_state.PendingDiffFile),
+) void {
+    for (files.items) |file| {
+        allocator.free(file.path);
+        if (file.patch) |patch| allocator.free(patch);
+    }
+    files.deinit(allocator);
+    files.* = .empty;
+}
+
+pub fn freePendingDiffFilesLocked(
+    allocator: std.mem.Allocator,
+    files: *std.ArrayListUnmanaged(app_state.PendingDiffFile),
+) void {
+    freePendingDiffFiles(allocator, files);
+}
+
+/// Persists the streamed diff summary as a synthetic system event on completion.
+pub fn appendPendingDiffSummaryEvent(
+    allocator: std.mem.Allocator,
+    events: *std.ArrayListUnmanaged(app_state.PendingTimelineEvent),
+    files: []const app_state.PendingDiffFile,
+) void {
+    if (files.len == 0) return;
+
+    var body_builder: std.ArrayListUnmanaged(u8) = .empty;
+    defer body_builder.deinit(allocator);
+
+    body_builder.appendSlice(allocator, PERSISTED_DIFF_MARKER) catch return;
+
+    for (files) |file| {
+        const patch = file.patch orelse "";
+        std.fmt.format(body_builder.writer(allocator), "FILE\t{s}\t{d}\t{d}\t{d}\n", .{
+            file.path,
+            file.additions,
+            file.deletions,
+            patch.len,
+        }) catch return;
+        body_builder.appendSlice(allocator, patch) catch return;
+        body_builder.append(allocator, '\n') catch return;
+    }
+
+    const owned_title = allocator.dupe(u8, "Changed files") catch return;
+    errdefer allocator.free(owned_title);
+    const owned_body = body_builder.toOwnedSlice(allocator) catch {
+        allocator.free(owned_title);
+        return;
+    };
+
+    events.append(allocator, .{
+        .role = .system,
+        .author = owned_title,
+        .body = owned_body,
+    }) catch {
+        allocator.free(owned_title);
+        allocator.free(owned_body);
+    };
+}
+
+pub fn pendingTimelineEventsContainAssistant(events: []const app_state.PendingTimelineEvent) bool {
+    for (events) |event| {
+        if (event.role == .assistant) return true;
+    }
+    return false;
+}
+
+pub const ClipboardImageCapture = struct {
+    bytes: []u8,
+    mime: []const u8,
+};
+
+/// Reads an image payload from the system clipboard when the platform supports it.
+pub fn captureClipboardImage(allocator: std.mem.Allocator) !?ClipboardImageCapture {
+    return switch (@import("builtin").os.tag) {
+        .macos => captureClipboardImageMacOS(allocator),
+        .linux, .freebsd, .netbsd, .openbsd, .dragonfly => {
+            if (try captureClipboardImageWayland(allocator)) |image| return image;
+            return try captureClipboardImageX11(allocator);
+        },
+        else => null,
+    };
+}
+
+const MacClipboardImageFlavor = struct {
+    class_code: []const u8,
+    mime: []const u8,
+};
+
+fn captureClipboardImageMacOS(allocator: std.mem.Allocator) !?ClipboardImageCapture {
+    const info_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "osascript", "-e", "clipboard info" },
+        .cwd = ".",
+        .max_output_bytes = 16 * 1024,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(info_result.stdout);
+    defer allocator.free(info_result.stderr);
+
+    switch (info_result.term) {
+        .Exited => |code| if (code != 0) return null,
+        else => return null,
+    }
+
+    const preferred = selectMacClipboardImageFlavor(info_result.stdout) orelse return null;
+    var capture = try readMacClipboardImageFlavor(allocator, preferred.class_code, preferred.mime);
+    if (capture == null and std.mem.eql(u8, preferred.class_code, "PNGf")) {
+        capture = try readMacClipboardImageFlavor(allocator, "TIFF", "image/tiff");
+    }
+    if (capture == null) return null;
+
+    if (std.mem.eql(u8, capture.?.mime, "image/tiff")) {
+        return try convertClipboardTiffToPng(allocator, capture.?);
+    }
+
+    return capture;
+}
+
+fn selectMacClipboardImageFlavor(info_output: []const u8) ?MacClipboardImageFlavor {
+    const candidates = [_]MacClipboardImageFlavor{
+        .{ .class_code = "PNGf", .mime = "image/png" },
+        .{ .class_code = "JPEG", .mime = "image/jpeg" },
+        .{ .class_code = "TIFF", .mime = "image/tiff" },
+    };
+
+    for (candidates) |candidate| {
+        if (std.mem.indexOf(u8, info_output, candidate.class_code) != null) {
+            return candidate;
+        }
+    }
+    if (std.mem.indexOf(u8, info_output, "TIFF picture") != null) {
+        return .{ .class_code = "TIFF", .mime = "image/tiff" };
+    }
+    if (std.mem.indexOf(u8, info_output, "JPEG picture") != null) {
+        return .{ .class_code = "JPEG", .mime = "image/jpeg" };
+    }
+    return null;
+}
+
+fn readMacClipboardImageFlavor(
+    allocator: std.mem.Allocator,
+    class_code: []const u8,
+    mime: []const u8,
+) !?ClipboardImageCapture {
+    const command = try std.fmt.allocPrint(allocator, "get the clipboard as «class {s}»", .{class_code});
+    defer allocator.free(command);
+
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "osascript", "-e", command },
+        .cwd = ".",
+        .max_output_bytes = CLIPBOARD_IMAGE_MAX_BYTES * 4,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| if (code != 0) {
+            allocator.free(result.stdout);
+            return null;
+        },
+        else => {
+            allocator.free(result.stdout);
+            return null;
+        },
+    }
+
+    const decoded = decodeAppleScriptClipboardData(allocator, result.stdout, class_code) catch {
+        allocator.free(result.stdout);
+        return null;
+    };
+    allocator.free(result.stdout);
+
+    if (decoded.len == 0) {
+        allocator.free(decoded);
+        return null;
+    }
+
+    return .{
+        .bytes = decoded,
+        .mime = mime,
+    };
+}
+
+fn decodeAppleScriptClipboardData(
+    allocator: std.mem.Allocator,
+    encoded: []const u8,
+    class_code: []const u8,
+) ![]u8 {
+    const prefix = try std.fmt.allocPrint(allocator, "«data {s}", .{class_code});
+    defer allocator.free(prefix);
+
+    const start_index = std.mem.indexOf(u8, encoded, prefix) orelse return error.InvalidClipboardPayload;
+    const payload_start = start_index + prefix.len;
+    const suffix_rel = std.mem.indexOfScalar(u8, encoded[payload_start..], '»') orelse return error.InvalidClipboardPayload;
+    const payload_raw = encoded[payload_start .. payload_start + suffix_rel];
+
+    var hex_only: std.ArrayList(u8) = .empty;
+    defer hex_only.deinit(allocator);
+
+    for (payload_raw) |char| {
+        if (std.ascii.isWhitespace(char)) continue;
+        try hex_only.append(allocator, char);
+    }
+
+    if (hex_only.items.len == 0 or (hex_only.items.len % 2) != 0) {
+        return error.InvalidClipboardPayload;
+    }
+
+    const decoded = try allocator.alloc(u8, hex_only.items.len / 2);
+    errdefer allocator.free(decoded);
+    _ = try std.fmt.hexToBytes(decoded, hex_only.items);
+    return decoded;
+}
+
+fn convertClipboardTiffToPng(
+    allocator: std.mem.Allocator,
+    capture: ClipboardImageCapture,
+) !?ClipboardImageCapture {
+    defer allocator.free(capture.bytes);
+
+    const temp_dir = std.fs.path.join(allocator, &.{ "/tmp", "editorts-native-clipboard" }) catch return error.OutOfMemory;
+    defer allocator.free(temp_dir);
+    try std.fs.makeDirAbsolute(temp_dir);
+
+    const timestamp_ms = @as(u64, @intCast(@max(@as(i64, 0), std.time.milliTimestamp())));
+    const input_path = try std.fmt.allocPrint(allocator, "{s}/clipboard-{d}.tiff", .{ temp_dir, timestamp_ms });
+    defer allocator.free(input_path);
+    const output_path = try std.fmt.allocPrint(allocator, "{s}/clipboard-{d}.png", .{ temp_dir, timestamp_ms });
+    defer allocator.free(output_path);
+
+    {
+        var file = try std.fs.createFileAbsolute(input_path, .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(capture.bytes);
+    }
+
+    const convert_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "sips", "-s", "format", "png", input_path, "--out", output_path },
+        .cwd = ".",
+        .max_output_bytes = 16 * 1024,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(convert_result.stdout);
+    defer allocator.free(convert_result.stderr);
+
+    switch (convert_result.term) {
+        .Exited => |code| if (code != 0) return null,
+        else => return null,
+    }
+
+    const png_bytes = png_bytes: {
+        const png_file = try std.fs.openFileAbsolute(output_path, .{});
+        defer png_file.close();
+        break :png_bytes try png_file.readToEndAlloc(allocator, CLIPBOARD_IMAGE_MAX_BYTES);
+    };
+    std.fs.deleteFileAbsolute(input_path) catch {};
+    std.fs.deleteFileAbsolute(output_path) catch {};
+
+    return .{
+        .bytes = png_bytes,
+        .mime = "image/png",
+    };
+}
+
+fn captureClipboardImageWayland(allocator: std.mem.Allocator) !?ClipboardImageCapture {
+    const types_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "wl-paste", "--list-types" },
+        .cwd = ".",
+        .max_output_bytes = 16 * 1024,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(types_result.stdout);
+    defer allocator.free(types_result.stderr);
+
+    switch (types_result.term) {
+        .Exited => |code| if (code != 0) return null,
+        else => return null,
+    }
+
+    const mime = selectClipboardImageMime(types_result.stdout) orelse return null;
+    const image_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "wl-paste", "--no-newline", "--type", mime },
+        .cwd = ".",
+        .max_output_bytes = CLIPBOARD_IMAGE_MAX_BYTES,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(image_result.stderr);
+
+    switch (image_result.term) {
+        .Exited => |code| if (code != 0) {
+            allocator.free(image_result.stdout);
+            return null;
+        },
+        else => {
+            allocator.free(image_result.stdout);
+            return null;
+        },
+    }
+
+    if (image_result.stdout.len == 0) {
+        allocator.free(image_result.stdout);
+        return null;
+    }
+
+    return .{
+        .bytes = image_result.stdout,
+        .mime = mime,
+    };
+}
+
+fn captureClipboardImageX11(allocator: std.mem.Allocator) !?ClipboardImageCapture {
+    const targets_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "xclip", "-selection", "clipboard", "-t", "TARGETS", "-o" },
+        .cwd = ".",
+        .max_output_bytes = 16 * 1024,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(targets_result.stdout);
+    defer allocator.free(targets_result.stderr);
+
+    switch (targets_result.term) {
+        .Exited => |code| if (code != 0) return null,
+        else => return null,
+    }
+
+    const mime = selectClipboardImageMime(targets_result.stdout) orelse return null;
+    const image_result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "xclip", "-selection", "clipboard", "-t", mime, "-o" },
+        .cwd = ".",
+        .max_output_bytes = CLIPBOARD_IMAGE_MAX_BYTES,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer allocator.free(image_result.stderr);
+
+    switch (image_result.term) {
+        .Exited => |code| if (code != 0) {
+            allocator.free(image_result.stdout);
+            return null;
+        },
+        else => {
+            allocator.free(image_result.stdout);
+            return null;
+        },
+    }
+
+    if (image_result.stdout.len == 0) {
+        allocator.free(image_result.stdout);
+        return null;
+    }
+
+    return .{
+        .bytes = image_result.stdout,
+        .mime = mime,
+    };
+}
+
+fn selectClipboardImageMime(types_output: []const u8) ?[]const u8 {
+    const candidates = [_][]const u8{
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif",
+        "image/bmp",
+    };
+
+    for (candidates) |candidate| {
+        if (std.mem.indexOf(u8, types_output, candidate) != null) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
+pub fn extensionForImageMime(mime: []const u8) []const u8 {
+    if (std.mem.eql(u8, mime, "image/png")) return "png";
+    if (std.mem.eql(u8, mime, "image/jpeg")) return "jpg";
+    if (std.mem.eql(u8, mime, "image/webp")) return "webp";
+    if (std.mem.eql(u8, mime, "image/gif")) return "gif";
+    if (std.mem.eql(u8, mime, "image/bmp")) return "bmp";
+    return "img";
 }

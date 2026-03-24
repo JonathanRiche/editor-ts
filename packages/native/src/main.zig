@@ -10,12 +10,33 @@ const ReasoningEffort = ai_harness.ReasoningEffort;
 const app_config = @import("config.zig");
 const chat_threads = @import("chat/threads.zig");
 const keybinds = @import("keybinds.zig");
-const stb_image = @import("stb_image.zig");
+const utils = @import("utils.zig");
 const ui_layout = @import("ui/layout.zig");
 const ui_theme = @import("ui/theme.zig");
-const sidebar_components = @import("ui/sidebar_components.zig");
-const AppState = @import("state.zig").AppState;
-const Storage = @import("state.zig").Storage;
+
+// Re-export the state-owned types that the generic UI modules expect on `Impl`.
+const native_state = @import("state.zig");
+const AccessMode = native_state.AccessMode;
+pub const AppState = native_state.AppState;
+pub const ChatImageAttachment = native_state.ChatImageAttachment;
+pub const ChatRole = native_state.ChatRole;
+const ChatThread = native_state.ChatThread;
+const FastMode = native_state.FastMode;
+const Harness = native_state.Harness;
+const ModelOption = native_state.ModelOption;
+const PendingDiffFile = native_state.PendingDiffFile;
+const PendingTimelineEvent = native_state.PendingTimelineEvent;
+const Project = native_state.Project;
+const Provider = native_state.Provider;
+const ReasoningOption = native_state.ReasoningOption;
+const CODEX_MODEL_OPTIONS = native_state.CODEX_MODEL_OPTIONS;
+const CODEX_REASONING_OPTIONS = native_state.CODEX_REASONING_OPTIONS;
+const OPENCODE_MODEL_OPTIONS = native_state.OPENCODE_MODEL_OPTIONS;
+const Storage = native_state.Storage;
+pub const log = native_state.log;
+const freePendingApproval = utils.freePendingApproval;
+pub const providerLabel = utils.providerLabel;
+const CLIPBOARD_IMAGE_MAX_BYTES = utils.CLIPBOARD_IMAGE_MAX_BYTES;
 
 const DEFAULT_FONT_SIZE: f32 = ui_theme.DEFAULT_FONT_SIZE;
 
@@ -46,9 +67,8 @@ const MIN_WINDOW_HEIGHT: c_int = 680;
 const MAX_WINDOW_WIDTH: c_int = 1520;
 const MAX_WINDOW_HEIGHT: c_int = 980;
 
-//for hex in fornt of each 2 chars add 0x
-pub const PERSISTED_DIFF_MARKER = "EDITORTS_DIFF_V1\n";
-pub const IMAGE_MODAL_ID: [:0]const u8 = "AttachmentPreviewModal";
+pub const PERSISTED_DIFF_MARKER = utils.PERSISTED_DIFF_MARKER;
+pub const IMAGE_MODAL_ID: [:0]const u8 = native_state.IMAGE_MODAL_ID;
 pub const PROJECT_RENAME_MODAL_ID: [:0]const u8 = "ProjectRenameModal";
 var heading_font: ?zgui.Font = null;
 var heading_font_size: f32 = DEFAULT_FONT_SIZE * 1.28;
@@ -68,8 +88,6 @@ const SdlRect = extern struct {
 };
 
 pub const SIDEBAR_VISIBLE_THREAD_LIMIT: usize = 6;
-const CLIPBOARD_IMAGE_MAX_BYTES: usize = 10 * 1024 * 1024;
-const MAX_THREAD_MESSAGES: usize = 24;
 const ACTIVE_WAIT_TIMEOUT_MS: c_int = 16;
 const IDLE_WAIT_TIMEOUT_MS: c_int = 50;
 
@@ -356,33 +374,8 @@ fn reloadApplication(state: *AppState, keyboard: *keybinds.NativeKeyboardConfig)
 }
 
 fn renderRoot(state: *AppState, width: f32, height: f32) void {
-    zgui.setNextWindowPos(.{ .x = 0.0, .y = 0.0 });
-    zgui.setNextWindowSize(.{ .w = width, .h = height });
-
-    const root_flags: zgui.WindowFlags = .{
-        .no_title_bar = true,
-        .no_resize = true,
-        .no_move = true,
-        .no_collapse = true,
-        .no_bring_to_front_on_focus = true,
-    };
-
-    _ = zgui.begin("Native Chat Shell", .{ .flags = root_flags });
-    defer zgui.end();
-
-    const content = zgui.getContentRegionAvail();
-    const gap = clampf(content[0] * 0.012, scaledUi(10.0), scaledUi(18.0));
-    const sidebar_width = clampf(content[0] * 0.235, scaledUi(230.0), @min(scaledUi(360.0), content[0] * 0.38));
-    const workspace_width = @max(content[0] - sidebar_width - gap, scaledUi(320.0));
-    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 0.0, 0.0 } });
-    zgui.pushStyleVar2f(.{ .idx = .item_spacing, .v = .{ 0.0, 0.0 } });
-    defer zgui.popStyleVar(.{ .count = 2 });
-    zgui.setCursorPos(.{ 0.0, 0.0 });
-    sidebar_components.renderSidebar(state, sidebar_width, 0.0);
-    zgui.sameLine(.{ .spacing = gap });
-    renderChatWorkspace(state, workspace_width, content[1]);
-    renderImageModal(state, width, height);
-    renderProjectRenameModal(state, width, height);
+    // Keep a thin local shim so the main loop reads top-down while layout lives in `ui/`.
+    ui_layout.renderRoot(@This(), state, width, height);
 }
 
 fn renderImageModal(state: *AppState, width: f32, height: f32) void {
