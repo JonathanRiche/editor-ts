@@ -8,7 +8,7 @@ const theme = @import("theme.zig");
 pub fn render(comptime Impl: type, state: *Impl.AppState, width: f32, height: f32) void {
     _ = height;
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 0.0 });
-    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ theme.scaledUi(44.0), theme.scaledUi(18.0) } });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ theme.scaledUi(20.0), theme.scaledUi(20.0) } });
     defer zgui.popStyleVar(.{ .count = 2 });
     const overscan = theme.scaledUi(12.0);
     zgui.setCursorPos(.{ 0.0, 0.0 });
@@ -19,6 +19,11 @@ pub fn render(comptime Impl: type, state: *Impl.AppState, width: f32, height: f3
         .window_flags = .{ .no_scrollbar = true },
     });
     defer zgui.endChild();
+
+    // Explicit top-left inset so brand/content doesn't feel cramped
+    const pad_left = theme.scaledUi(24.0);
+    const pad_top = theme.scaledUi(28.0);
+    zgui.setCursorPos(.{ pad_left, pad_top });
 
     {
         const draw_list = zgui.getWindowDrawList();

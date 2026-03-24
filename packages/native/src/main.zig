@@ -2324,7 +2324,7 @@ fn renderProjectRenameModal(state: *AppState, width: f32, height: f32) void {
 fn renderSidebar(state: *AppState, width: f32, height: f32) void {
     _ = height;
     zgui.pushStyleVar1f(.{ .idx = .child_rounding, .v = 0.0 });
-    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ scaledUi(44.0), scaledUi(18.0) } });
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ scaledUi(44.0), scaledUi(32.0) } });
     defer zgui.popStyleVar(.{ .count = 2 });
     const overscan = scaledUi(12.0);
     zgui.setCursorPos(.{ 0.0, 0.0 });
