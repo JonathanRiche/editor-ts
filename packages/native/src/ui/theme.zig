@@ -3,8 +3,8 @@
 const std = @import("std");
 const zgui = @import("zgui");
 
-pub const DEFAULT_FONT_SIZE: f32 = 18.0;
-pub const RESPONSIVE_BASE_FONT_SIZE: f32 = 18.0;
+pub const DEFAULT_FONT_SIZE: f32 = 22.0;
+pub const RESPONSIVE_BASE_FONT_SIZE: f32 = 22.0;
 
 pub const COLOR_GREEN = rgb(0x50, 0xc8, 0x78);
 pub const COLOR_SECONDARY_GREEN = rgb(0x37, 0x58, 0x46);
@@ -13,8 +13,11 @@ pub const COLOR_NAV_CHAT_BG = rgba(0x20, 0x27, 0x2A, 255);
 pub const COLOR_BLACK = COLOR_NAV_CHAT_BG;
 pub const COLOR_WHITE = rgba(240, 240, 245, 255);
 pub const COLOR_PANEL = COLOR_NAV_CHAT_BG;
+//0D1213
 pub const COLOR_PANEL_ALT = rgba(40, 41, 46, 255);
+
 pub const COLOR_PANEL_MUTED = rgba(56, 57, 62, 255);
+
 pub const COLOR_TEXT_MUTED = rgba(185, 187, 195, 255);
 pub const COLOR_TEXT_SUBTLE = rgba(120, 122, 135, 255);
 pub const COLOR_DIFF_ADD = rgba(52, 224, 148, 255);
