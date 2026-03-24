@@ -875,7 +875,7 @@ fn captureClipboardImageWayland(allocator: std.mem.Allocator) !?ClipboardImageCa
     };
 }
 
-fn captureClipboardImageX11(allocator: std.mem.Allocator) !?ClipboardImageCapture {
+pub fn captureClipboardImageX11(allocator: std.mem.Allocator) !?ClipboardImageCapture {
     const targets_result = std.process.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "xclip", "-selection", "clipboard", "-t", "TARGETS", "-o" },
@@ -927,7 +927,7 @@ fn captureClipboardImageX11(allocator: std.mem.Allocator) !?ClipboardImageCaptur
     };
 }
 
-fn selectClipboardImageMime(types_output: []const u8) ?[]const u8 {
+pub fn selectClipboardImageMime(types_output: []const u8) ?[]const u8 {
     const candidates = [_][]const u8{
         "image/png",
         "image/jpeg",
