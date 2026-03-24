@@ -1750,62 +1750,12 @@ fn comboRowLabel(buffer: []u8, label: []const u8, selected: bool) [:0]const u8 {
     return std.fmt.bufPrintZ(buffer, "{s} {s}", .{ if (selected) ">" else " ", label }) catch " row";
 }
 
-pub fn providerLabel(provider: Provider) [:0]const u8 {
-    return chat_threads.providerLabel(provider);
-}
-
 fn lastMessagePreview(project: *const Project) []const u8 {
     const thread = project.currentThread();
     const message = thread.messages.items[thread.messages.items.len - 1];
     const body = message.body;
     if (body.len <= 44) return body;
     return body[0..44];
-}
-
-const PickDirectoryError = std.process.Child.RunError || std.mem.Allocator.Error || error{
-    UnsupportedOperatingSystem,
-    FolderPickerUnavailable,
-    UserCancelled,
-    ChildProcessFailed,
-};
-
-fn handleSendApprovalRequest(context: ?*anyopaque, request: ai_harness.ApprovalRequest) ai_harness.ApprovalDecision {
-    const send_state: *SendState = @ptrCast(@alignCast(context orelse return .deny));
-    const page_alloc = std.heap.page_allocator;
-
-    const owned_call_id = page_alloc.dupe(u8, request.call_id) catch return .deny;
-    errdefer page_alloc.free(owned_call_id);
-    const owned_title = page_alloc.dupe(u8, request.title) catch return .deny;
-    errdefer page_alloc.free(owned_title);
-    const owned_body = page_alloc.dupe(u8, request.body) catch return .deny;
-    errdefer page_alloc.free(owned_body);
-
-    send_state.mutex.lock();
-    defer send_state.mutex.unlock();
-    if (send_state.status != .pending) {
-        page_alloc.free(owned_call_id);
-        page_alloc.free(owned_title);
-        page_alloc.free(owned_body);
-        return .deny;
-    }
-
-    flushPendingAssistantTextLocked(send_state, page_alloc);
-    freePendingApprovalLocked(page_alloc, &send_state.pending_approval);
-    send_state.pending_approval = .{
-        .call_id = owned_call_id,
-        .title = owned_title,
-        .body = owned_body,
-    };
-    send_state.approval_decision = null;
-
-    while (send_state.status == .pending and send_state.approval_decision == null) {
-        send_state.condition.wait(&send_state.mutex);
-    }
-
-    const decision = send_state.approval_decision orelse .deny;
-    send_state.approval_decision = null;
-    freePendingApprovalLocked(page_alloc, &send_state.pending_approval);
-    return decision;
 }
 
 fn freePendingTimelineEvents(allocator: std.mem.Allocator, events: *std.ArrayListUnmanaged(PendingTimelineEvent)) void {
@@ -1832,35 +1782,6 @@ fn freePendingDiffFiles(allocator: std.mem.Allocator, files: *std.ArrayListUnman
 
 fn freePendingDiffFilesLocked(allocator: std.mem.Allocator, files: *std.ArrayListUnmanaged(PendingDiffFile)) void {
     freePendingDiffFiles(allocator, files);
-}
-
-fn upsertPendingDiffFileLocked(
-    allocator: std.mem.Allocator,
-    target: *std.ArrayListUnmanaged(PendingDiffFile),
-    file: ai_harness.StreamDiffFile,
-) !void {
-    for (target.items) |*existing| {
-        if (!std.mem.eql(u8, existing.path, file.path)) continue;
-
-        existing.additions = file.additions;
-        existing.deletions = file.deletions;
-        if (existing.patch) |patch| {
-            allocator.free(patch);
-            existing.patch = null;
-        }
-        if (file.patch) |patch| {
-            existing.patch = try allocator.dupe(u8, patch);
-        }
-        return;
-    }
-
-    try target.append(allocator, .{
-        .path = try allocator.dupe(u8, file.path),
-        .additions = file.additions,
-        .deletions = file.deletions,
-        .patch = if (file.patch) |patch| try allocator.dupe(u8, patch) else null,
-        .expanded = false,
-    });
 }
 
 fn appendPendingDiffSummaryEvent(
@@ -1902,19 +1823,6 @@ fn appendPendingDiffSummaryEvent(
         allocator.free(owned_title);
         allocator.free(owned_body);
     };
-}
-
-fn freePendingApproval(allocator: std.mem.Allocator, approval: *?PendingApproval) void {
-    if (approval.*) |pending| {
-        allocator.free(pending.call_id);
-        allocator.free(pending.title);
-        allocator.free(pending.body);
-        approval.* = null;
-    }
-}
-
-fn freePendingApprovalLocked(allocator: std.mem.Allocator, approval: *?PendingApproval) void {
-    freePendingApproval(allocator, approval);
 }
 
 const ClipboardImageCapture = struct {
